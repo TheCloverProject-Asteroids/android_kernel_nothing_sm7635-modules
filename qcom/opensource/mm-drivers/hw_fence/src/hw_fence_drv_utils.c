@@ -973,7 +973,7 @@ static int hw_fence_rm_cb(struct notifier_block *nb, unsigned long cmd, void *da
 		} else {
 			if (drv_data->res.start == res.start &&
 					resource_size(&drv_data->res) == resource_size(&res)) {
-				drv_data->vm_ready = true;
+				drv_data->fctl_ready = true;
 				HWFNC_DBG_INIT("mem_ready: add:0x%llx size:%llu ret:%d\n",
 					res.start, resource_size(&res), ret);
 			} else {
@@ -1175,10 +1175,6 @@ int hw_fence_utils_alloc_mem(struct hw_fence_driver_data *drv_data)
 		return -ENOMEM;
 	}
 
-	HWFNC_DBG_INIT("io_mem_base:0x%pK start:0x%llx end:0x%llx size:0x%lx name:%s\n",
-		drv_data->io_mem_base, drv_data->res.start,
-		drv_data->res.end, drv_data->size, drv_data->res.name);
-
 	memset_io(drv_data->io_mem_base, 0x0, drv_data->size);
 
 	HWFNC_DBG_INIT("va:0x%pK start:0x%llx sz:0x%lx name:%s cookie:0x%pK has_soccp:%s\n",
@@ -1355,15 +1351,16 @@ static int _parse_client_queue_dt_props_extra(struct hw_fence_driver_data *drv_d
 		goto exit;
 	}
 
-	if (desc->start_padding >= U32_MAX - HW_FENCE_HFI_CLIENT_HEADERS_SIZE(desc->queues_num)) {
+	if (desc->start_padding >= U32_MAX - HW_FENCE_HFI_CLIENT_HEADERS_SIZE(desc->queues_num,
+			drv_data->has_soccp)) {
 		HWFNC_ERR("%s client queues_num:%u start_padding:%u will overflow mem_size\n",
 			desc->name, desc->queues_num, desc->start_padding);
 		ret = -EINVAL;
 		goto exit;
 	}
 
-	if (desc->end_padding >= U32_MAX - HW_FENCE_HFI_CLIENT_HEADERS_SIZE(desc->queues_num) -
-			desc->start_padding) {
+	if (desc->end_padding >= U32_MAX - HW_FENCE_HFI_CLIENT_HEADERS_SIZE(desc->queues_num,
+			drv_data->has_soccp) - desc->start_padding) {
 		HWFNC_ERR("%s client q_num:%u start_p:%u end_p:%u will overflow mem_size\n",
 			desc->name, desc->queues_num, desc->start_padding, desc->end_padding);
 		ret = -EINVAL;
@@ -1380,7 +1377,7 @@ static int _parse_client_queue_dt_props_extra(struct hw_fence_driver_data *drv_d
 		goto exit;
 	}
 
-	HWFNC_DBG_INIT("%s: start_p=%u end_p=%u txq_idx_start:%u txq_idx_by_payload:%s\n",
+	HWFNC_DBG_INIT("%s: start_p=%u end_p=%u txq_idx_start:%u idx_by_payload:%s skip_ref:%s\n",
 		desc->name, desc->start_padding, desc->end_padding, desc->txq_idx_start,
 		idx_by_payload ? "true" : "false", desc->skip_fctl_ref ? "true" : "false");
 

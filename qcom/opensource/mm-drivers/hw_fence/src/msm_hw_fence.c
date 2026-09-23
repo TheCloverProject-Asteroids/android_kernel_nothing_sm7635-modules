@@ -138,11 +138,8 @@ void *msm_hw_fence_register(enum hw_fence_client_id client_id_ext,
 		hw_fence_ipcc_txq_update_needs_ipc_irq(hw_fence_drv_data, client_id);
 
 	hw_fence_client->queues_num = hw_fence_utils_get_queues_num(hw_fence_drv_data, client_id);
-	if (!hw_fence_client->queues_num || (hw_fence_client->update_rxq &&
-			hw_fence_client->queues_num < HW_FENCE_CLIENT_QUEUES)) {
-		HWFNC_ERR("client:%d invalid q_num:%d for updates_rxq:%s\n", client_id,
-			hw_fence_client->queues_num,
-			hw_fence_client->update_rxq ? "true" : "false");
+	if (!hw_fence_client->queues_num) {
+		HWFNC_ERR("client:%d invalid q_num:%d\n", client_id, hw_fence_client->queues_num);
 		ret = -EINVAL;
 		goto error;
 	}
@@ -351,6 +348,12 @@ int msm_hw_fence_destroy(void *client_handle,
 	/* This Fence not a HW-Fence */
 	if (!test_bit(MSM_HW_FENCE_FLAG_ENABLED_BIT, &fence->flags)) {
 		HWFNC_ERR("DMA Fence is not a HW Fence flags:0x%lx\n", fence->flags);
+		return -EINVAL;
+	}
+
+	if (dma_fence_is_hw_dma(fence)) {
+		HWFNC_ERR("deprecated api cannot destroy hw_dma_fence ctx:%llu seq:%llu\n",
+			fence->context, fence->seqno);
 		return -EINVAL;
 	}
 
@@ -565,14 +568,13 @@ int msm_hw_fence_update_txq(void *client_handle, u64 handle, u64 flags, u32 erro
 	struct msm_hw_fence_client *hw_fence_client;
 	int ret;
 
-	if (IS_ERR_OR_NULL(hw_fence_drv_data) || !hw_fence_drv_data->resources_ready ||
-			!hw_fence_drv_data->vm_ready) {
-		HWFNC_ERR("hw fence driver  or vm not ready\n");
-		return -EAGAIN;
-	} else if (IS_ERR_OR_NULL(client_handle) ||
-			(handle >= hw_fence_drv_data->hw_fences_tbl_cnt)) {
-		HWFNC_ERR("Invalid handle:%llu or client handle:%d max:%d\n", handle,
-			IS_ERR_OR_NULL(client_handle), hw_fence_drv_data->hw_fences_tbl_cnt);
+	ret = hw_fence_check_valid_client(hw_fence_drv_data, client_handle);
+	if (ret)
+		return ret;
+
+	if (handle >= hw_fence_drv_data->hw_fences_tbl_cnt) {
+		HWFNC_ERR("Invalid handle:%llu max:%d\n", handle,
+			hw_fence_drv_data->hw_fences_tbl_cnt);
 		return -EINVAL;
 	}
 	hw_fence_client = (struct msm_hw_fence_client *)client_handle;
@@ -593,16 +595,17 @@ int msm_hw_fence_update_txq_error(void *client_handle, u64 handle, u32 error, u3
 	struct msm_hw_fence_client *hw_fence_client;
 	int ret;
 
-	if (IS_ERR_OR_NULL(hw_fence_drv_data) || !hw_fence_drv_data->resources_ready ||
-			!hw_fence_drv_data->vm_ready) {
-		HWFNC_ERR("hw fence driver or vm not ready\n");
-		return -EAGAIN;
-	} else if (IS_ERR_OR_NULL(client_handle) ||
-			(handle >= hw_fence_drv_data->hw_fences_tbl_cnt) || !error) {
-		HWFNC_ERR("Invalid client_handle:0x%pK or fence handle:%llu max:%d or error:%d\n",
-			client_handle, handle, hw_fence_drv_data->hw_fences_tbl_cnt, error);
+	ret = hw_fence_check_valid_client(hw_fence_drv_data, client_handle);
+	if (ret)
+		return ret;
+
+	if ((handle >= hw_fence_drv_data->hw_fences_tbl_cnt) || !error) {
+		HWFNC_ERR("Invalid fence handle:%llu max:%d or error:%d\n",
+			handle, hw_fence_drv_data->hw_fences_tbl_cnt, error);
 		return -EINVAL;
-	} else if (update_flags != MSM_HW_FENCE_UPDATE_ERROR_WITH_MOVE) {
+	}
+
+	if (update_flags != MSM_HW_FENCE_UPDATE_ERROR_WITH_MOVE) {
 		HWFNC_ERR("invalid flags:0x%x expected:0x%lx no support of in-place error update\n",
 			update_flags, MSM_HW_FENCE_UPDATE_ERROR_WITH_MOVE);
 		return -EINVAL;
@@ -744,13 +747,11 @@ int msm_hw_fence_dump_fence(void *client_handle, struct dma_fence *fence)
 	u64 hash;
 	int ret;
 
-	if (IS_ERR_OR_NULL(hw_fence_drv_data) || !hw_fence_drv_data->resources_ready) {
-		HWFNC_ERR("hw fence driver not ready\n");
-		return -EAGAIN;
-	} else if (IS_ERR_OR_NULL(client_handle)) {
-		HWFNC_ERR("Invalid client handle:%d\n", IS_ERR_OR_NULL(client_handle));
-		return -EINVAL;
-	} else if (!test_bit(MSM_HW_FENCE_FLAG_ENABLED_BIT, &fence->flags)) {
+	ret = hw_fence_check_valid_client(hw_fence_drv_data, client_handle);
+	if (ret)
+		return ret;
+
+	if (!test_bit(MSM_HW_FENCE_FLAG_ENABLED_BIT, &fence->flags)) {
 		HWFNC_ERR("DMA Fence is not a HW Fence ctx:%llu seqno:%llu flags:0x%lx\n",
 			fence->context, fence->seqno, fence->flags);
 		return -EINVAL;

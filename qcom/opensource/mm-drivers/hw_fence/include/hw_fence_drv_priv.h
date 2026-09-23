@@ -12,6 +12,9 @@
 #include <linux/dma-mapping.h>
 #include <linux/dma-fence-array.h>
 #include <linux/slab.h>
+#include <linux/bitmap.h>
+#include <linux/hashtable.h>
+#include <linux/remoteproc.h>
 #include "msm_hw_fence.h"
 
 /* max u64 to indicate invalid fence */
