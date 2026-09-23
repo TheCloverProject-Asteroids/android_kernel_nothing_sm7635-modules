@@ -8,7 +8,6 @@
 #define __SDE_VM_H__
 
 #include "msm_drv.h"
-#include <drm/drm_crtc.h>
 
 #define TRUSTED_VM_MAX_ENCODER_PER_CRTC	1
 

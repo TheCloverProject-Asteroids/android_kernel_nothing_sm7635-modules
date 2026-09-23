@@ -419,72 +419,35 @@ QDF_STATUS hdd_cm_save_connected_links_info(struct qdf_mac_addr *self_mac,
 					    int32_t link_id);
 
 /**
- * hdd_cm_set_ieee_link_id() - Set IEEE link ID in station context
+ * hdd_cm_set_ieee_link_id() - Set IEEE link ID in station context conn info.
  * @link_info: Link info pointer in HDD adapter
  * @link_id: IEEE link ID
- * @is_cache: Is to set link_id in cache_conn_info
  *
- * Sets IEEE link ID in @link_info's station context.
+ * Sets IEEE link ID in connection info of @link_info's station context.
  *
  * Return: void
  */
 void
-hdd_cm_set_ieee_link_id(struct wlan_hdd_link_info *link_info, uint8_t link_id,
-			bool is_cache);
+hdd_cm_set_ieee_link_id(struct wlan_hdd_link_info *link_info, uint8_t link_id);
 
 /**
  * hdd_cm_clear_ieee_link_id() - Clear IEEE link ID in station context
+ * conn info.
  * @link_info: Link info pointer in HDD adapter
- * @is_cache: Is to clear link_id in cache_conn_info
  *
- * Clear IEEE link ID in @link_info's station context.
+ * Clear IEEE link ID in connection info of @link_info's station context.
  *
  * Return: void
  */
-void
-hdd_cm_clear_ieee_link_id(struct wlan_hdd_link_info *link_info, bool is_cache);
-
-/**
- * hdd_cm_get_ieee_link_id() - Get IEEE link ID from station context
- * @link_info: Link info pointer in HDD adapter
- * @is_cache: Is to get link_id from cache_conn_info
- *
- * Get IEEE link ID in @link_info's station context.
- *
- * Return: ieee_link_id
- */
-int32_t
-hdd_cm_get_ieee_link_id(struct wlan_hdd_link_info *link_info, bool is_cache);
-
-/**
- * hdd_cm_save_conn_info_mld_addr() - Save AP MLD addr for MLO connection in
- *				      struct hdd_station_ctx
- * @link_info: Link info pointer in HDD adapter
- * @rsp: pointer to struct wlan_cm_connect_resp
- *
- * Return: none
- */
-void hdd_cm_save_conn_info_mld_addr(struct wlan_hdd_link_info *link_info,
-				    struct wlan_cm_connect_resp *rsp);
-
-/**
- * hdd_cm_clear_conn_info_mld_addr() - Clean AP MLD addr for MLO connection
- *				       in struct hdd_station_ctx
- * @sta_ctx: pointer to struct hdd_station_ctx
- *
- * Return: none
- */
-void hdd_cm_clear_conn_info_mld_addr(struct hdd_station_ctx *sta_ctx);
-
+void hdd_cm_clear_ieee_link_id(struct wlan_hdd_link_info *link_info);
 #else
 static inline void
-hdd_cm_set_ieee_link_id(struct wlan_hdd_link_info *link_info, uint8_t link_id,
-			bool is_cache)
+hdd_cm_set_ieee_link_id(struct wlan_hdd_link_info *link_info, uint8_t link_id)
 {
 }
 
 static inline void
-hdd_cm_clear_ieee_link_id(struct wlan_hdd_link_info *link_info, bool is_cache)
+hdd_cm_clear_ieee_link_id(struct wlan_hdd_link_info *link_info)
 {
 }
 
@@ -494,23 +457,6 @@ QDF_STATUS hdd_cm_save_connected_links_info(struct qdf_mac_addr *self_mac,
 					    int32_t link_id)
 {
 	return QDF_STATUS_SUCCESS;
-}
-
-static inline int32_t
-hdd_cm_get_ieee_link_id(struct wlan_hdd_link_info *link_info, bool is_cache)
-{
-	return WLAN_INVALID_LINK_ID;
-}
-
-static inline void
-hdd_cm_save_conn_info_mld_addr(struct wlan_hdd_link_info *link_info,
-			       struct wlan_cm_connect_resp *rsp)
-{
-}
-
-static inline void
-hdd_cm_clear_conn_info_mld_addr(struct hdd_station_ctx *sta_ctx)
-{
 }
 #endif /* WLAN_FEATURE_11BE_MLO */
 #endif /* __WLAN_HDD_CM_API_H */

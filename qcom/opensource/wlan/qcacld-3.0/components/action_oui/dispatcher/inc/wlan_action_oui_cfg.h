@@ -567,7 +567,7 @@
 	"gActionOUIDisableTWT", \
 	0, \
 	ACTION_OUI_MAX_STR_LEN, \
-	"001018 00 01 000986 00 01 000ce7 00 01 00e0fc 00 01 000b86 04 01040817 F0 01 000b86 04 0104080F F0 01 000b86 04 01040819 F0 01", \
+	"001018 00 01 000986 00 01 000ce7 00 01 00e0fc 00 01", \
 	"Used to specify action OUIs to control TWT configuration")
 
 /*
@@ -707,11 +707,10 @@
  * capability for specified AP with some conditions
  *
  * Example OUIs: (All values in Hex)
- * gActionOUIDisableBFORMEE=00E04C 03 020160 E0 01
- *       OUI: 00E04C
- *       OUI data Len: 03
- *       OUI Data : 020160
- *       OUI data Mask: E0 - 11100000
+ * OUI 1: 000c43
+ *       OUI data Len: 04
+ *       OUI Data : 03000000
+ *       OUI data Mask: F0 - 11110000
  *       Info Mask : 01 - only OUI present in Info mask
  *
  * Refer to gEnableActionOUI for more detail about the format.

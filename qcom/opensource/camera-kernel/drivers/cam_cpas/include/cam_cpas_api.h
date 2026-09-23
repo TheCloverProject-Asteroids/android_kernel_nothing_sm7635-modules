@@ -28,26 +28,9 @@
 #define CAM_CPAS_VOTE_LEVEL_NONE 0
 #define CAM_CPAS_VOTE_LEVEL_MAX 3
 
-/* QoS Selection mask */
+/* Qos Selection mask */
 #define CAM_CPAS_QOS_DEFAULT_SETTINGS_MASK 0x1
 #define CAM_CPAS_QOS_CUSTOM_SETTINGS_MASK  0x2
-
-#define CAM_CPAS_SHDR_SYS_CACHE_SHDR_MAX_ID(type) (type + 1)
-
-/* Reg base type for Smart QoS update */
-#define CAM_CAMNOC_HW_RT_MASK       0x1
-#define CAM_CAMNOC_HW_NRT_MASK      0x2
-#define CAM_CAMNOC_HW_COMBINED_MASK 0x4
-#define CAM_CAMNOC_HW_TYPE_SHIFT    28
-
-/**
- *  Secure camera QoS update id - Enum for identify QOS settings update type
- */
-enum secure_camera_qos_update_type {
-	CAM_QOS_UPDATE_TYPE_STATIC = 0x0,
-	CAM_QOS_UPDATE_TYPE_SMART  = 0x1,
-	CAM_QOS_UPDATE_TYPE_MAX,
-};
 
 /**
  *  Secure camera QoS update id - Enum for identify QOS settings update type
@@ -111,8 +94,6 @@ enum cam_cpas_camera_version {
 	CAM_CPAS_CAMERA_VERSION_780  = 0x00070800,
 	CAM_CPAS_CAMERA_VERSION_640  = 0x00060400,
 	CAM_CPAS_CAMERA_VERSION_880  = 0x00080800,
-	CAM_CPAS_CAMERA_VERSION_975  = 0x00090705,
-	CAM_CPAS_CAMERA_VERSION_970  = 0x00090700,
 	CAM_CPAS_CAMERA_VERSION_980  = 0x00090800,
 	CAM_CPAS_CAMERA_VERSION_860  = 0x00080600,
 	CAM_CPAS_CAMERA_VERSION_770  = 0x00070700,
@@ -279,9 +260,6 @@ enum cam_camnoc_slave_error_codes {
  * @CAM_CAMNOC_IRQ_TFE_UBWC_ENCODE_ERROR    : Triggered if any error detected
  *                                            in the TFE UBWC encoder
  *                                            instance
- * @CAM_CAMNOC_IRQ_TFE_UBWC_1_ENCODE_ERROR  : Triggered if any error detected
- *                                            in the TFE UBWC encoder
- *                                            instance
  * @CAM_CAMNOC_IRQ_AHB_TIMEOUT              : Triggered when the QHS_ICP slave
  *                                            times out after 4000 AHB cycles
  */
@@ -304,8 +282,39 @@ enum cam_camnoc_irq_type {
 	CAM_CAMNOC_IRQ_OFE_WR_UBWC_ENCODE_ERROR,
 	CAM_CAMNOC_IRQ_OFE_RD_UBWC_DECODE_ERROR,
 	CAM_CAMNOC_IRQ_TFE_UBWC_ENCODE_ERROR,
-	CAM_CAMNOC_IRQ_TFE_UBWC_1_ENCODE_ERROR,
 	CAM_CAMNOC_IRQ_AHB_TIMEOUT,
+};
+
+
+/**
+ * enum cam_sys_cache_config_types - Enum for camera llc's
+ */
+enum cam_sys_cache_config_types {
+	CAM_LLCC_SMALL_1 = 0,
+	CAM_LLCC_SMALL_2 = 1,
+	CAM_LLCC_LARGE_1 = 2,
+	CAM_LLCC_LARGE_2 = 3,
+	CAM_LLCC_LARGE_3 = 4,
+	CAM_LLCC_LARGE_4 = 5,
+	CAM_LLCC_MAX     = 6,
+};
+
+/**
+ * enum cam_sys_cache_llcc_staling_mode - Enum for camera llc's stalling mode
+ */
+enum cam_sys_cache_llcc_staling_mode {
+	CAM_LLCC_STALING_MODE_CAPACITY,
+	CAM_LLCC_STALING_MODE_NOTIFY,
+	CAM_LLCC_STALING_MODE_MAX,
+};
+
+/**
+ * enum cam_sys_cache_llcc_staling_mode - Enum for camera llc's stalling mode
+ */
+enum cam_sys_cache_llcc_staling_op_type {
+	CAM_LLCC_NOTIFY_STALING_EVICT,
+	CAM_LLCC_NOTIFY_STALING_FORGET,
+	CAM_LLCC_NOTIFY_STALING_OPS_MAX
 };
 
 /**
@@ -596,82 +605,6 @@ struct cam_axi_vote {
 };
 
 /**
- * struct cam_cpas_addr_trans_data : Register value to be programmed for address translator
- *
- * @enable: Indicate whether to enable address translator
- * @val_offset0: Address delta for 0 to base1
- * @val_base1: Address from 0 to base1 is shifted by offset0
- * @val_offset1: Address delta for base1 to base2
- * @val_base2: Address from base1 to base2 is shifted by offset1
- * @val_offset2: Address delta for base2 to base3
- * @val_base3: Address from base2 to base3 is shifted by offset2
- * @val_offset3: Address delta for the rest memory region
- *
- */
-struct cam_cpas_addr_trans_data {
-	bool                         enable;
-	uint32_t                     val_offset0;
-	uint32_t                     val_base1;
-	uint32_t                     val_offset1;
-	uint32_t                     val_base2;
-	uint32_t                     val_offset2;
-	uint32_t                     val_base3;
-	uint32_t                     val_offset3;
-};
-
-/**
- * enum cam_device_type - Enum for camera HW device types
- */
-enum cam_device_type {
-	CAM_CPAS_HW_TYPE_IFE,
-	CAM_CPAS_HW_TYPE_TFE,
-	CAM_CPAS_HW_TYPE_IFE_LITE,
-	CAM_CPAS_HW_TYPE_IPE,
-	CAM_CPAS_HW_TYPE_BPS,
-	CAM_CPAS_HW_TYPE_OFE,
-	CAM_CPAS_HW_TYPE_MAX
-};
-
-#define CAM_CPAS_IS_VALID_CAM_DEV_TYPE(type)                          \
-({                                                                  \
-	((type) >= CAM_CPAS_HW_TYPE_IFE) && ((type) < CAM_CPAS_HW_TYPE_MAX); \
-})
-#define CAM_MAX_OUTPUT_PORTS_PER_DEVICE 65
-
-enum cam_ipe_out_port_type {
-	CAM_CPAS_IPE_OUTPUT_IMAGE_DISPLAY,
-	CAM_CPAS_IPE_OUTPUT_IMAGE_VIDEO,
-	CAM_CPAS_IPE_OUTPUT_IMAGE_FULL_REF,
-	CAM_CPAS_IPE_OUTPUT_IMAGE_DS4_REF,
-	CAM_CPAS_IPE_OUTPUT_IMAGE_DS16_REF,
-	CAM_CPAS_IPE_OUTPUT_IMAGE_DS64_REF,
-	CAM_CPAS_IPE_OUTPUT_IMAGE_FD,
-	CAM_CPAS_IPE_OUTPUT_IMAGE_STATS_IHIST,
-	CAM_CPAS_IPE_OUTPUT_MAX
-};
-
-/**
- * struct cam_cpas_cp_mapping_config_info : CP CTRL config info
- *
- * @device_type: HW device type (IFE, IPE, OFE etc.)
- * @hw_instance_id_mask: Mask of the Indices of the devices to configure
- * @protect: Whether to configure the ports as secure or non secure
- * @phy_id: Index of the PHY that is used for this stream
- *          Applicable for only real time devices
- * @num_ports: Number of ports to be configured
- * @port_ids: IDs of the ports to be configured
- *
- */
-struct cam_cpas_cp_mapping_config_info {
-	enum cam_device_type device_type;
-	uint32_t             hw_instance_id_mask;
-	bool                 protect;
-	uint32_t             phy_id;
-	uint32_t             num_ports;
-	uint32_t             port_ids[CAM_MAX_OUTPUT_PORTS_PER_DEVICE];
-};
-
-/**
  * cam_cpas_prepare_subpart_info()
  *
  * @brief: API to update the number of ifes, ife_lites, sfes and custom
@@ -787,20 +720,6 @@ int cam_cpas_update_axi_vote(
 	struct cam_axi_vote *axi_vote);
 
 /**
- * cam_cpas_update_axi_floor_lvl()
- *
- * @brief: API to update AXI vote requirement from all clients.
- *
- *
- * @client_handle : Client cpas handle
- * @axi_floor_lvl : Core clock level
- *
- * @return 0 on success.
- *
- */
-int cam_cpas_update_axi_floor_lvl(uint32_t client_handle, int32_t axi_floor_lvl);
-
-/**
  * cam_cpas_reg_write()
  *
  * @brief: API to write a register value in CPAS register space
@@ -820,21 +739,6 @@ int cam_cpas_reg_write(
 	uint32_t                  offset,
 	bool                      mb,
 	uint32_t                  value);
-
-/**
- * cam_cpas_set_addr_trans()
- *
- * @brief: API to program ICP address translator registers
- *
- * @client_handle   : Client cpas handle
- * @addr_trans_data : Register values to be programmed for address translator
- *
- * @return 0 on success.
- *
- */
-int cam_cpas_set_addr_trans(
-	uint32_t                         client_handle,
-	struct cam_cpas_addr_trans_data *addr_trans_data);
 
 /**
  * cam_cpas_reg_read()
@@ -1016,7 +920,7 @@ int cam_cpas_notify_event(const char *identifier_string,
  * @return slice id, -1 for invalid id.
  *
  */
-int cam_cpas_get_scid(uint32_t type);
+int cam_cpas_get_scid(enum cam_sys_cache_config_types  type);
 
 /**
  * cam_cpas_activate_llcc()
@@ -1028,7 +932,7 @@ int cam_cpas_get_scid(uint32_t type);
  * @return 0 for success.
  *
  */
-int cam_cpas_activate_llcc(uint32_t type);
+int cam_cpas_activate_llcc(enum cam_sys_cache_config_types type);
 
 /**
  * cam_cpas_deactivate_llcc()
@@ -1040,7 +944,7 @@ int cam_cpas_activate_llcc(uint32_t type);
  * @return 0 for success.
  *
  */
-int cam_cpas_deactivate_llcc(uint32_t type);
+int cam_cpas_deactivate_llcc(enum cam_sys_cache_config_types type);
 
 /**
  * cam_cpas_configure_staling_llcc()
@@ -1048,22 +952,18 @@ int cam_cpas_deactivate_llcc(uint32_t type);
  * @brief:  Configure cache staling mode by setting the
  *          staling_mode and corresponding params
  *
- @type:    Cache type, For example cache types are
- *         CAM_LLCC_SMALL_1/CAM_LLCC_SMALL_2/CAM_LLCC_LARGE_1/ ....
- *         CAM_LLCC_IPE_SRT_IP/CAM_LLCC_IPE_RT_RF
- * @mode_param:  camera llcc's stalling mode params, possible allowed values
- *               CAM_LLCC_STALING_MODE_CAPACITY/CAM_LLCC_STALING_MODE_NOTIFY
- * @operation_type:    cache operation type, possible allowed values are
- *                     CAM_LLCC_NOTIFY_STALING_EVICT/CAM_LLCC_NOTIFY_STALING_FORGET
+ * @type: Cache type
+ * @mode_param: llcc stalling mode params
+ * @operation_type: cache operation type
  * @stalling_distance: llcc sys cache stalling distance
  *
  * @return 0 for success.
  *
  */
 int cam_cpas_configure_staling_llcc(
-	uint32_t type,
-	uint32_t mode_param,
-	uint32_t operation_type,
+	enum cam_sys_cache_config_types type,
+	enum cam_sys_cache_llcc_staling_mode mode_param,
+	enum cam_sys_cache_llcc_staling_op_type operation_type,
 	uint32_t staling_distance);
 
 /**
@@ -1073,15 +973,13 @@ int cam_cpas_configure_staling_llcc(
  *         depends on what operation it does.
  *         The operation mode what we have setup in other function.
  *
- @type: Cache type, For example cache types are
- *        CAM_LLCC_SMALL_1/CAM_LLCC_SMALL_2/CAM_LLCC_LARGE_1/ ....
- *        CAM_LLCC_IPE_SRT_IP/CAM_LLCC_IPE_RT_RF
+ * @type: Cache type
  *
  * @return 0 for success.
  *
  */
 int cam_cpas_notif_increment_staling_counter(
-	uint32_t type);
+	enum cam_sys_cache_config_types type);
 
 /**
  * cam_cpas_dump_camnoc_buff_fill_info()
@@ -1169,22 +1067,5 @@ bool cam_cpas_is_notif_staling_supported(void);
  * @return 0 on success
  */
 int cam_cpas_dump_state_monitor_info(struct cam_req_mgr_dump_info *info);
-
-/**
- * cam_cpas_is_fw_based_sys_caching_supported()
- *
- * @brief: API to return true if feature is supported
- * @return true or false
- */
-bool cam_cpas_is_fw_based_sys_caching_supported(void);
-
-/**
- * cam_cpas_config_cp_mapping_ctrl()
- *
- * @config: CP Mapping CTRL config info
- * @return 0 on success
- */
-int cam_cpas_config_cp_mapping_ctrl(
-	struct cam_cpas_cp_mapping_config_info *config);
 
 #endif /* _CAM_CPAS_API_H_ */

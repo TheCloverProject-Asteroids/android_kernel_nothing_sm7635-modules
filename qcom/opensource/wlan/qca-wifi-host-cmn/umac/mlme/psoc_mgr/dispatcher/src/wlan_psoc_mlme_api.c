@@ -27,7 +27,6 @@
 #include "cfg_ucfg_api.h"
 #include "wlan_vdev_mgr_tgt_if_rx_api.h"
 #include <qdf_platform.h>
-#include "wlan_utility.h"
 
 QDF_STATUS
 wlan_psoc_mlme_get_11be_capab(struct wlan_objmgr_psoc *psoc, bool *val)
@@ -185,49 +184,19 @@ static void mlme_init_cfg(struct wlan_objmgr_psoc *psoc)
 		cfg_default(CFG_MLME_11BE_TARGET_CAPAB);
 	mlme_psoc_obj->psoc_cfg.mlo_config.reconfig_reassoc_en =
 		cfg_get(psoc, CFG_MLME_MLO_RECONFIG_REASSOC_ENABLE);
-
-	wlan_minidump_log(mlme_psoc_obj, sizeof(*mlme_psoc_obj), psoc,
-			  WLAN_MD_OBJMGR_PSOC_MLME, "psoc_mlme");
-}
-
-static void mlme_vdev_rsp_timer_mutex_create(struct wlan_objmgr_psoc *psoc)
-{
-	struct psoc_mlme_obj *mlme_psoc_obj;
-
-	mlme_psoc_obj = wlan_psoc_mlme_get_cmpt_obj(psoc);
-
-	if (!mlme_psoc_obj)
-		return;
-
-	qdf_mutex_create(&mlme_psoc_obj->vdev_rsp_timer_mutex);
-}
-
-static void mlme_vdev_rsp_timer_mutex_destroy(struct wlan_objmgr_psoc *psoc)
-{
-	struct psoc_mlme_obj *mlme_psoc_obj;
-
-	mlme_psoc_obj = wlan_psoc_mlme_get_cmpt_obj(psoc);
-
-	if (!mlme_psoc_obj)
-		return;
-
-	qdf_mutex_destroy(&mlme_psoc_obj->vdev_rsp_timer_mutex);
 }
 
 QDF_STATUS mlme_psoc_open(struct wlan_objmgr_psoc *psoc)
 {
 	mlme_init_cfg(psoc);
-	mlme_vdev_rsp_timer_mutex_create(psoc);
 
 	return QDF_STATUS_SUCCESS;
 }
 
 QDF_STATUS mlme_psoc_close(struct wlan_objmgr_psoc *psoc)
 {
-	mlme_vdev_rsp_timer_mutex_destroy(psoc);
 	if (qdf_is_recovering())
 		tgt_vdev_mgr_reset_response_timer_info(psoc);
-
 	return QDF_STATUS_SUCCESS;
 }
 

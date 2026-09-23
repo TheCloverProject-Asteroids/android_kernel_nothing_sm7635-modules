@@ -187,10 +187,6 @@ struct wlan_objmgr_psoc *wlan_objmgr_psoc_obj_create(uint32_t phy_version,
 	}
 	wlan_minidump_log(psoc, sizeof(*psoc), psoc,
 			  WLAN_MD_OBJMGR_PSOC, "wlan_objmgr_psoc");
-
-	wlan_minidump_log(g_umac_glb_obj, sizeof(*g_umac_glb_obj), psoc,
-			  WLAN_MD_OBJMGR_GLOBAL, "wlan_objmgr_global");
-
 	obj_mgr_info("Created psoc %d", psoc->soc_objmgr.psoc_id);
 
 	return psoc;
@@ -222,8 +218,6 @@ static QDF_STATUS wlan_objmgr_psoc_obj_destroy(struct wlan_objmgr_psoc *psoc)
 	wlan_minidump_remove(psoc, sizeof(*psoc), psoc,
 			     WLAN_MD_OBJMGR_PSOC, "wlan_objmgr_psoc");
 
-	wlan_minidump_remove(g_umac_glb_obj, sizeof(*g_umac_glb_obj), psoc,
-			     WLAN_MD_OBJMGR_GLOBAL, "wlan_objmgr_global");
 	/* Invoke registered create handlers */
 	for (id = 0; id < WLAN_UMAC_MAX_COMPONENTS; id++) {
 		handler = g_umac_glb_obj->psoc_destroy_handler[id];

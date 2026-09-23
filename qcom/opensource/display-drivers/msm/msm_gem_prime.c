@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
@@ -36,13 +36,6 @@
 #include <linux/ion.h>
 #include <linux/msm_ion.h>
 #endif
-
-struct msm_gem_prime_vmid_flags {
-	bool is_tvm;
-	bool is_cp_pixel;
-	bool is_sec_display;
-	bool is_cam_preview;
-};
 
 struct sg_table *msm_gem_prime_get_sg_table(struct drm_gem_object *obj)
 {
@@ -115,50 +108,6 @@ void msm_gem_prime_unpin(struct drm_gem_object *obj)
 		msm_gem_put_pages(obj);
 }
 
-static int msm_gem_prime_get_vmid_flags(struct dma_buf *dma_buf, struct msm_kms *kms,
-					struct msm_gem_prime_vmid_flags *vmid_flags,
-					unsigned long *dma_map_attrs)
-{
-	int *vmid_list, *perms_list;
-	int nelems = 0, ret = 0, i;
-
-	ret = mem_buf_dma_buf_copy_vmperm(dma_buf, &vmid_list, &perms_list, &nelems);
-	if (ret) {
-		DRM_ERROR("get vmid list failure, ret:%d", ret);
-		return ret;
-	}
-
-	for (i = 0; i < nelems; i++) {
-#if (KERNEL_VERSION(6, 1, 0) <= LINUX_VERSION_CODE)
-		/* avoid VMID checks in trusted-vm, set flag in HLOS when only VMID_TVM is set */
-		if ((vmid_list[i] == VMID_TVM) &&
-				(!kms->funcs->in_trusted_vm || !kms->funcs->in_trusted_vm(kms))) {
-			vmid_flags->is_tvm = true;
-			*dma_map_attrs = DMA_ATTR_QTI_SMMU_PROXY_MAP;
-		}
-#endif
-		if (vmid_list[i] == VMID_CP_PIXEL) {
-			vmid_flags->is_cp_pixel = true;
-			vmid_flags->is_tvm = false;
-			*dma_map_attrs = 0;
-			break;
-		} else if (vmid_list[i] == VMID_CP_CAMERA_PREVIEW) {
-			vmid_flags->is_cam_preview = true;
-			break;
-		} else if (vmid_list[i] == VMID_CP_SEC_DISPLAY) {
-			vmid_flags->is_sec_display = true;
-			break;
-		}
-
-	}
-
-	/* mem_buf_dma_buf_copy_vmperm uses kmemdup, do kfree to free up the memory */
-	kfree(vmid_list);
-	kfree(perms_list);
-
-	return ret;
-}
-
 struct drm_gem_object *msm_gem_prime_import(struct drm_device *dev,
 					    struct dma_buf *dma_buf)
 {
@@ -168,9 +117,11 @@ struct drm_gem_object *msm_gem_prime_import(struct drm_device *dev,
 	struct device *attach_dev = NULL;
 	struct msm_drm_private *priv;
 	struct msm_kms *kms;
-	struct msm_gem_prime_vmid_flags vmid_flags = {0};
 	bool lazy_unmap = true;
-	int ret;
+	bool is_vmid_tvm = false, is_vmid_cp_pixel = false;
+	bool is_vmid_sec_display = false, is_vmid_cam_preview = false;
+	int *vmid_list, *perms_list;
+	int nelems = 0, i, ret;
 	unsigned long dma_map_attrs = 0;
 
 	if (!dma_buf || !dev->dev_private)
@@ -204,28 +155,48 @@ struct drm_gem_object *msm_gem_prime_import(struct drm_device *dev,
 		goto fail_put;
 	}
 
-	ret = msm_gem_prime_get_vmid_flags(dma_buf, kms, &vmid_flags, &dma_map_attrs);
-	if (ret)
+	ret = mem_buf_dma_buf_copy_vmperm(dma_buf, &vmid_list, &perms_list, &nelems);
+	if (ret) {
+		DRM_ERROR("get vmid list failure, ret:%d", ret);
 		goto fail_put;
+	}
+
+	for (i = 0; i < nelems; i++) {
+#if (KERNEL_VERSION(6, 1, 0) <= LINUX_VERSION_CODE)
+		/* avoid VMID checks in trusted-vm, set flag in HLOS when only VMID_TVM is set */
+		if ((vmid_list[i] == VMID_TVM) &&
+				(!kms->funcs->in_trusted_vm || !kms->funcs->in_trusted_vm(kms))) {
+			is_vmid_tvm = true;
+			dma_map_attrs = DMA_ATTR_QTI_SMMU_PROXY_MAP;
+		}
+#endif
+		if (vmid_list[i] == VMID_CP_PIXEL) {
+			is_vmid_cp_pixel = true;
+			is_vmid_tvm = false;
+			dma_map_attrs = 0;
+			break;
+		} else if (vmid_list[i] == VMID_CP_CAMERA_PREVIEW) {
+			is_vmid_cam_preview = true;
+			break;
+		} else if (vmid_list[i] == VMID_CP_SEC_DISPLAY) {
+			is_vmid_sec_display = true;
+			break;
+		}
+
+	}
+
+	/* mem_buf_dma_buf_copy_vmperm uses kmemdup, do kfree to free up the memory */
+	kfree(vmid_list);
+	kfree(perms_list);
 
 	/*
 	 * - attach default drm device for VMID_TVM-only or when IOMMU is not available
 	 * - avoid using lazy unmap feature as it doesn't add value without nested translations
 	 */
-	if (vmid_flags.is_cp_pixel) {
+	if (is_vmid_cp_pixel) {
 		attach_dev = kms->funcs->get_address_space_device(kms, MSM_SMMU_DOMAIN_SECURE);
-
-		/*
-		 * While transitioning from secure usecase, its possible the sec-cb might not
-		 * be attached yet. Attach the dma-buf with non-sec cb as during the commit phase
-		 * as part of the msm_gem_get_iova, delayed mapping will take care of reattaching
-		 * with the correct context-bank.
-		 */
-		if (!attach_dev)
-			attach_dev = kms->funcs->get_address_space_device(kms,
-					MSM_SMMU_DOMAIN_UNSECURE);
-	} else if (!iommu_present(&platform_bus_type) || vmid_flags.is_tvm
-		   || vmid_flags.is_cam_preview || vmid_flags.is_sec_display) {
+	} else if (!iommu_present(&platform_bus_type) || is_vmid_tvm || is_vmid_cam_preview
+			|| is_vmid_sec_display) {
 		attach_dev = dev->dev;
 		lazy_unmap = false;
 	} else {
@@ -264,13 +235,8 @@ struct drm_gem_object *msm_gem_prime_import(struct drm_device *dev,
 	 * avoid map_attachment for S2-only buffers and TVM buffers as it needs to be mapped
 	 * after the SID switch scm_call and will be handled during msm_gem_get_dma_addr
 	 */
-	if (!vmid_flags.is_tvm && !vmid_flags.is_cam_preview && !vmid_flags.is_sec_display) {
-
-#if (KERNEL_VERSION(6, 2, 0) <= LINUX_VERSION_CODE)
-		sgt = dma_buf_map_attachment_unlocked(attach, DMA_BIDIRECTIONAL);
-#else
+	if (!is_vmid_tvm && !is_vmid_cam_preview && !is_vmid_sec_display) {
 		sgt = dma_buf_map_attachment(attach, DMA_BIDIRECTIONAL);
-#endif
 		if (IS_ERR(sgt)) {
 			ret = PTR_ERR(sgt);
 			DRM_ERROR("dma_buf_map_attachment failure, err=%d\n", ret);
@@ -278,7 +244,7 @@ struct drm_gem_object *msm_gem_prime_import(struct drm_device *dev,
 		}
 	} else {
 		DRM_DEBUG("deferring dma_buf_map_attachment; tvm:%d, sec_cam:%d, sec_disp:%d\n",
-			   vmid_flags.is_tvm, vmid_flags.is_cam_preview, vmid_flags.is_sec_display);
+				is_vmid_tvm, is_vmid_cam_preview, is_vmid_sec_display);
 	}
 
 	/*
@@ -298,12 +264,7 @@ struct drm_gem_object *msm_gem_prime_import(struct drm_device *dev,
 
 fail_unmap:
 	if (sgt)
-#if (KERNEL_VERSION(6, 2, 0) <= LINUX_VERSION_CODE)
-		dma_buf_unmap_attachment_unlocked(attach, sgt, DMA_BIDIRECTIONAL);
-#else
 		dma_buf_unmap_attachment(attach, sgt, DMA_BIDIRECTIONAL);
-#endif
-
 fail_detach:
 	dma_buf_detach(dma_buf, attach);
 fail_put:

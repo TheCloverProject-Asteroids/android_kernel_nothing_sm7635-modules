@@ -51,7 +51,6 @@ QDF_STATUS dp_rx_mon_status_buffers_replenish(struct dp_soc *dp_soc,
  *
  * @pdev: DP pdev handle
  * @mon_status_srng: Monitor status SRNG
- * @mac_id: MAC ID
  *
  * As per MAC team's suggestion, If HP + 2 entry's DMA done is set,
  * skip HP + 1 entry and start processing in next interrupt.
@@ -62,7 +61,7 @@ QDF_STATUS dp_rx_mon_status_buffers_replenish(struct dp_soc *dp_soc,
  */
 enum dp_mon_reap_status
 dp_rx_mon_handle_status_buf_done(struct dp_pdev *pdev,
-				 void *mon_status_srng, uint8_t mac_id)
+				 void *mon_status_srng)
 {
 	struct dp_soc *soc = pdev->soc;
 	hal_soc_handle_t hal_soc;
@@ -72,7 +71,7 @@ dp_rx_mon_handle_status_buf_done(struct dp_pdev *pdev,
 	struct dp_rx_desc *rx_desc;
 	void *rx_tlv;
 	QDF_STATUS buf_status;
-	struct dp_mon_mac *mon_mac = dp_get_mon_mac(pdev, mac_id);
+	struct dp_mon_pdev *mon_pdev = pdev->monitor_pdev;
 
 	hal_soc = soc->hal_soc;
 
@@ -107,11 +106,11 @@ dp_rx_mon_handle_status_buf_done(struct dp_pdev *pdev,
 	if (buf_status != QDF_STATUS_SUCCESS) {
 		dp_err_rl("Monitor status ring: DMA is not done "
 			     "for nbuf: %pK", status_nbuf);
-		mon_mac->rx_mon_stats.tlv_tag_status_err++;
+		mon_pdev->rx_mon_stats.tlv_tag_status_err++;
 		return DP_MON_STATUS_REPLENISH;
 	}
 
-	mon_mac->rx_mon_stats.status_buf_done_war++;
+	mon_pdev->rx_mon_stats.status_buf_done_war++;
 
 	return DP_MON_STATUS_REPLENISH;
 }
@@ -254,15 +253,13 @@ dp_rx_mon_check_phyrx_abort(struct dp_pdev *pdev,
 static inline void
 dp_rx_mon_handle_ppdu_undecoded_metadata(struct dp_soc *soc,
 					 struct dp_pdev *pdev,
-					 struct hal_rx_ppdu_info *ppdu_info,
-					 struct dp_mon_mac *mon_mac)
+					 struct hal_rx_ppdu_info *ppdu_info)
 {
 	if (pdev->monitor_pdev->undecoded_metadata_capture)
 		dp_rx_handle_ppdu_undecoded_metadata(soc, pdev, ppdu_info);
 
-	mon_mac->mon_ppdu_status = DP_PPDU_STATUS_START;
+	pdev->monitor_pdev->mon_ppdu_status = DP_PPDU_STATUS_START;
 }
-
 #else
 static inline bool
 dp_rx_mon_check_phyrx_abort(struct dp_pdev *pdev,
@@ -274,11 +271,9 @@ dp_rx_mon_check_phyrx_abort(struct dp_pdev *pdev,
 static inline void
 dp_rx_mon_handle_ppdu_undecoded_metadata(struct dp_soc *soc,
 					 struct dp_pdev *pdev,
-					 struct hal_rx_ppdu_info *ppdu_info,
-					 struct dp_mon_mac *mon_mac)
+					 struct hal_rx_ppdu_info *ppdu_info)
 {
 }
-
 #endif
 
 #ifdef QCA_SUPPORT_SCAN_SPCL_VAP_STATS
@@ -286,31 +281,24 @@ dp_rx_mon_handle_ppdu_undecoded_metadata(struct dp_soc *soc,
  * dp_rx_mon_update_scan_spcl_vap_stats() - Update special vap stats
  * @pdev: dp pdev context
  * @ppdu_info: ppdu info structure from ppdu ring
- * @mac_id: MAC ID
  *
  * Return: none
  */
 static inline void
 dp_rx_mon_update_scan_spcl_vap_stats(struct dp_pdev *pdev,
-				     struct hal_rx_ppdu_info *ppdu_info,
-				     uint8_t mac_id)
+				     struct hal_rx_ppdu_info *ppdu_info)
 {
 	struct mon_rx_user_status *rx_user_status = NULL;
 	struct dp_mon_pdev *mon_pdev = NULL;
 	struct dp_mon_vdev *mon_vdev = NULL;
-	struct dp_mon_mac *mon_mac;
 	uint32_t num_users = 0;
 	uint32_t user = 0;
 
 	mon_pdev = pdev->monitor_pdev;
-	if (!mon_pdev)
+	if (!mon_pdev || !mon_pdev->mvdev)
 		return;
 
-	mon_mac = dp_get_mon_mac(pdev, mac_id);
-	if (!mon_mac->mvdev)
-		return;
-
-	mon_vdev = mon_mac->mvdev->monitor_vdev;
+	mon_vdev = mon_pdev->mvdev->monitor_vdev;
 	if (!mon_vdev || !mon_vdev->scan_spcl_vap_stats)
 		return;
 
@@ -336,8 +324,7 @@ dp_rx_mon_update_scan_spcl_vap_stats(struct dp_pdev *pdev,
 #else
 static inline void
 dp_rx_mon_update_scan_spcl_vap_stats(struct dp_pdev *pdev,
-				     struct hal_rx_ppdu_info *ppdu_info,
-				     uint8_t mac_id)
+				     struct hal_rx_ppdu_info *ppdu_info)
 {
 }
 #endif
@@ -448,7 +435,6 @@ dp_rx_mon_status_process_tlv(struct dp_soc *soc, struct dp_intr *int_ctx,
 	uint32_t rx_enh_capture_mode;
 	struct dp_mon_soc *mon_soc = soc->monitor_soc;
 	struct dp_mon_pdev *mon_pdev;
-	struct dp_mon_mac *mon_mac;
 
 	if (qdf_unlikely(!pdev)) {
 		dp_rx_mon_status_debug("%pK: pdev is null for mac_id = %d", soc,
@@ -456,19 +442,18 @@ dp_rx_mon_status_process_tlv(struct dp_soc *soc, struct dp_intr *int_ctx,
 		return;
 	}
 
-	mon_mac = dp_get_mon_mac(pdev, mac_id);
 	mon_pdev = pdev->monitor_pdev;
-	ppdu_info = &mon_mac->ppdu_info;
-	rx_mon_stats = &mon_mac->rx_mon_stats;
+	ppdu_info = &mon_pdev->ppdu_info;
+	rx_mon_stats = &mon_pdev->rx_mon_stats;
 
-	if (qdf_unlikely(mon_mac->mon_ppdu_status != DP_PPDU_STATUS_START))
+	if (qdf_unlikely(mon_pdev->mon_ppdu_status != DP_PPDU_STATUS_START))
 		return;
 
 	rx_enh_capture_mode = mon_pdev->rx_enh_capture_mode;
 
-	while (!qdf_nbuf_is_queue_empty(&mon_mac->rx_status_q)) {
+	while (!qdf_nbuf_is_queue_empty(&mon_pdev->rx_status_q)) {
 
-		status_nbuf = qdf_nbuf_queue_remove(&mon_mac->rx_status_q);
+		status_nbuf = qdf_nbuf_queue_remove(&mon_pdev->rx_status_q);
 		dp_rx_mon_status_ring_record_entry(soc,
 						   DP_MON_STATUS_BUF_DEQUEUE,
 						   NULL, NULL, status_nbuf);
@@ -480,10 +465,10 @@ dp_rx_mon_status_process_tlv(struct dp_soc *soc, struct dp_intr *int_ctx,
 		rx_tlv_start = rx_tlv;
 		nbuf_used = false;
 
-		if (mon_mac->mvdev || mon_pdev->enhanced_stats_en ||
-		    mon_pdev->mcopy_mode || dp_cfr_rcc_mode_status(pdev) ||
-		    mon_pdev->undecoded_metadata_capture ||
-		    rx_enh_capture_mode != CDP_RX_ENH_CAPTURE_DISABLED) {
+		if ((mon_pdev->mvdev) || (mon_pdev->enhanced_stats_en) ||
+		    (mon_pdev->mcopy_mode) || (dp_cfr_rcc_mode_status(pdev)) ||
+		    (mon_pdev->undecoded_metadata_capture) ||
+		    (rx_enh_capture_mode != CDP_RX_ENH_CAPTURE_DISABLED)) {
 			do {
 				tlv_status = hal_rx_status_get_tlv_info(rx_tlv,
 						ppdu_info, pdev->soc->hal_soc,
@@ -519,12 +504,7 @@ dp_rx_mon_status_process_tlv(struct dp_soc *soc, struct dp_intr *int_ctx,
 				 (tlv_status == HAL_TLV_STATUS_MPDU_START) ||
 				 (tlv_status == HAL_TLV_STATUS_MSDU_END));
 		}
-
-		/* convert encryption type to cdp enum */
-		dp_convert_enc_to_cdp_enc(ppdu_info->rx_user_status,
-					  ppdu_info->user_id, RX_SIDE);
 		dp_mon_rx_stats_update_rssi_dbm_params(mon_pdev, ppdu_info);
-
 		if (qdf_unlikely(mon_pdev->dp_peer_based_pktlog)) {
 			dp_rx_process_peer_based_pktlog(soc, ppdu_info,
 							status_nbuf,
@@ -545,10 +525,9 @@ dp_rx_mon_status_process_tlv(struct dp_soc *soc, struct dp_intr *int_ctx,
 		/* smart monitor vap and m_copy cannot co-exist */
 		if (qdf_unlikely(ppdu_info->rx_status.monitor_direct_used &&
 				 mon_pdev->neighbour_peers_added &&
-				 mon_mac->mvdev)) {
+				 mon_pdev->mvdev)) {
 			smart_mesh_status = dp_rx_handle_smart_mesh_mode(soc,
-						pdev, ppdu_info, status_nbuf,
-						mac_id);
+						pdev, ppdu_info, status_nbuf);
 			if (smart_mesh_status)
 				qdf_nbuf_free(status_nbuf);
 		} else if (qdf_unlikely(IS_LOCAL_PKT_CAPTURE_RUNNING(mon_pdev,
@@ -571,7 +550,7 @@ dp_rx_mon_status_process_tlv(struct dp_soc *soc, struct dp_intr *int_ctx,
 
 		if (qdf_unlikely(tlv_status == HAL_TLV_STATUS_PPDU_NON_STD_DONE)) {
 			dp_rx_mon_deliver_non_std(soc, mac_id);
-			dp_mon_rx_ppdu_status_reset(mon_mac);
+			dp_mon_rx_ppdu_status_reset(mon_pdev);
 		} else if ((qdf_likely(tlv_status == HAL_TLV_STATUS_PPDU_DONE)) &&
 				(qdf_likely(!dp_rx_mon_check_phyrx_abort(pdev, ppdu_info)))) {
 			rx_mon_stats->status_ppdu_done++;
@@ -589,13 +568,12 @@ dp_rx_mon_status_process_tlv(struct dp_soc *soc, struct dp_intr *int_ctx,
 			else if (dp_cfr_rcc_mode_status(pdev))
 				dp_rx_handle_cfr(soc, pdev, ppdu_info);
 
-			mon_mac->mon_ppdu_status = DP_PPDU_STATUS_DONE;
+			mon_pdev->mon_ppdu_status = DP_PPDU_STATUS_DONE;
 
 			/* Collect spcl vap stats if configured */
 			if (qdf_unlikely(mon_pdev->scan_spcl_vap_configured))
 				dp_rx_mon_update_scan_spcl_vap_stats(pdev,
-								     ppdu_info,
-								     mac_id);
+								     ppdu_info);
 
 			dp_rx_mon_update_user_ctrl_frame_stats(pdev, ppdu_info);
 
@@ -603,30 +581,26 @@ dp_rx_mon_status_process_tlv(struct dp_soc *soc, struct dp_intr *int_ctx,
 			* if chan_num is not fetched correctly from ppdu RX TLV,
 			 * get it from pdev saved.
 			 */
-			if (qdf_unlikely(mon_mac->ppdu_info.rx_status.chan_num == 0))
-				mon_mac->ppdu_info.rx_status.chan_num =
-							mon_mac->mon_chan_num;
+			if (qdf_unlikely(mon_pdev->ppdu_info.rx_status.chan_num == 0))
+				mon_pdev->ppdu_info.rx_status.chan_num =
+							mon_pdev->mon_chan_num;
 			/*
 			 * if chan_freq is not fetched correctly from ppdu RX TLV,
 			 * get it from pdev saved.
 			 */
-			if (qdf_unlikely(mon_mac->ppdu_info.rx_status.chan_freq == 0)) {
-				mon_mac->ppdu_info.rx_status.chan_freq =
-					mon_mac->mon_chan_freq;
+			if (qdf_unlikely(mon_pdev->ppdu_info.rx_status.chan_freq == 0)) {
+				mon_pdev->ppdu_info.rx_status.chan_freq =
+					mon_pdev->mon_chan_freq;
 			}
 
-			if (!mon_soc->full_mon_mode) {
+			if (!mon_soc->full_mon_mode)
 				dp_rx_mon_dest_process(soc, int_ctx, mac_id,
 						       quota);
-				dp_mon_rx_ppdu_status_reset(mon_mac);
-			} else {
-				mon_mac->mon_ppdu_status =
-						DP_PPDU_STATUS_START;
-			}
+
+			dp_mon_rx_ppdu_status_reset(mon_pdev);
 		} else {
 			dp_rx_mon_handle_ppdu_undecoded_metadata(soc, pdev,
-								 ppdu_info,
-								 mon_mac);
+								 ppdu_info);
 		}
 	}
 	return;
@@ -657,7 +631,6 @@ dp_rx_mon_status_srng_process(struct dp_soc *soc, struct dp_intr *int_ctx,
 	enum dp_mon_reap_status reap_status;
 	uint32_t work_done = 0;
 	struct dp_mon_pdev *mon_pdev;
-	struct dp_mon_mac *mon_mac;
 
 	if (qdf_unlikely(!pdev)) {
 		dp_rx_mon_status_debug("%pK: pdev is null for mac_id = %d",
@@ -666,7 +639,6 @@ dp_rx_mon_status_srng_process(struct dp_soc *soc, struct dp_intr *int_ctx,
 	}
 
 	mon_pdev = pdev->monitor_pdev;
-	mon_mac = dp_get_mon_mac(pdev, mac_id);
 
 	mon_status_srng = soc->rxdma_mon_status_ring[mac_id].hal_srng;
 
@@ -759,9 +731,8 @@ dp_rx_mon_status_srng_process(struct dp_soc *soc, struct dp_intr *int_ctx,
 				 *    Check status for same buffer for next time
 				 *    dp_rx_mon_status_srng_process
 				 */
-				reap_status =
-					dp_rx_mon_handle_status_buf_done(pdev,
-						mon_status_srng, mac_id);
+				reap_status = dp_rx_mon_handle_status_buf_done(pdev,
+									mon_status_srng);
 				if (qdf_unlikely(reap_status == DP_MON_STATUS_NO_DMA))
 					continue;
 				else if (qdf_unlikely(reap_status == DP_MON_STATUS_REPLENISH)) {
@@ -787,7 +758,7 @@ dp_rx_mon_status_srng_process(struct dp_soc *soc, struct dp_intr *int_ctx,
 			}
 
 			/* Put the status_nbuf to queue */
-			qdf_nbuf_queue_add(&mon_mac->rx_status_q, status_nbuf);
+			qdf_nbuf_queue_add(&mon_pdev->rx_status_q, status_nbuf);
 			dp_rx_mon_status_ring_record_entry(soc, DP_MON_STATUS_BUF_ENQUEUE,
 						rxdma_mon_status_ring_entry,
 						rx_desc, status_nbuf);
@@ -937,7 +908,6 @@ dp_rx_pdev_mon_status_desc_pool_init(struct dp_pdev *pdev, uint32_t mac_id)
 	uint32_t num_entries;
 	struct rx_desc_pool *rx_desc_pool;
 	struct dp_mon_pdev *mon_pdev = pdev->monitor_pdev;
-	struct dp_mon_mac *mon_mac = dp_get_mon_mac(pdev, mac_id);
 
 	mon_status_ring = &soc->rxdma_mon_status_ring[mac_id];
 
@@ -956,22 +926,22 @@ dp_rx_pdev_mon_status_desc_pool_init(struct dp_pdev *pdev, uint32_t mac_id)
 
 	dp_rx_desc_pool_init(soc, mac_id, num_entries + 1, rx_desc_pool);
 
-	qdf_nbuf_queue_init(&mon_mac->rx_status_q);
+	qdf_nbuf_queue_init(&mon_pdev->rx_status_q);
 
-	mon_mac->mon_ppdu_status = DP_PPDU_STATUS_START;
+	mon_pdev->mon_ppdu_status = DP_PPDU_STATUS_START;
 
-	qdf_mem_zero(&mon_mac->ppdu_info, sizeof(mon_mac->ppdu_info));
+	qdf_mem_zero(&mon_pdev->ppdu_info, sizeof(mon_pdev->ppdu_info));
 
 	/*
 	 * Set last_ppdu_id to HAL_INVALID_PPDU_ID in order to avoid ppdu_id
 	 * match with '0' ppdu_id from monitor status ring
 	 */
-	mon_mac->ppdu_info.com_info.last_ppdu_id = HAL_INVALID_PPDU_ID;
+	mon_pdev->ppdu_info.com_info.last_ppdu_id = HAL_INVALID_PPDU_ID;
 
-	qdf_mem_zero(&mon_mac->rx_mon_stats, sizeof(mon_mac->rx_mon_stats));
+	qdf_mem_zero(&mon_pdev->rx_mon_stats, sizeof(mon_pdev->rx_mon_stats));
 
-	dp_rx_mon_init_dbg_ppdu_stats(&mon_mac->ppdu_info,
-				      &mon_mac->rx_mon_stats);
+	dp_rx_mon_init_dbg_ppdu_stats(&mon_pdev->ppdu_info,
+				      &mon_pdev->rx_mon_stats);
 
 	for (i = 0; i < MAX_MU_USERS; i++) {
 		qdf_nbuf_queue_init(&mon_pdev->mpdu_q[i]);
@@ -1274,7 +1244,7 @@ dp_mon_status_srng_drop_for_mac(struct dp_pdev *pdev, uint32_t mac_id,
 				 */
 				reap_status =
 					dp_rx_mon_handle_status_buf_done(pdev,
-						mon_status_srng, mac_id);
+							       mon_status_srng);
 				if (reap_status == DP_MON_STATUS_NO_DMA)
 					break;
 			}

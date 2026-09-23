@@ -21,7 +21,6 @@ enum cam_isp_cdm_bl_type {
 	CAM_ISP_COMMON_CFG_BL,
 	CAM_ISP_IQ_BL,
 	CAM_ISP_IOCFG_BL,
-	CAM_ISP_DEBUG_ENTRY,
 	CAM_ISP_BL_MAX,
 };
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -13,7 +13,7 @@
 static const char lrme_dev_name[] = "cam-lrme";
 
 static int __cam_lrme_ctx_acquire_dev_in_available(struct cam_context *ctx,
-	struct cam_acquire_dev_cmd_unified *args)
+	struct cam_acquire_dev_cmd *cmd)
 {
 	int rc = 0;
 	uintptr_t ctxt_to_hw_map = (uintptr_t)ctx->ctxt_to_hw_map;
@@ -21,7 +21,7 @@ static int __cam_lrme_ctx_acquire_dev_in_available(struct cam_context *ctx,
 
 	CAM_DBG(CAM_LRME, "Enter ctx %d", ctx->ctx_id);
 
-	rc = cam_context_acquire_dev_to_hw(ctx, args);
+	rc = cam_context_acquire_dev_to_hw(ctx, cmd);
 	if (rc) {
 		CAM_ERR(CAM_LRME, "Failed to acquire");
 		return rc;
@@ -231,7 +231,7 @@ static struct cam_ctx_ops
 int cam_lrme_context_init(struct cam_lrme_context *lrme_ctx,
 	struct cam_context *base_ctx,
 	struct cam_hw_mgr_intf *hw_intf,
-	uint32_t index,
+	uint32_t index
 	int img_iommu_hdl)
 {
 	int rc = 0;
@@ -256,7 +256,7 @@ int cam_lrme_context_init(struct cam_lrme_context *lrme_ctx,
 	base_ctx->ctx_priv = lrme_ctx;
 	base_ctx->state_machine = cam_lrme_ctx_state_machine;
 
-	base_ctx->max_hw_update_entries = CAM_LRME_MAX_HW_ENTRIES;
+	base_ctx->max_hw_update_entries = CAM_CTX_CFG_MAX;
 	base_ctx->max_in_map_entries = CAM_CTX_CFG_MAX;
 	base_ctx->max_out_map_entries = CAM_CTX_CFG_MAX;
 

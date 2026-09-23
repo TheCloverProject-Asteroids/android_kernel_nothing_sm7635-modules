@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef __UAPI_CAM_CPAS_H__
@@ -32,16 +32,6 @@
 #define CAM_AXI_PATH_DATA_IFE_PDAF      (CAM_AXI_PATH_DATA_IFE_START_OFFSET + 8)
 #define CAM_AXI_PATH_DATA_IFE_PIXEL_RAW \
 	(CAM_AXI_PATH_DATA_IFE_START_OFFSET + 9)
-#define CAM_AXI_PATH_DATA_IFE_FULL      (CAM_AXI_PATH_DATA_IFE_START_OFFSET + 10)
-#define CAM_AXI_PATH_DATA_IFE_DS2       (CAM_AXI_PATH_DATA_IFE_START_OFFSET + 11)
-#define CAM_AXI_PATH_DATA_IFE_DS4       (CAM_AXI_PATH_DATA_IFE_START_OFFSET + 12)
-#define CAM_AXI_PATH_DATA_IFE_DS16      (CAM_AXI_PATH_DATA_IFE_START_OFFSET + 13)
-#define CAM_AXI_PATH_DATA_IFE_RDI4      (CAM_AXI_PATH_DATA_IFE_START_OFFSET + 14)
-#define CAM_AXI_PATH_DATA_IFE_PDAF_1    (CAM_AXI_PATH_DATA_IFE_START_OFFSET + 15)
-#define CAM_AXI_PATH_DATA_IFE_PDAF_2    (CAM_AXI_PATH_DATA_IFE_START_OFFSET + 16)
-#define CAM_AXI_PATH_DATA_IFE_PDAF_3    (CAM_AXI_PATH_DATA_IFE_START_OFFSET + 17)
-#define CAM_AXI_PATH_DATA_IFE_IR        (CAM_AXI_PATH_DATA_IFE_START_OFFSET + 18)
-#define CAM_AXI_PATH_DATA_IFE_FD        (CAM_AXI_PATH_DATA_IFE_START_OFFSET + 19)
 #define CAM_AXI_PATH_DATA_IFE_MAX_OFFSET \
 	(CAM_AXI_PATH_DATA_IFE_START_OFFSET + 31)
 
@@ -111,37 +101,6 @@
 
 /* sysfs entry of camera subparts info */
 #define CAM_SYSFS_SUBPARTS_INFO_FILENAME "subparts_info"
-
-/* Total number of sys cache */
-#define CAM_NUM_SYS_CACHE    20
-
-/* sys cache type */
-#define CAM_LLCC_SMALL_1                   0
-#define CAM_LLCC_SMALL_2                   1
-#define CAM_LLCC_LARGE_1                   2
-#define CAM_LLCC_LARGE_2                   3
-#define CAM_LLCC_LARGE_3                   4
-#define CAM_LLCC_LARGE_4                   5
-#define CAM_LLCC_OFE_IP                    6
-#define CAM_LLCC_IPE_RT_IP                 7
-#define CAM_LLCC_IPE_SRT_IP                8
-#define CAM_LLCC_IPE_RT_RF                 9
-#define CAM_LLCC_IPE_SRT_RF                10
-
-
-/* cam sys cache llcc staling mode */
-#define CAM_LLCC_STALING_MODE_CAPACITY    1
-#define CAM_LLCC_STALING_MODE_NOTIFY      2
-
-
-/* cam sys cache operating type */
-#define CAM_LLCC_NOTIFY_STALING_EVICT         1
-#define CAM_LLCC_NOTIFY_STALING_FORGET        2
-
-/* cam cpas query type */
-#define CAM_CPAS_QUERY_BLOB_BASE       CAM_COMMON_QUERY_BLOB_END
-#define CAM_CPAS_QUERY_BLOB_V3        (CAM_CPAS_QUERY_BLOB_BASE + 1)
-#define CAM_CPAS_QUERY_BLOB_SYSCACHE  (CAM_CPAS_QUERY_BLOB_BASE + 2)
 
 /**
  * struct cam_cpas_fuse_value - CPAS fuse value
@@ -235,51 +194,19 @@ struct cam_cpas_query_cap_v2 {
 };
 
 /**
- * struct cam_cpas_sys_cache_cap - sys cache payload information
- *
- * @version         : struct version
- * @scid_id         : sys cache id
- * @scid_num        : sys cache number
- * @concur_usage    : concurrent usage
- *
- */
-struct cam_cpas_sys_cache_cap {
-	__u32                      version;
-	__u32                      scid_id;
-	__u32                      scid_num;
-	__u32                      concur_usage;
-	__u32                      num_valid_params;
-	__u32                      valid_param_mask;
-	__u32                      params[10];
-};
-
-/**
- * struct cam_cpas_sys_cache_query - cache query capability payload
- *
- * @num_cache         : number of cache
- * @reserved          : reserved paramas
- * @sys_cache_cap     : information of sys cache
- */
-struct cam_cpas_sys_cache_query {
-	__u32                             num_cache;
-	__u32                             reserved;
-	struct cam_cpas_sys_cache_cap     sys_cache_cap[CAM_NUM_SYS_CACHE];
-};
-
-/**
  * struct cam_cpas_query_cap - CPAS query device capability payload
  *
- * @version             : Struct version
- * @camera_family       : Camera family type
- * @camera_caps         : Camera capability
- * @camera_version      : Camera platform version
- * @cpas_version        : Camera CPAS version within camera platform
- * @fuse_info           : Camera fuse info
- * @domain_id_info      : Domain id info
- * @num_valid_params    : Number of valid params
- * @valid_param_mask    : Valid param mask
- * @params              : Reserved fields to make this query cap
- *                        extendable in the future
+ * @version           : Struct version
+ * @camera_family     : Camera family type
+ * @camera_caps       : Camera capability
+ * @camera_version    : Camera platform version
+ * @cpas_version      : Camera CPAS version within camera platform
+ * @fuse_info         : Camera fuse info
+ * @domain_id_info    : Domain id info
+ * @num_valid_params  : Number of valid params
+ * @valid_param_mask  : Valid param mask
+ * @params            : Reserved fields to make this query cap
+ *                      extendable in the future
  */
 struct cam_cpas_query_cap_v3 {
 	__u32                             version;

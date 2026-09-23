@@ -503,7 +503,6 @@ int dp_connector_get_mode_info(struct drm_connector *connector,
 	mode_info->vtotal = drm_mode->vtotal;
 
 	mode_info->wide_bus_en = dp_panel->widebus_en;
-	mode_info->pclk_factor = dp_panel->pclk_factor;
 
 	dp_disp->convert_to_dp_mode(dp_disp, dp_panel, drm_mode, &dp_mode);
 
@@ -535,14 +534,8 @@ int dp_connector_get_info(struct drm_connector *connector,
 	info->h_tile_instance[0] = 0;
 	info->is_connected = display->is_sst_connected;
 	info->curr_panel_mode = MSM_DISPLAY_VIDEO_MODE;
-	info->capabilities = MSM_DISPLAY_CAP_VID_MODE | MSM_DISPLAY_CAP_EDID;
-
-	if (display && display->is_edp) {
-		info->intf_type = DRM_MODE_CONNECTOR_eDP;
-		info->display_type = SDE_CONNECTOR_PRIMARY;
-	} else {
-		info->capabilities |= MSM_DISPLAY_CAP_HOT_PLUG;
-	}
+	info->capabilities = MSM_DISPLAY_CAP_VID_MODE | MSM_DISPLAY_CAP_EDID |
+		MSM_DISPLAY_CAP_HOT_PLUG;
 
 	return 0;
 }
@@ -553,13 +546,11 @@ enum drm_connector_status dp_connector_detect(struct drm_connector *conn,
 {
 	enum drm_connector_status status = connector_status_unknown;
 	struct msm_display_info info;
-	struct dp_display *dp_disp;
 	int rc;
 
 	if (!conn || !display)
 		return status;
 
-	dp_disp = display;
 	/* get display dp_info */
 	memset(&info, 0x0, sizeof(info));
 	rc = dp_connector_get_info(conn, &info, display);
@@ -568,18 +559,12 @@ enum drm_connector_status dp_connector_detect(struct drm_connector *conn,
 		return connector_status_disconnected;
 	}
 
-	if (info.capabilities & MSM_DISPLAY_CAP_HOT_PLUG) {
+	if (info.capabilities & MSM_DISPLAY_CAP_HOT_PLUG)
 		status = (info.is_connected ? connector_status_connected :
 					      connector_status_disconnected);
-	} else {
+	else
 		status = connector_status_connected;
 
-		rc = dp_disp->edp_detect(dp_disp);
-		if (rc) {
-			DP_ERR("error in turning on panel power sequence rc:%d\n", rc);
-			return connector_status_unknown;
-		}
-	}
 	conn->display_info.width_mm = info.width_mm;
 	conn->display_info.height_mm = info.height_mm;
 
@@ -680,18 +665,6 @@ int dp_connector_get_modes(struct drm_connector *connector,
 	return rc;
 }
 
-int dp_connector_set_info_blob(struct drm_connector *connector,
-		void *info, void *display, struct msm_mode_info *mode_info)
-{
-	struct dp_display *dp_display = display;
-	const char *display_type = NULL;
-
-	dp_display->get_display_type(dp_display, &display_type);
-	sde_kms_info_add_keystr(info, "display type", display_type);
-
-	return 0;
-}
-
 int dp_drm_bridge_init(void *data, struct drm_encoder *encoder,
 	u32 max_mixer_count, u32 max_dsc_count)
 {
@@ -723,7 +696,7 @@ int dp_drm_bridge_init(void *data, struct drm_encoder *encoder,
 	rc = display->request_irq(display);
 	if (rc) {
 		DP_ERR("request_irq failed, rc=%d\n", rc);
-		goto error;
+		goto error_free_bridge;
 	}
 
 	priv->bridges[priv->num_bridges++] = &bridge->base;
@@ -788,8 +761,6 @@ enum drm_mode_status dp_connector_mode_valid(struct drm_connector *connector,
 			vrefresh != dp_panel->vrefresh ||
 			mode->picture_aspect_ratio != dp_panel->aspect_ratio))
 		return MODE_BAD;
-	else if (dp_panel->mode_override)
-		mode->type |= DRM_MODE_TYPE_PREFERRED;
 
 validate_mode:
 	return dp_disp->validate_mode(dp_disp, sde_conn->drv_panel,

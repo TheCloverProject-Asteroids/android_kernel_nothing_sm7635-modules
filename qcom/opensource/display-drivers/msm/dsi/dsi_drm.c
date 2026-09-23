@@ -672,7 +672,12 @@ int dsi_conn_get_mode_info(struct drm_connector *connector,
 	mode_info->qsync_min_fps = dsi_mode->timing.qsync_min_fps;
 	mode_info->avr_step_fps = dsi_mode->timing.avr_step_fps;
 	mode_info->wd_jitter = dsi_mode->priv_info->wd_jitter;
-	mode_info->te_pulse_width_us = dsi_mode->timing.te_pulse_width_us;
+
+	mode_info->vpadding = dsi_display->panel->host_config.vpadding;
+	if (mode_info->vpadding < drm_mode->vdisplay) {
+		mode_info->vpadding = 0;
+		dsi_display->panel->host_config.line_insertion_enable = 0;
+	}
 
 	memcpy(&mode_info->topology, &dsi_mode->priv_info->topology,
 			sizeof(struct msm_display_topology));
@@ -692,7 +697,7 @@ int dsi_conn_get_mode_info(struct drm_connector *connector,
 			return rc;
 		}
 	}
-	mode_info->freq_step_list = &dsi_mode->priv_info->freq_step_list;
+
 	mode_info->clk_rate = dsi_mode->timing.clk_rate_hz;
 
 	if (dsi_mode->priv_info->dsc_enabled) {
@@ -768,25 +773,6 @@ int dsi_conn_get_avr_step_fps(struct drm_connector_state *conn_state)
 
 	priv_info = (struct dsi_display_mode_priv_info *)(msm_mode->private);
 	return priv_info->avr_step_fps;
-}
-
-int dsi_conn_dcs_cmd_tx(struct drm_connector_state *conn_state, enum dsi_cmd_set_type cmd)
-{
-	struct drm_connector *drm_conn;
-	struct sde_connector *sde_conn;
-	struct dsi_display *display;
-
-	drm_conn = conn_state->connector;
-	sde_conn = to_sde_connector(drm_conn);
-
-	if (!sde_conn)
-		return -EINVAL;
-
-	display = sde_conn->display;
-	if (!display)
-		return -EINVAL;
-
-	return dsi_display_dcs_cmd_tx(display, cmd);
 }
 
 int dsi_conn_set_info_blob(struct drm_connector *connector,
@@ -907,13 +893,9 @@ int dsi_conn_set_info_blob(struct drm_connector *connector,
 	sde_kms_info_add_keyint(info, "max os brightness", panel->bl_config.brightness_max_level);
 	sde_kms_info_add_keyint(info, "max panel backlight", panel->bl_config.bl_max_level);
 
-	if (panel->spr_info.enable) {
+	if (panel->spr_info.enable)
 		sde_kms_info_add_keystr(info, "spr_pack_type",
 			msm_spr_pack_type_str[panel->spr_info.pack_type]);
-
-		sde_kms_info_add_keystr(info, "spr_pack_type_mode",
-			msm_spr_pack_type_mode_str[panel->spr_info.pack_type_mode]);
-	}
 
 	if (mode_info && mode_info->roi_caps.enabled) {
 		sde_kms_info_add_keyint(info, "partial_update_num_roi",
@@ -938,11 +920,6 @@ int dsi_conn_set_info_blob(struct drm_connector *connector,
 	bpp = dsi_ctrl_pixel_format_to_bpp(fmt);
 
 	sde_kms_info_add_keyint(info, "bit_depth", bpp);
-
-	if (dsi_display->panel->ctl_op_sync) {
-		sde_kms_info_add_keystr(info, "dpu_ctl_op_sync", "true");
-		sde_kms_info_add_keystr(info, "has_disp_in_other_core", "true");
-	}
 
 end:
 	return 0;
@@ -1315,26 +1292,6 @@ int dsi_conn_pre_kickoff(struct drm_connector *connector,
 	}
 
 	return dsi_display_pre_kickoff(connector, display, params);
-}
-
-bool dsi_conn_check_cmd_defined(void *display, enum dsi_cmd_set_type type)
-{
-	struct dsi_display *dsi_display = display;
-	struct dsi_panel *panel;
-	u32 count;
-	struct dsi_display_mode *mode;
-
-	if (!dsi_display || !dsi_display->panel)
-		return false;
-
-	panel = dsi_display->panel;
-	if (!panel || !panel->cur_mode)
-		return false;
-
-	mode = panel->cur_mode;
-	count = mode->priv_info->cmd_sets[type].count;
-
-	return count ? true : false;
 }
 
 int dsi_conn_prepare_commit(void *display,

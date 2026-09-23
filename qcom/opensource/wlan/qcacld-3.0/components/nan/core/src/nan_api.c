@@ -90,16 +90,6 @@ static QDF_STATUS nan_psoc_obj_destroyed_notification(
 	return status;
 }
 
-/**
- * nan_vdev_obj_created_notification() - Handler for VDEV object creation
- * notification event
- * @vdev: Pointer to the VDEV Object
- * @arg_list: Pointer to private argument - NULL
- *
- * This function gets called from object manager when VDEV is being created.
- *
- * Return: QDF_STATUS
- */
 static QDF_STATUS nan_vdev_obj_created_notification(
 		struct wlan_objmgr_vdev *vdev, void *arg_list)
 {
@@ -117,9 +107,7 @@ static QDF_STATUS nan_vdev_obj_created_notification(
 		target_if_nan_set_vdev_feature_config(psoc,
 						      wlan_vdev_get_id(vdev));
 	}
-
-	if (wlan_vdev_mlme_get_opmode(vdev) != QDF_NDI_MODE &&
-	    wlan_vdev_mlme_get_opmode(vdev) != QDF_NAN_DISC_MODE) {
+	if (wlan_vdev_mlme_get_opmode(vdev) != QDF_NDI_MODE) {
 		nan_debug("not a ndi vdev. do nothing");
 		return QDF_STATUS_SUCCESS;
 	}
@@ -146,16 +134,6 @@ nan_vdev_notif_failed:
 	return status;
 }
 
-/**
- * nan_vdev_obj_destroyed_notification() - Handler for VDEV object deletion
- * notification event
- * @vdev: Pointer to the VDEV Object
- * @arg_list: Pointer to private argument - NULL
- *
- * This function gets called from object manager when VDEV is being destroyed.
- *
- * Return: QDF_STATUS
- */
 static QDF_STATUS nan_vdev_obj_destroyed_notification(
 				struct wlan_objmgr_vdev *vdev, void *arg_list)
 {
@@ -163,9 +141,7 @@ static QDF_STATUS nan_vdev_obj_destroyed_notification(
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
 
 	nan_debug("nan_vdev_delete_notif called");
-
-	if (wlan_vdev_mlme_get_opmode(vdev) != QDF_NDI_MODE &&
-	    wlan_vdev_mlme_get_opmode(vdev) != QDF_NAN_DISC_MODE) {
+	if (wlan_vdev_mlme_get_opmode(vdev) != QDF_NDI_MODE) {
 		nan_debug("not a ndi vdev. do nothing");
 		return QDF_STATUS_SUCCESS;
 	}

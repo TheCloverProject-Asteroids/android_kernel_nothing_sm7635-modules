@@ -27,9 +27,6 @@ static int dsi_pll_clock_register(struct platform_device *pdev,
 	case DSI_PLL_4NM:
 		rc = dsi_pll_clock_register_4nm(pdev, pll_res);
 		break;
-	case DSI_PLL_3NM:
-		rc = dsi_pll_clock_register_3nm(pdev, pll_res);
-		break;
 	default:
 		rc = -EINVAL;
 		break;
@@ -37,28 +34,6 @@ static int dsi_pll_clock_register(struct platform_device *pdev,
 
 	if (rc)
 		DSI_PLL_ERR(pll_res, "clock register failed rc=%d\n", rc);
-
-	return rc;
-}
-
-int dsi_pll_program_slave(struct dsi_pll_resource *pll_res, bool skip_op)
-{
-	int rc;
-
-	switch (pll_res->pll_revision) {
-	case DSI_PLL_5NM:
-		rc = dsi_pll_5nm_program_slave(pll_res, skip_op);
-		break;
-	case DSI_PLL_4NM:
-		rc = dsi_pll_4nm_program_slave(pll_res, skip_op);
-		break;
-	default:
-		rc = -EINVAL;
-		break;
-	}
-
-	if (rc)
-		DSI_PLL_ERR(pll_res, "%s failed rc=%d\n", __func__, rc);
 
 	return rc;
 }
@@ -293,9 +268,8 @@ int dsi_pll_init(struct platform_device *pdev, struct dsi_pll_resource **pll)
 
 	DSI_PLL_INFO(pll_res, "DSI pll label = %s\n", label);
 
-	if (!strcmp(label, "dsi_pll_3nm"))
-		pll_res->pll_revision = DSI_PLL_3NM;
-	else if (!strcmp(label, "dsi_pll_4nm"))
+
+	if (!strcmp(label, "dsi_pll_4nm"))
 		pll_res->pll_revision = DSI_PLL_4NM;
 	else if (!strcmp(label, "dsi_pll_5nm"))
 		pll_res->pll_revision = DSI_PLL_5NM;

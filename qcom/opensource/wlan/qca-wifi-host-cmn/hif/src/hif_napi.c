@@ -120,8 +120,6 @@ static void hif_deinit_rx_thread_napi(struct qca_napi_info *napii)
 
 	qdf_net_if_destroy_dummy_if((struct qdf_net_if *)nd);
 	qdf_netif_napi_del(&napii->rx_thread_napi);
-	qdf_net_if_destroy_dummy_if((struct qdf_net_if *)nd);
-	hif_rx_thread_napi_set_netdev_ptr(napii, NULL);
 }
 #else /* RECEIVE_OFFLOAD */
 static void hif_init_rx_thread_napi(struct qca_napi_info *napii)
@@ -492,26 +490,6 @@ inline struct qca_napi_data *hif_napi_get_all(struct hif_opaque_softc *hif_ctx)
 	struct hif_softc *hif = HIF_GET_SOFTC(hif_ctx);
 
 	return &(hif->napi_data);
-}
-
-qdf_napi_struct *hif_get_dp_rx_napi(struct hif_opaque_softc *hif,
-				    uint8_t grp_id)
-{
-	struct hif_softc *scn = HIF_GET_SOFTC(hif);
-	struct HIF_CE_state *hif_state = HIF_GET_CE_STATE(scn);
-	struct hif_exec_context *hif_ext_group;
-	struct hif_napi_exec_context *ctx;
-
-	if (unlikely(!hif))
-		QDF_ASSERT(hif); /* WARN */
-
-	if (qdf_unlikely(grp_id >= hif_state->hif_num_extgroup))
-		return NULL;
-
-	hif_ext_group = hif_state->hif_ext_group[grp_id];
-	ctx = hif_exec_get_napi(hif_ext_group);
-
-	return (qdf_napi_struct *)&ctx->napi;
 }
 
 struct qca_napi_info *hif_get_napi(int napi_id, struct qca_napi_data *napid)
@@ -1151,7 +1129,7 @@ bool hif_napi_schedule(struct hif_opaque_softc *hif_ctx, int ce_id)
 		return false;
 	}
 
-	if (qdf_atomic_test_bit(NAPI_STATE_SCHED, &napii->napi.state)) {
+	if (test_bit(NAPI_STATE_SCHED, &napii->napi.state)) {
 		NAPI_DEBUG("napi scheduled, return");
 		qdf_atomic_dec(&scn->active_tasklet_cnt);
 		return false;

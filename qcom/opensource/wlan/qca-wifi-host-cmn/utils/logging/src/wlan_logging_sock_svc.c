@@ -213,8 +213,6 @@ struct wlan_logging {
 	bool is_active;
 	/* Flush completion check */
 	bool is_flush_complete;
-	/* This flag tracks the active state of a dump_in_progress request */
-	bool is_dump_in_progress;
 	/* parameters  for pkt stats */
 	struct list_head pkt_stat_free_list;
 	struct list_head pkt_stat_filled_list;
@@ -975,8 +973,6 @@ static int wlan_logging_thread(void *Arg)
 			 * to flush any residual data in them
 			 */
 			if (gwlan_logging.is_flush_complete == true) {
-				qdf_debug("reset is_flush_complete");
-
 				gwlan_logging.is_flush_complete = false;
 #ifdef FEATURE_WLAN_DIAG_SUPPORT
 				send_flush_completion_to_user(
@@ -984,10 +980,8 @@ static int wlan_logging_thread(void *Arg)
 #endif
 				wlan_logging_set_flush_log_completion();
 			} else {
-				qdf_debug("set is_flush_complete");
-
 				gwlan_logging.is_flush_complete = true;
-				/* flush all current host logs */
+				/* Flush all current host logs*/
 				spin_lock_irqsave(&gwlan_logging.spin_lock,
 					flags);
 				wlan_queue_logmsg_for_app();
@@ -1301,7 +1295,6 @@ int wlan_logging_sock_init_svc(void)
 
 	gwlan_logging.is_active = true;
 	gwlan_logging.is_flush_complete = false;
-	gwlan_logging.is_dump_in_progress = false;
 
 	status = qdf_event_create(&gwlan_logging.flush_log_completion);
 	if (!QDF_IS_STATUS_SUCCESS(status)) {

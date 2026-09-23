@@ -126,7 +126,6 @@
 # define RoamIdle_InactiveTime_default 10
 #endif
 
-# define Aggressive_RoamRSSI_Trigger_default -65
 /*
  * <ini>
  * RoamScan_PassiveCH_DwellTime - Set max channel time for roam passive scan
@@ -1408,38 +1407,6 @@
 
 /*
  * <ini>
- * roam_rssi_delta_from_6ghz_to_non_6ghz - Enable roam to  Non 6 GHz AP based
- * on rssi
- * @Min: 0
- * @Max: 100
- * @Default: 0
- *
- * This INI is used to decide whether to roam to Non 6 GHz AP or not based on
- * RSSI. AP1 is the currently associated AP(6 GHz) and AP2(2.4 GHz / 5 GHz) is
- * chosen for roaming. The Roaming will happen only if AP2 has better Signal
- * Quality and it has a RSSI better than AP1.
- * roam_rssi_delta_from_6ghz_to_non_6ghz is the number of dB units AP2 is
- * better than AP1.
- *
- *
- * Related: None
- *
- * Supported Feature: Roaming
- *
- * Usage: External
- *
- * </ini>
- */
-#define CFG_LFR_ROAM_RSSI_DELTA_6GHZ_TO_NON_6GHZ CFG_INI_UINT( \
-	"roam_rssi_delta_from_6ghz_to_non_6ghz", \
-	0, \
-	100, \
-	0, \
-	CFG_VALUE_OR_DEFAULT, \
-	"Enable 6 GHz to non 6 GHz roam based on rssi")
-
-/*
- * <ini>
  * bg_rssi_threshold - To set RSSI Threshold for BG scan roaming
  * @Min: 0
  * @Max: 100
@@ -1612,32 +1579,6 @@
 	RoamRSSI_Trigger_min, \
 	RoamRSSI_Trigger_max, \
 	RoamRSSI_Trigger_default, \
-	CFG_VALUE_OR_DEFAULT, \
-	"Neighbor lookup rssi threshold")
-
-/*
- * <ini>
- * Aggressive_RoamRSSI_Trigger  - Set neighbor
- * lookup rssi threshold
- * @Min: -100
- * @Max: -50
- * @Default: -65
- *
- * This is used to control the Aggressive RSSI threshold for neighbor lookup.
- *
- * Related: None
- *
- * Supported Feature: LFR Scan
- *
- * Usage: External
- *
- * </ini>
- */
-#define CFG_LFR_AGGRESSIVE_NEIGHBOR_LOOKUP_RSSI_THRESHOLD CFG_INI_INT( \
-	"Aggressive_RoamRSSI_Trigger", \
-	RoamRSSI_Trigger_min, \
-	RoamRSSI_Trigger_max, \
-	Aggressive_RoamRSSI_Trigger_default, \
 	CFG_VALUE_OR_DEFAULT, \
 	"Neighbor lookup rssi threshold")
 
@@ -3451,7 +3392,6 @@
 	CFG(CFG_LFR_FAST_TRANSITION_ENABLED) \
 	CFG(CFG_LFR_ROAM_RSSI_DIFF) \
 	CFG(CFG_LFR_ROAM_RSSI_DIFF_6GHZ) \
-	CFG(CFG_LFR_ROAM_RSSI_DELTA_6GHZ_TO_NON_6GHZ) \
 	CFG(CFG_LFR_ROAM_BG_RSSI_TH) \
 	CFG(CFG_LFR_ENABLE_WES_MODE) \
 	CFG(CFG_LFR_ROAM_SCAN_OFFLOAD_ENABLED) \

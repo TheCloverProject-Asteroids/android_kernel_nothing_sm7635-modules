@@ -20,9 +20,8 @@
 #include <sound/info.h>
 #include <dsp/audio_prm.h>
 #include <dsp/digital-cdc-rsc-mgr.h>
-#ifdef CONFIG_SCHED_WALT
 #include <linux/sched/walt.h>
-#endif
+
 #include "msm_common.h"
 
 #ifndef topology_cluster_id
@@ -1004,12 +1003,7 @@ static void msm_audio_update_qos_request(u32 latency)
 static int msm_get_and_print_cpu_map_taken(cpumask_t* expected_cpu_map) {
 	int ret = 0;
 	int cpu = 0;
-
-#ifdef CONFIG_SCHED_WALT
 	cpumask_t current_cpu_map = walt_get_cpus_taken();
-#else
-	cpumask_t current_cpu_map = CPU_MASK_NONE;
-#endif
 
 	if (memcmp(&current_cpu_map, &CPU_MASK_NONE, sizeof(cpumask_t)) == 0) {
 		pr_debug("%s: current cpu map is none.\n", __func__);
@@ -1189,11 +1183,7 @@ static int msm_register_pm_qos_latency_controls(struct snd_soc_pcm_runtime *rtd)
 
 int msm_common_dai_link_init(struct snd_soc_pcm_runtime *rtd)
 {
-#if (KERNEL_VERSION(6, 7, 0) <= LINUX_VERSION_CODE)
-	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
-#else
 	struct snd_soc_dai *codec_dai = asoc_rtd_to_codec(rtd, 0);
-#endif
 	struct snd_soc_component *component = NULL;
 	struct snd_soc_dai_link *dai_link = rtd->dai_link;
 	struct device *dev = rtd->card->dev;

@@ -33,11 +33,11 @@
 #include "camera_main.h"
 #include "cam_common_util.h"
 #include "cam_context_utils.h"
-#include "cam_mem_mgr_api.h"
+
 
 #define CAM_ICP_IS_DEV_IDX_INVALID(dev_idx)                   \
 ({                                                            \
-	((dev_idx) >= CAM_ICP_SUBDEV_MAX);                    \
+	((dev_idx) < 0) || ((dev_idx) >= CAM_ICP_SUBDEV_MAX); \
 })
 
 struct cam_icp_subdev {
@@ -102,27 +102,6 @@ static void cam_icp_dev_iommu_fault_handler(struct cam_smmu_pf_info *pf_smmu_inf
 	pf_args.pf_smmu_info = pf_smmu_info;
 
 	for (i = 0; i < node->ctx_size; i++) {
-		CAM_DBG(CAM_ICP, "Node name %s ctx_idx %d", node->name, i);
-		pf_args.check_pid = true;
-		cam_context_dump_pf_info(&(node->ctx_list[i]), &pf_args);
-		if (pf_args.pf_pid_found_status == CAM_PF_PID_FOUND_PENDING) {
-			continue;
-		} else if (pf_args.pf_pid_found_status == CAM_PF_PID_FOUND_FAILURE) {
-			CAM_INFO(CAM_ICP, "pid %d was not found for %s",
-				pf_args.pf_smmu_info->pid, node->name);
-			return;
-		} else
-			break;
-	}
-
-	if (i == node->ctx_size) {
-		CAM_INFO(CAM_ICP, "All contexts are inactive. PID %d was not found for %s",
-			pf_args.pf_smmu_info->pid, node->name);
-		return;
-	}
-
-	for (i = 0; i < node->ctx_size; i++) {
-		pf_args.check_pid = false;
 		cam_context_dump_pf_info(&(node->ctx_list[i]), &pf_args);
 		if (pf_args.pf_context_info.ctx_found)
 			/* found ctx and packet of the faulted address */
@@ -270,7 +249,7 @@ const struct v4l2_subdev_internal_ops cam_icp_subdev_internal_ops = {
 	.close = cam_icp_subdev_close,
 };
 
-static inline void cam_icp_subdev_clean_up(uint32_t device_idx)
+static inline int cam_icp_subdev_clean_up(uint32_t device_idx)
 {
 	kfree(g_icp_dev[device_idx]);
 	g_icp_dev[device_idx] = NULL;
@@ -289,10 +268,7 @@ static int cam_icp_component_bind(struct device *dev,
 	struct cam_icp_subdev *icp_dev;
 	char *subdev_name;
 	uint32_t device_idx;
-	struct timespec64 ts_start, ts_end;
-	long microsec = 0;
 
-	CAM_GET_TIMESTAMP(ts_start);
 	if (!pdev) {
 		CAM_ERR(CAM_ICP, "Invalid params: pdev is %s",
 			CAM_IS_NULL_TO_STR(pdev));
@@ -390,9 +366,6 @@ static int cam_icp_component_bind(struct device *dev,
 
 	CAM_DBG(CAM_ICP, "device[%s] id: %u component bound successfully",
 		subdev_name, device_idx);
-	CAM_GET_TIMESTAMP(ts_end);
-	CAM_GET_TIMESTAMP_DIFF_IN_MICRO(ts_start, ts_end, microsec);
-	cam_record_bind_latency(pdev->name, microsec);
 
 	return rc;
 

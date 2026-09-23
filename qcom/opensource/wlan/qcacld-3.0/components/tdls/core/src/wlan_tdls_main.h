@@ -68,12 +68,8 @@
 
 #define tdls_notice(params...) \
 	QDF_TRACE_INFO(QDF_MODULE_ID_TDLS, params)
-#define tdls_notice_rl(params...) \
-	QDF_TRACE_INFO_RL(QDF_MODULE_ID_TDLS, params)
 #define tdls_warn(params...) \
 	QDF_TRACE_WARN(QDF_MODULE_ID_TDLS, params)
-#define tdls_warn_rl(params...) \
-	QDF_TRACE_WARN_RL(QDF_MODULE_ID_TDLS, params)
 #define tdls_err(params...) \
 	QDF_TRACE_ERROR(QDF_MODULE_ID_TDLS, params)
 #define tdls_alert(params...) \
@@ -97,14 +93,6 @@
 #define SET_BIT(value, mask) ((value) |= (1 << (mask)))
 #define CLEAR_BIT(value, mask) ((value) &= ~(1 << (mask)))
 #define CHECK_BIT(value, mask) ((value) & (1 << (mask)))
-
-#define TDLS_IS_ENABLE_FULL(tdls_support_enable) \
-	CHECK_BIT(tdls_support_enable, TDLS_ENABLE_BIT_FULL)
-#define TDLS_IS_ENABLE_UPTO_11AX(tdls_support_enable) \
-	CHECK_BIT(tdls_support_enable, TDLS_ENABLE_BIT_11AX)
-#define TDLS_IS_ENABLE_UPTO_11BE(tdls_support_enable) \
-	CHECK_BIT(tdls_support_enable, TDLS_ENABLE_BIT_11BE)
-
 /**
  * struct tdls_conn_info - TDLS connection record
  * @session_id: session id

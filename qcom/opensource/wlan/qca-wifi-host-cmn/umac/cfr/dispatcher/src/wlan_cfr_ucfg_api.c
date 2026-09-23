@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -534,7 +534,7 @@ QDF_STATUS ucfg_cfr_set_reset_bitmap(struct wlan_objmgr_vdev *vdev,
 	if (status != QDF_STATUS_SUCCESS)
 		return status;
 
-	pcfr->rcc_param.modified_in_curr_session[0] |= params->reset_cfg;
+	pcfr->rcc_param.modified_in_curr_session |= params->reset_cfg;
 	tgt_cfr_default_ta_ra_cfg(pdev, &pcfr->rcc_param,
 				  true, params->reset_cfg);
 
@@ -799,7 +799,6 @@ ucfg_cfr_set_frame_type_subtype(struct wlan_objmgr_vdev *vdev,
 		cfr_err("err parameter grp_id, value=%u, max=%u\n",
 			params->grp_id,
 			MAX_TA_RA_ENTRIES);
-		wlan_objmgr_pdev_release_ref(pdev, WLAN_CFR_ID);
 		return QDF_STATUS_E_INVAL;
 	}
 
@@ -813,8 +812,8 @@ ucfg_cfr_set_frame_type_subtype(struct wlan_objmgr_vdev *vdev,
 	curr_cfg->valid_ctrl_subtype = 1;
 	curr_cfg->valid_data_subtype = 1;
 
-	qdf_atomic_set_bit(params->grp_id,
-			   pcfr->rcc_param.modified_in_curr_session);
+	qdf_set_bit(params->grp_id,
+		    &pcfr->rcc_param.modified_in_curr_session);
 
 	wlan_objmgr_pdev_release_ref(pdev, WLAN_CFR_ID);
 
@@ -844,7 +843,6 @@ QDF_STATUS ucfg_cfr_set_bw_nss(struct wlan_objmgr_vdev *vdev,
 		cfr_err("err parameter grp_id, value=%u, max=%u\n",
 			params->grp_id,
 			MAX_TA_RA_ENTRIES);
-		wlan_objmgr_pdev_release_ref(pdev, WLAN_CFR_ID);
 		return QDF_STATUS_E_INVAL;
 	}
 
@@ -856,8 +854,8 @@ QDF_STATUS ucfg_cfr_set_bw_nss(struct wlan_objmgr_vdev *vdev,
 	curr_cfg->valid_bw_mask = 1;
 	curr_cfg->valid_nss_mask = 1;
 
-	qdf_atomic_set_bit(params->grp_id,
-			   pcfr->rcc_param.modified_in_curr_session);
+	qdf_set_bit(params->grp_id,
+		    &pcfr->rcc_param.modified_in_curr_session);
 
 	wlan_objmgr_pdev_release_ref(pdev, WLAN_CFR_ID);
 
@@ -887,7 +885,6 @@ QDF_STATUS ucfg_cfr_set_tara_config(struct wlan_objmgr_vdev *vdev,
 		cfr_err("err parameter grp_id, value=%u, max=%u\n",
 			params->grp_id,
 			MAX_TA_RA_ENTRIES);
-		wlan_objmgr_pdev_release_ref(pdev, WLAN_CFR_ID);
 		return QDF_STATUS_E_INVAL;
 	}
 
@@ -904,8 +901,8 @@ QDF_STATUS ucfg_cfr_set_tara_config(struct wlan_objmgr_vdev *vdev,
 	curr_cfg->valid_ra = 1;
 	curr_cfg->valid_ra_mask = 1;
 
-	qdf_atomic_set_bit(params->grp_id,
-			   pcfr->rcc_param.modified_in_curr_session);
+	qdf_set_bit(params->grp_id,
+		    &pcfr->rcc_param.modified_in_curr_session);
 
 	wlan_objmgr_pdev_release_ref(pdev, WLAN_CFR_ID);
 
@@ -970,7 +967,7 @@ QDF_STATUS ucfg_cfr_get_cfg(struct wlan_objmgr_vdev *vdev)
 	cfr_err("Enabled CFG id bitmap : 0x%x\n",
 		pcfr->rcc_param.filter_group_bitmap);
 	cfr_err(" Modified cfg id bitmap : %lu\n",
-		pcfr->rcc_param.modified_in_curr_session[0]);
+		pcfr->rcc_param.modified_in_curr_session);
 
 	cfr_err("TARA_CONFIG details:\n");
 
@@ -1350,7 +1347,7 @@ QDF_STATUS ucfg_cfr_committed_rcc_config(struct wlan_objmgr_vdev *vdev)
 	}
 
 	pcfr->rcc_param.num_grp_tlvs = 0;
-	pcfr->rcc_param.modified_in_curr_session[0] = 0;
+	pcfr->rcc_param.modified_in_curr_session = 0;
 	wlan_objmgr_pdev_release_ref(pdev, WLAN_CFR_ID);
 
 	return status;
@@ -1457,7 +1454,6 @@ bool ucfg_cfr_get_rcc_enabled(struct wlan_objmgr_vdev *vdev)
 		cfr_debug("vdev id mismatch, input %d, pcfr %d",
 			  wlan_vdev_get_id(vdev),
 			  pcfr->rcc_param.vdev_id);
-		wlan_objmgr_pdev_release_ref(pdev, WLAN_CFR_ID);
 		return false;
 	}
 

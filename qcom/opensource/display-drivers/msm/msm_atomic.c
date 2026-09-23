@@ -301,7 +301,6 @@ msm_crtc_set_mode(struct drm_device *dev, struct drm_atomic_state *old_state)
 	struct drm_crtc_state *old_crtc_state;
 	struct drm_connector *connector;
 	struct drm_connector_state *old_conn_state;
-	struct msm_drm_private *priv;
 	int i;
 
 	for_each_old_crtc_in_state(old_state, crtc, old_crtc_state, i) {
@@ -327,7 +326,6 @@ msm_crtc_set_mode(struct drm_device *dev, struct drm_atomic_state *old_state)
 		struct drm_encoder *encoder;
 		struct drm_display_mode *mode, *adjusted_mode;
 		struct drm_bridge *bridge;
-		bool crtc_in_loopback = false;
 
 		if (!connector->state->best_encoder)
 			continue;
@@ -337,10 +335,6 @@ msm_crtc_set_mode(struct drm_device *dev, struct drm_atomic_state *old_state)
 		new_crtc_state = connector->state->crtc->state;
 		mode = &new_crtc_state->mode;
 		adjusted_mode = &new_crtc_state->adjusted_mode;
-		priv = connector->dev->dev_private;
-
-		if (priv && priv->kms && priv->kms->funcs->in_loopback_mode(new_crtc_state))
-			crtc_in_loopback = true;
 
 		if (!new_crtc_state->active)
 			continue;
@@ -367,11 +361,8 @@ msm_crtc_set_mode(struct drm_device *dev, struct drm_atomic_state *old_state)
 		if (funcs->mode_set)
 			funcs->mode_set(encoder, mode, adjusted_mode);
 
-		if (!crtc_in_loopback) {
-			bridge = drm_bridge_chain_get_first_bridge(encoder);
-			drm_bridge_chain_mode_set(bridge, mode, adjusted_mode);
-		}
-
+		bridge = drm_bridge_chain_get_first_bridge(encoder);
+		drm_bridge_chain_mode_set(bridge, mode, adjusted_mode);
 		SDE_ATRACE_END("msm_set_mode");
 	}
 }
@@ -726,20 +717,15 @@ static void msm_atomic_commit_dispatch(struct drm_device *dev,
 {
 	struct msm_drm_private *priv = dev->dev_private;
 	struct drm_crtc *crtc = NULL;
-	struct drm_crtc_state *old_crtc_state = NULL, *new_crtc_state = NULL;
+	struct drm_crtc_state *crtc_state = NULL;
 	int ret = -ECANCELED, i = 0, j = 0;
 	bool nonblock;
 
 	/* cache since work will kfree commit in non-blocking case */
 	nonblock = commit->nonblock;
 
-	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state,
-			new_crtc_state, i) {
-		if (!old_crtc_state->active && !new_crtc_state->active)
-			continue;
-
+	for_each_old_crtc_in_state(state, crtc, crtc_state, i) {
 		for (j = 0; j < priv->num_crtcs; j++) {
-
 			if (priv->disp_thread[j].crtc_id ==
 						crtc->base.id) {
 				if (priv->disp_thread[j].thread) {

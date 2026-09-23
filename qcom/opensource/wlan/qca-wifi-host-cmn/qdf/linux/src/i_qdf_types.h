@@ -74,9 +74,6 @@
 
 typedef struct sg_table __sgtable_t;
 
-#define __qdf_get_current() get_current()
-#define __qdf_this_cpu_ksoftirqd() this_cpu_ksoftirqd()
-
 /*
  * The IDs of the various system clocks
  */
@@ -209,9 +206,6 @@ typedef __be32 __qdf_be32_t;
 typedef __be64 __qdf_be64_t;
 typedef struct net_device __qdf_dummy_netdev_t;
 
-typedef int (*__qdf_cmp_func_t)(const void *a, const void *b);
-typedef void (*__qdf_swap_func_t)(void *a, void *b, int size);
-
 #if defined(IPA_OFFLOAD) && defined(__KERNEL__)
 typedef struct ipa_wdi_buffer_info __qdf_mem_info_t;
 #else
@@ -287,7 +281,6 @@ enum qdf_bus_type {
  * @smmu_s1_enabled: SMMU S1 enabled or not
  * @domain: domain type
  * @iommu_mapping: DMA iommu mapping pointer
- * @no_dma_map: Flag to check whether DMA mapping for TX buffers is needed
  */
 struct __qdf_device {
 	void *drv;
@@ -309,7 +302,6 @@ struct __qdf_device {
 	struct dma_iommu_mapping *iommu_mapping;
 #endif
 #endif
-	bool no_dma_map;
 };
 typedef struct __qdf_device *__qdf_device_t;
 

@@ -114,28 +114,10 @@ struct dlm_reject_ap_timestamp {
 	qdf_time_t driver_monitor_timestamp;
 };
 
-#ifdef WLAN_FEATURE_11BE_MLO
-/**
- * struct dlm_reject_mlo_ap_info - structure to hold mlo AP info in rejectlist
- * @mld_addr: AP mld address
- * @tried_links: bitmap of tried partner links combination
- * @tried_link_count: no of combination for bssid/assoc link specified in
- * reject_ap_info
- * @link_action: link combinations that need to avoided
- */
-struct dlm_reject_mlo_ap_info {
-	struct qdf_mac_addr mld_addr;
-	uint16_t tried_links[MAX_CONNECTION_TRIAL_PER_ASSOC_LINK];
-	uint8_t tried_link_count;
-	uint8_t link_action;
-};
-#endif
-
 /**
  * struct dlm_reject_ap - Structure of a node added to denylist manager
  * @node: Node of the entry
  * @bssid: Bssid of the AP entry.
- * @dlm_reject_mlo_ap_info: dlm reject ap info
  * @rssi_reject_params: Rssi reject params of the AP entry.
  * @bad_bssid_counter: It represent how many times data stall happened.
  * @ap_timestamp: AP timestamp.
@@ -166,9 +148,6 @@ struct dlm_reject_mlo_ap_info {
 struct dlm_reject_ap {
 	qdf_list_node_t node;
 	struct qdf_mac_addr bssid;
-#ifdef WLAN_FEATURE_11BE_MLO
-	struct dlm_reject_mlo_ap_info dlm_reject_mlo_ap_info;
-#endif
 	struct dlm_rssi_disallow_params rssi_reject_params;
 	uint8_t bad_bssid_counter;
 	struct dlm_reject_ap_timestamp ap_timestamp;
@@ -353,47 +332,4 @@ bool dlm_is_bssid_in_reject_list(struct wlan_objmgr_pdev *pdev,
  */
 int32_t
 dlm_get_rssi_denylist_threshold(struct wlan_objmgr_pdev *pdev);
-
-#ifdef WLAN_FEATURE_11BE_MLO
-/**
- * dlm_get_max_allowed_11be_failure() - Get max allowed 11BE connection
- * failure per AP
- * @pdev: pdev object
- *
- * This API will get the maximum allowed 11BE failure per AP value configured
- * via CFG_MAX_11BE_CON_FAIL_ALLOWED_PER_AP.
- *
- * Return: max allowed 11BE failure
- */
-uint8_t
-dlm_get_max_allowed_11be_failure(struct wlan_objmgr_pdev *pdev);
-
-/**
- * dlm_update_mlo_reject_ap_info: Update MLO info of reqjected candidate
- * @pdev: objmgr pdev
- * @vdev_id: vdev id
- * @ap_info: reject ap info
- *
- * This API updates the MLO info of rejected AP
- */
-void
-dlm_update_mlo_reject_ap_info(struct wlan_objmgr_pdev *pdev,
-			      uint8_t vdev_id,
-			      struct reject_ap_info *ap_info);
-
-#endif
-
-/**
- * dlm_get_connection_monitor_time() - Get the connection monitor time post
- * connection success.
- * @pdev: pdev object
- *
- * This API will get the connection monitor time configured via
- * CFG_MONITOR_CON_STABILITY_POST_CONNECTION_TIME.
- *
- * Return: connection monitor time value
- */
-qdf_time_t
-dlm_get_connection_monitor_time(struct wlan_objmgr_pdev *pdev);
-
 #endif

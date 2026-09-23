@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/delay.h>
@@ -18,8 +18,6 @@
 #include "cam_cdm.h"
 #include "cam_cdm_soc.h"
 #include "cam_cdm_core_common.h"
-#include "cam_vmrm_interface.h"
-#include "cam_mem_mgr_api.h"
 
 int cam_cdm_util_cpas_start(struct cam_hw_info *cdm_hw)
 {
@@ -357,11 +355,12 @@ static int cam_cdm_stream_handle_init(void *hw_priv, bool init)
 int cam_cdm_stream_ops_internal(void *hw_priv,
 	void *start_args, bool operation)
 {
-	struct cam_hw_info    *cdm_hw = hw_priv;
-	struct cam_cdm        *core;
-	int                    rc = -EPERM, client_idx;
+	struct cam_hw_info *cdm_hw = hw_priv;
+	struct cam_cdm *core = NULL;
+	int rc = -EPERM;
+	int client_idx;
 	struct cam_cdm_client *client;
-	uint32_t              *handle = start_args;
+	uint32_t *handle = start_args;
 
 	if (!hw_priv)
 		return -EINVAL;
@@ -554,7 +553,7 @@ int cam_cdm_process_cmd(void *hw_priv,
 	uint32_t cmd, void *cmd_args, uint32_t arg_size)
 {
 	struct cam_hw_info *cdm_hw = hw_priv;
-	struct cam_cdm *core;
+	struct cam_cdm *core = NULL;
 	int rc = -EINVAL;
 
 	if ((!hw_priv) || (!cmd_args) ||
@@ -668,26 +667,13 @@ int cam_cdm_process_cmd(void *hw_priv,
 			data->identifier, core->index);
 			break;
 		}
-		core->clients[idx] = CAM_MEM_ZALLOC(sizeof(struct cam_cdm_client),
+		core->clients[idx] = kzalloc(sizeof(struct cam_cdm_client),
 			GFP_KERNEL);
 		if (!core->clients[idx]) {
 			mutex_unlock(&cdm_hw->hw_mutex);
 			rc = -ENOMEM;
 			break;
 		}
-
-		/* Acquire ownership */
-		if ((core->id != CAM_CDM_VIRTUAL) && (core->num_active_clients == 0)) {
-			rc = cam_vmrm_soc_acquire_resources(cdm_hw->soc_info.hw_id);
-			if (rc) {
-				CAM_ERR(CAM_ISP, "CDM[%u] acquire ownership failed",
-					cdm_hw->soc_info.index);
-				CAM_MEM_FREE(core->clients[idx]);
-				mutex_unlock(&cdm_hw->hw_mutex);
-				break;
-			}
-		}
-
 		core->num_active_clients++;
 		mutex_unlock(&cdm_hw->hw_mutex);
 
@@ -704,7 +690,7 @@ int cam_cdm_process_cmd(void *hw_priv,
 			if (!data->ops) {
 				mutex_destroy(&client->lock);
 				mutex_lock(&cdm_hw->hw_mutex);
-				CAM_MEM_FREE(core->clients[idx]);
+				kfree(core->clients[idx]);
 				core->clients[idx] = NULL;
 				core->num_active_clients--;
 				mutex_unlock(
@@ -714,9 +700,7 @@ int cam_cdm_process_cmd(void *hw_priv,
 				break;
 			}
 		} else {
-			mutex_lock(&cdm_hw->hw_mutex);
 			data->cdm_version = core->version;
-			mutex_unlock(&cdm_hw->hw_mutex);
 		}
 
 		cam_cdm_get_client_refcount(client);
@@ -768,7 +752,7 @@ int cam_cdm_process_cmd(void *hw_priv,
 		core->clients[idx] = NULL;
 		mutex_unlock(&client->lock);
 		mutex_destroy(&client->lock);
-		CAM_MEM_FREE(client);
+		kfree(client);
 		if (core->num_active_clients)
 			core->num_active_clients--;
 		else
@@ -780,17 +764,6 @@ int cam_cdm_process_cmd(void *hw_priv,
 				core->name, core->id);
 			core->cdm_status = 0;
 		}
-
-		if ((core->id != CAM_CDM_VIRTUAL) && (core->num_active_clients == 0)) {
-			rc = cam_vmrm_soc_release_resources(cdm_hw->soc_info.hw_id);
-			if (rc) {
-				CAM_ERR(CAM_ISP, "CDM[%u] vmrm soc release resources failed",
-					cdm_hw->soc_info.index);
-				mutex_unlock(&cdm_hw->hw_mutex);
-				break;
-			}
-		}
-
 		mutex_unlock(&cdm_hw->hw_mutex);
 		rc = 0;
 		break;

@@ -103,7 +103,6 @@ enum pmo_beacon_dtim_policy {
  *  before the entering the Active state
  * @pmo_sta_ps_param_ito_repeat_count: Indicates ito repeated count
  * @pmo_sta_ps_param_spec_wake_interval: OPM speculative wake interval
- * @pmo_sta_ps_param_opm_level: OPM power save level
  */
 enum pmo_sta_powersave_param {
 	pmo_sta_ps_param_rx_wake_policy = 0,
@@ -116,7 +115,6 @@ enum pmo_sta_powersave_param {
 	pmo_sta_ps_param_advanced_power_max_tx_before_wake = 7,
 	pmo_sta_ps_param_ito_repeat_count = 8,
 	pmo_sta_ps_param_spec_wake_interval = 9,
-	pmo_sta_ps_param_opm_level = 10,
 };
 
 /**
@@ -172,13 +170,11 @@ enum pmo_wow_enable_type {
  * @PMO_PS_ADVANCED_POWER_SAVE_DISABLE: Disable advanced power save mode
  * @PMO_PS_ADVANCED_POWER_SAVE_ENABLE: Enable power save mode
  * @PMO_PS_ADVANCED_POWER_SAVE_USER_DEFINED: User Defined
- * @PMO_PS_ADVANCED_POWER_SAVE_LATENCY_BASED : Latency Enabled
  */
 enum powersave_mode {
 	PMO_PS_ADVANCED_POWER_SAVE_DISABLE = 0,
 	PMO_PS_ADVANCED_POWER_SAVE_ENABLE = 1,
-	PMO_PS_ADVANCED_POWER_SAVE_USER_DEFINED = 2,
-	PMO_PS_ADVANCED_POWER_SAVE_LATENCY_BASED = 3
+	PMO_PS_ADVANCED_POWER_SAVE_USER_DEFINED = 2
 };
 
 /**
@@ -368,7 +364,6 @@ enum pmo_page_fault_action {
  * @ap_arpns_support: true if psoc supports arp ns for ap mode
  * @d0_wow_supported: true if psoc supports D0 wow command
  * @ra_ratelimit_enable: true when ra filtering ins eanbled else false
- * @ra_priority_enable: true when ra priority ins eanbled else false
  * @ra_ratelimit_interval: ra packets interval
  * @magic_ptrn_enable: true when magic pattern is enabled else false
  * @deauth_enable: true when wake up on deauth is enabled else false
@@ -376,8 +371,6 @@ enum pmo_page_fault_action {
  * @lpass_enable: true when lpass is enabled else false
  * @max_ps_poll: max power save poll
  * @sta_dynamic_dtim: station dynamic DTIM value
- * @sta_teles_dtim: station telescopic DTIM value
- * @min_teles_dtim: minimum telescopic DTIM level
  * @sta_mod_dtim: station modulated DTIM value
  * @sta_max_li_mod_dtim: station max listen interval DTIM value
  * @sta_forced_dtim: station forced DTIM value
@@ -416,12 +409,8 @@ enum pmo_page_fault_action {
  * @ito_repeat_count: Indicates ito repeated count
  * @is_mod_dtim_on_sys_suspend_enabled: true when mod dtim is enabled for
  * system suspend wow else false
- * @is_teles_dtim_only_on_sys_suspend_enabled: true when tele dtim is enable
- *  for system suspend wow, false when tele dtim is enable for system suspend
- *  or run time PM.
  * @is_bus_suspend_enabled_in_sap_mode: Can bus suspend in SoftAP mode
  * @is_bus_suspend_enabled_in_go_mode: Can bus suspend in P2P GO mode
- * @wow_suspend_type: What wow suspend type is currently happening
  * @enable_gpio_wakeup: enable gpio wakeup
  * @gpio_wakeup_pin: gpio wakeup pin
  * @gpio_wakeup_mode: gpio wakeup mode
@@ -454,7 +443,6 @@ struct pmo_psoc_cfg {
 	bool ap_arpns_support;
 	bool d0_wow_supported;
 	bool ra_ratelimit_enable;
-	bool ra_priority_enable;
 #ifdef FEATURE_WLAN_RA_FILTERING
 	uint16_t ra_ratelimit_interval;
 #endif
@@ -464,8 +452,6 @@ struct pmo_psoc_cfg {
 	bool lpass_enable;
 	uint8_t max_ps_poll;
 	uint8_t sta_dynamic_dtim;
-	uint8_t sta_teles_dtim;
-	uint8_t min_teles_dtim;
 	uint8_t sta_mod_dtim;
 	uint8_t sta_max_li_mod_dtim;
 	bool sta_forced_dtim;
@@ -508,10 +494,8 @@ struct pmo_psoc_cfg {
 	enum active_apf_mode active_mc_bc_apf_mode;
 	uint8_t ito_repeat_count;
 	bool is_mod_dtim_on_sys_suspend_enabled;
-	bool is_teles_dtim_only_on_sys_suspend_enabled;
 	bool is_bus_suspend_enabled_in_sap_mode;
 	bool is_bus_suspend_enabled_in_go_mode;
-	enum qdf_suspend_type wow_suspend_type;
 #ifdef WLAN_ENABLE_GPIO_WAKEUP
 	bool enable_gpio_wakeup;
 	uint32_t gpio_wakeup_pin;
@@ -573,13 +557,11 @@ struct pmo_igmp_offload_req {
  * struct pmo_ps_params - structure to hold OPM params
  *
  * @opm_mode: OPM mode
- * @ps_opm_level: power save opm level
  * @ps_ito: power save inactivity timeout
  * @spec_wake: OPM speculative wake interval
  */
 struct pmo_ps_params {
 	enum powersave_mode opm_mode;
-	uint8_t ps_opm_level;
 	uint16_t ps_ito;
 	uint16_t spec_wake;
 };

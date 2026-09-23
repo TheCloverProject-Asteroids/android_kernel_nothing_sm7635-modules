@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2019-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_VFE_TOP_COMMON_H_
@@ -16,13 +16,6 @@
 #define CAM_VFE_TOP_MAX_REG_DUMP_ENTRIES 70
 
 #define CAM_VFE_TOP_MAX_LUT_DUMP_ENTRIES 6
-
-#define CAM_VFE_TOP_LOG_BUF_LEN          1024
-
-#define CAM_VFE_TOP_DEBUG_VEC_ERR_REGS               2
-#define CAM_VFE_TOP_DEBUG_VEC_FIFO_SIZE              4
-#define CAM_VFE_TOP_DEBUG_TIMESTAMP_IRQ_SEL_SHIFT    4
-#define CAM_VFE_TOP_DEBUG_TIMESTAMP_IRQ_CLEAR_SHIFT  6
 
 struct cam_vfe_top_priv_common {
 	struct cam_isp_resource_node    mux_rsrc[CAM_VFE_TOP_MUX_MAX];
@@ -45,7 +38,6 @@ struct cam_vfe_top_priv_common {
 	unsigned long                   applied_clk_rate;
 	unsigned long                   req_clk_rate[CAM_VFE_TOP_MUX_MAX];
 	bool                            skip_data_rst_on_stop;
-	bool                            prev_drv_config_en;
 
 };
 

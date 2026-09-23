@@ -561,17 +561,6 @@ static void hal_target_based_configure(struct hal_soc *hal)
 		hal_wcn6450_attach(hal);
 	break;
 #endif
-#if defined(QCA_WIFI_QCA5424)
-	case TARGET_TYPE_QCA5424:
-		hal->use_register_windowing = true;
-		/*
-		 * Static window map  is enabled for qcn6432 to use 2mb bar
-		 * size and use multiple windows to write into registers.
-		 */
-		hal->static_window_map = true;
-		hal_qca5424_attach(hal);
-		break;
-#endif
 	default:
 	break;
 	}
@@ -1168,7 +1157,7 @@ void hal_record_suspend_write(uint8_t ring_id, uint32_t value, uint32_t count)
 }
 #endif
 
-#if defined(QCA_WIFI_QCA6750) || defined(QCA_WIFI_WCN7750)
+#ifdef QCA_WIFI_QCA6750
 void hal_delayed_reg_write(struct hal_soc *hal_soc,
 			   struct hal_srng *srng,
 			   void __iomem *addr,
@@ -1788,6 +1777,10 @@ void *hal_srng_setup_idx(void *hal_soc, int ring_type, int ring_num, int mac_id,
 		srng->hwreg_base[i] = dev_base_addr + ring_config->reg_start[i]
 			+ (ring_num * ring_config->reg_size[i]);
 	}
+
+	/* Zero out the entire ring memory */
+	qdf_mem_zero(srng->ring_base_vaddr, (srng->entry_size *
+		srng->num_entries) << 2);
 
 	srng->flags = ring_params->flags;
 

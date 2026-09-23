@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -112,6 +111,13 @@ target_if_tdls_update_fw_state(struct wlan_objmgr_psoc *psoc,
 }
 
 QDF_STATUS
+target_if_tdls_update_peer_state(struct wlan_objmgr_psoc *psoc,
+				 struct tdls_peer_update_state *peer_params)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+QDF_STATUS
 target_if_tdls_set_offchan_mode(struct wlan_objmgr_psoc *psoc,
 				struct tdls_channel_switch_params *params)
 {
@@ -168,6 +174,7 @@ target_if_tdls_register_tx_ops(struct wlan_lmac_if_tx_ops *tx_ops)
 	tdls_txops = &tx_ops->tdls_tx_ops;
 
 	tdls_txops->update_fw_state = target_if_tdls_update_fw_state;
+	tdls_txops->update_peer_state = target_if_tdls_update_peer_state;
 	tdls_txops->set_offchan_mode = target_if_tdls_set_offchan_mode;
 	tdls_txops->tdls_reg_ev_handler = target_if_tdls_register_event_handler;
 	tdls_txops->tdls_unreg_ev_handler =

@@ -63,10 +63,6 @@
 #define DP_RX_MON_SNAP_SIZE 4
 #define DP_RX_MON_DECAP_HDR_SIZE 14
 
-#define DP_RX_MON_FCS_LEN 4
-#define DP_RX_MON_QOS_LEN 2
-#define DP_RX_MON_DSTODS_MASK 0xff00
-#define DP_RX_MON_DSTODS_BITS 8
 
 /**
  * enum dp_mon_reap_status - monitor status ring ppdu status
@@ -122,13 +118,12 @@ QDF_STATUS dp_rx_populate_cbf_hdr(struct dp_soc *soc,
  *
  * @pdev: DP pdev handle
  * @mon_status_srng: Monitor status SRNG
- * @mac_id: MAC ID
  *
  * Return: enum dp_mon_reap_status
  */
 enum dp_mon_reap_status
 dp_rx_mon_handle_status_buf_done(struct dp_pdev *pdev,
-				 void *mon_status_srng, uint8_t mac_id);
+				 void *mon_status_srng);
 
 #ifdef QCA_SUPPORT_FULL_MON
 
@@ -513,14 +508,13 @@ dp_rx_process_mcopy_mode(struct dp_soc *soc, struct dp_pdev *pdev,
  * @pdev: Datapath PDEV handle
  * @ppdu_info: Structure for rx ppdu info
  * @nbuf: Qdf nbuf abstraction for linux skb
- * @mac_id: MAC ID
  *
  * Return: 0 on success, 1 on failure
  */
 int
 dp_rx_handle_smart_mesh_mode(struct dp_soc *soc, struct dp_pdev *pdev,
 			      struct hal_rx_ppdu_info *ppdu_info,
-			      qdf_nbuf_t nbuf, uint8_t mac_id);
+			      qdf_nbuf_t nbuf);
 
 /**
  * dp_rx_nbuf_prepare() - prepare RX nbuf
@@ -825,9 +819,6 @@ dp_mon_rx_stats_update_rssi_dbm_params(struct dp_mon_pdev *mon_pdev,
 				       struct hal_rx_ppdu_info *ppdu_info);
 
 #ifdef WLAN_FEATURE_LOCAL_PKT_CAPTURE
-/* RX header dma length - 256 bytes */
-#define LPC_RX_HDR_DMA_LENGTH 256
-
 /**
  * dp_rx_handle_local_pkt_capture() - Rx handle for local packet capture
  * @pdev: Datapath PDEV handle
@@ -850,15 +841,4 @@ dp_rx_handle_local_pkt_capture(struct dp_pdev *pdev,
 	return 0;
 }
 #endif
-
-#ifdef QCA_SUPPORT_MON_FCS_CAP_DBG
-void dp_rx_mon_fcs_cap_debug(struct dp_mon_pdev *mon_pdev,
-			     qdf_nbuf_t mpdu);
-#else
-static inline void
-dp_rx_mon_fcs_cap_debug(struct dp_mon_pdev *mon_pdev,
-			qdf_nbuf_t mpdu)
-{
-}
-#endif /*QCA_SUPPORT_MON_FCS_CAP_DBG */
 #endif /* _DP_RX_MON_H_ */

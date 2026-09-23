@@ -87,9 +87,6 @@ typedef void *hif_handle_t;
 #define HIF_TYPE_PEACH 32
 #define HIF_TYPE_WCN6450 33
 #define HIF_TYPE_QCN6432 34
-#define HIF_TYPE_WCN7750 35
-#define HIF_TYPE_QCA5424 36
-#define HIF_TYPE_QCC2072 37
 
 #define DMA_COHERENT_MASK_DEFAULT   37
 
@@ -782,14 +779,7 @@ static inline void hif_event_history_deinit(struct hif_opaque_softc *hif_ctx,
 }
 #endif /* WLAN_FEATURE_DP_EVENT_HISTORY */
 
-#ifndef HIF_SDIO
 void hif_display_ctrl_traffic_pipes_state(struct hif_opaque_softc *hif_ctx);
-#else
-static inline void
-hif_display_ctrl_traffic_pipes_state(struct hif_opaque_softc *hif_ctx)
-{
-}
-#endif
 
 #if defined(HIF_CONFIG_SLUB_DEBUG_ON) || defined(HIF_CE_DEBUG_DATA_BUF) ||\
 	defined(RECORD_DP_CE_EVTS)
@@ -2411,16 +2401,7 @@ QDF_STATUS hif_try_complete_dp_tasks(struct hif_opaque_softc *hif_ctx);
 
 #if defined(HIF_IPCI) && defined(FEATURE_HAL_DELAYED_REG_WRITE)
 QDF_STATUS hif_try_prevent_ep_vote_access(struct hif_opaque_softc *hif_ctx);
-
-/**
- * hif_set_ep_intermediate_vote_access() - Set intermediate EP vote access
- * @hif_ctx: opaque softc handle
- *
- * Return: QDF_STATUS of operation
- */
-QDF_STATUS
-hif_set_ep_intermediate_vote_access(struct hif_opaque_softc *hif_ctx);
-
+void hif_set_ep_intermediate_vote_access(struct hif_opaque_softc *hif_ctx);
 void hif_allow_ep_vote_access(struct hif_opaque_softc *hif_ctx);
 void hif_set_ep_vote_access(struct hif_opaque_softc *hif_ctx,
 			    uint8_t type, uint8_t access);
@@ -2433,10 +2414,9 @@ hif_try_prevent_ep_vote_access(struct hif_opaque_softc *hif_ctx)
 	return QDF_STATUS_SUCCESS;
 }
 
-static inline QDF_STATUS
+static inline void
 hif_set_ep_intermediate_vote_access(struct hif_opaque_softc *hif_ctx)
 {
-	return QDF_STATUS_SUCCESS;
 }
 
 static inline void
@@ -2486,25 +2466,10 @@ void hif_srng_init_phase(struct hif_opaque_softc *hif_ctx,
  * Return:  None
  */
 void hif_shutdown_notifier_cb(void *ctx);
-
-/**
- * hif_target_recovery_in_progress - Return true if target is in recovery
- *				     in the event of firmware crash.
- * @hif_ctx: hif handle
- *
- * Return:  True if target recovery is in progress else false
- */
-bool hif_target_recovery_in_progress(struct hif_opaque_softc *hif_ctx);
 #else
 static inline
 void hif_shutdown_notifier_cb(void *ctx)
 {
-}
-
-static inline bool
-hif_target_recovery_in_progress(struct hif_opaque_softc *hif_ctx)
-{
-	return false;
 }
 #endif /* HIF_IPCI */
 
@@ -2775,19 +2740,16 @@ static inline int hif_system_pm_state_check(struct hif_opaque_softc *hif)
  * @scn: hif handle
  * @grp_intr_bitmask: grp intrs for which perf affinity should be
  *  applied
- * @cpumask: cpu mask to which grp intrs should be affined
  * @perf: affine to perf or non-perf cluster
  *
  * Return: None
  */
 void hif_set_grp_intr_affinity(struct hif_opaque_softc *scn,
-			       uint32_t grp_intr_bitmask,
-			       uint32_t cpumask, bool perf);
+			       uint32_t grp_intr_bitmask, bool perf);
 #else
 static inline
 void hif_set_grp_intr_affinity(struct hif_opaque_softc *scn,
-			       uint32_t grp_intr_bitmask,
-			       uint32_t cpumask, bool perf)
+			       uint32_t grp_intr_bitmask, bool perf)
 {
 }
 #endif
@@ -2992,14 +2954,6 @@ hif_affinity_mgr_set_ce_irq_affinity(struct hif_softc *scn, uint32_t irq,
  * Return: None
  */
 void hif_affinity_mgr_affine_irq(struct hif_softc *scn);
-
-/**
- * hif_affinity_mgr_supported() - checks for affinity mgr support
- * @hif_ctx: hif opaque handle
- *
- * Return: true if affinity mgr supported else return flase
- */
-bool hif_affinity_mgr_supported(struct hif_opaque_softc *hif_ctx);
 #else
 static inline void
 hif_affinity_mgr_init_ce_irq(struct hif_softc *scn, int id, int irq)
@@ -3031,12 +2985,6 @@ static inline
 void hif_affinity_mgr_affine_irq(struct hif_softc *scn)
 {
 }
-
-static inline bool
-hif_affinity_mgr_supported(struct hif_opaque_softc *hif_ctx)
-{
-	return false;
-}
 #endif
 
 /**
@@ -3067,15 +3015,4 @@ hif_flush_delayed_reg_write_work(struct hif_softc *scn)
 }
 #endif
 void hif_ce_print_ring_stats(struct hif_opaque_softc *hif_ctx);
-
-#ifdef WLAN_DP_LOAD_BALANCE_SUPPORT
-void hif_set_load_balance_enabled_flag(struct hif_opaque_softc *hif_ctx);
-void hif_get_wlan_rx_time_stats(struct hif_opaque_softc *hif_ctx,
-				uint64_t *wlan_irq_time,
-				uint64_t *wlan_ksoftirqd_time);
-void hif_check_and_apply_irq_affinity(struct hif_opaque_softc *hif_ctx,
-				      uint8_t grp_id, uint32_t cpu_id);
-#endif
-QDF_STATUS hif_bus_get_device_handle(struct hif_opaque_softc *hif_ctx,
-				     void **handle);
 #endif /* _HIF_H_ */

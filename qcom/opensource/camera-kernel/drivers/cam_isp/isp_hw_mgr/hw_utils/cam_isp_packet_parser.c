@@ -157,9 +157,7 @@ static int cam_isp_update_dual_config(
 	uint32_t                                    ports_plane_idx;
 	size_t                                      len = 0, remain_len = 0;
 	uint32_t                                   *cpu_addr;
-	uint32_t                                   *cpu_addr_local = NULL;
 	uint32_t                                    i, j;
-	size_t                                      packet_size = 0;
 
 	CAM_DBG(CAM_ISP, "cmd des size %d, length: %d",
 		cmd_desc->size, cmd_desc->length);
@@ -173,37 +171,20 @@ static int cam_isp_update_dual_config(
 		(cmd_desc->offset >=
 		(len - sizeof(struct cam_isp_dual_config)))) {
 		CAM_ERR(CAM_ISP, "not enough buffer provided");
-		rc = -EINVAL;
-		goto put_ref;
+		cam_mem_put_cpu_buf(cmd_desc->mem_handle);
+		return -EINVAL;
 	}
-
 	remain_len = len - cmd_desc->offset;
 	cpu_addr += (cmd_desc->offset / 4);
+	dual_config = (struct cam_isp_dual_config *)cpu_addr;
 
-	packet_size = cmd_desc->length;
-	if (packet_size <= remain_len) {
-		rc = cam_common_mem_kdup((void **)&cpu_addr_local,
-			cpu_addr, packet_size);
-		if (rc) {
-			CAM_ERR(CAM_ISP, "Alloc and copy cmd desc fail");
-			goto put_ref;
-		}
-	} else {
-		CAM_ERR(CAM_ISP, "Invalid packet header size %u",
-			packet_size);
-		rc = -EINVAL;
-		goto put_ref;
-	}
-
-	dual_config = (struct cam_isp_dual_config *)cpu_addr_local;
 	if ((dual_config->num_ports *
 		sizeof(struct cam_isp_dual_stripe_config)) >
 		(remain_len - offsetof(struct cam_isp_dual_config, stripes))) {
 		CAM_ERR(CAM_ISP, "not enough buffer for all the dual configs");
-		rc = -EINVAL;
-		goto end;
+		cam_mem_put_cpu_buf(cmd_desc->mem_handle);
+		return -EINVAL;
 	}
-
 	for (i = 0; i < dual_config->num_ports; i++) {
 
 		if (i >= (out_max & 0xFF)) {
@@ -257,8 +238,6 @@ static int cam_isp_update_dual_config(
 	}
 
 end:
-	cam_common_mem_free(cpu_addr_local);
-put_ref:
 	cam_mem_put_cpu_buf(cmd_desc->mem_handle);
 	return rc;
 }
@@ -830,9 +809,9 @@ static int cam_isp_io_buf_get_entries_util(
 	}
 
 	if (buf_info->fill_fence) {
-		if (io_cfg->direction == CAM_BUF_OUTPUT && (buf_info->prepare->num_out_map_entries <
-			buf_info->prepare->max_out_map_entries)) {
-
+		if (io_cfg->direction == CAM_BUF_OUTPUT &&
+			(buf_info->prepare->num_out_map_entries <
+				 buf_info->prepare->max_out_map_entries)) {
 			num_entries = buf_info->prepare->num_out_map_entries;
 			map_entries = &buf_info->prepare->out_map_entries[num_entries];
 			buf_info->prepare->num_out_map_entries++;
@@ -852,14 +831,8 @@ static int cam_isp_io_buf_get_entries_util(
 				buf_info->prepare->num_out_map_entries);
 			return -EINVAL;
 		}
-
 		map_entries->resource_handle = io_cfg->resource_type;
 		map_entries->sync_id = io_cfg->fence;
-		map_entries->early_sync_id = io_cfg->early_fence;
-		if (buf_info->major_version == 3)
-			map_entries->hw_ctxt_id = io_cfg->flag;
-		else
-			map_entries->hw_ctxt_id = 0x0;
 	}
 
 	return 0;
@@ -907,11 +880,6 @@ static int cam_isp_add_io_buffers_util(
 		return -EINVAL;
 	}
 
-	if (res->res_state < CAM_ISP_RESOURCE_STATE_RESERVED) {
-		CAM_ERR(CAM_ISP, "Inactive res ID: 0x%x state: %d", res->res_id, res->res_state);
-		return -EINVAL;
-	}
-
 	if (res->res_id != io_cfg->resource_type) {
 		CAM_ERR(CAM_ISP, "err res id:%d io res id:%d",
 			res->res_id, io_cfg->resource_type);
@@ -920,23 +888,6 @@ static int cam_isp_add_io_buffers_util(
 
 	old_head_entry = list_first_entry_or_null(buf_info->prepare->buf_tracker,
 		struct cam_smmu_buffer_tracker, list);
-
-	secure_mode.cmd_type = secure_mode_cmd;
-	secure_mode.res = res;
-	secure_mode.data = (void *)&mode;
-	if (!res->hw_intf) {
-		CAM_ERR(CAM_ISP, "Invalid hw intf for res: 0x%x", res->res_id);
-		return -EINVAL;
-	}
-
-	rc = res->hw_intf->hw_ops.process_cmd(
-		res->hw_intf->hw_priv, secure_mode_cmd,
-		&secure_mode, sizeof(struct cam_isp_hw_get_cmd_update));
-	if (rc) {
-		CAM_ERR(CAM_ISP, "Get secure mode failed cmd_type %d res_id %d",
-			secure_mode_cmd, res->res_id);
-		return -EINVAL;
-	}
 
 	memset(io_addr, 0, sizeof(io_addr));
 	for (plane_id = 0; plane_id < CAM_PACKET_MAX_PLANES; plane_id++) {
@@ -1203,11 +1154,6 @@ int cam_isp_add_io_buffers(struct cam_isp_io_buf_info   *io_info)
 	major_version = io_info->major_version;
 
 	if (major_version == 3) {
-		if (max_out_res == 0) {
-			CAM_ERR(CAM_ISP, "Invalid max_out_res: 0");
-			return -EINVAL;
-		}
-
 		mc_cfg = vzalloc(sizeof(uint64_t) * CAM_ISP_MULTI_CTXT_MAX * (max_out_res));
 		if (!mc_cfg) {
 			CAM_ERR(CAM_ISP, "Memory allocation failed for MC cases");
@@ -1219,30 +1165,12 @@ int cam_isp_add_io_buffers(struct cam_isp_io_buf_info   *io_info)
 	for (i = 0; i < io_info->prepare->packet->num_io_configs; i++) {
 
 		if (major_version == 3) {
-			if ((io_cfg[i].flag < CAM_ISP_MULTI_CTXT0_MASK) ||
-				(io_cfg[i].flag > CAM_ISP_MULTI_CTXT2_MASK)) {
-				CAM_ERR(CAM_ISP, "Invalid hw context id: 0x%x for io cfg: %d",
-					io_cfg[i].flag, i);
-				rc = -EINVAL;
-				goto err;
-			}
-
 			ctxt_id = ffs(io_cfg[i].flag) - 1;
-			if (ctxt_id < 0 || ctxt_id >= CAM_ISP_MULTI_CTXT_MAX) {
+			if (ctxt_id < 0) {
 				CAM_ERR(CAM_ISP,
-						"Invalid ctxt_id %d (valid: 0-%d) req_id %llu resource_type:%d",
-						ctxt_id, CAM_ISP_MULTI_CTXT_MAX - 1,
-						io_info->prepare->packet->header.request_id,
-						io_cfg[i].resource_type);
-				rc = -EINVAL;
-				goto err;
-			}
-
-			/* Validate array bounds before access */
-			if (num_ports[ctxt_id] >= max_out_res) {
-				CAM_ERR(CAM_ISP,
-						"Port count %u exceeds max_out_res %u for ctxt_id %d",
-						num_ports[ctxt_id], max_out_res, ctxt_id);
+					"Invalid ctxt_id %d req_id %llu resource_type:%d",
+					ctxt_id, io_info->prepare->packet->header.request_id,
+					io_cfg[i].resource_type);
 				rc = -EINVAL;
 				goto err;
 			}
@@ -1282,7 +1210,6 @@ int cam_isp_add_io_buffers(struct cam_isp_io_buf_info   *io_info)
 		for (i = 0; i < CAM_ISP_MULTI_CTXT_MAX; i++) {
 			if (!num_ports[i])
 				continue;
-
 			rc = cam_isp_add_io_buffers_mc(mc_cfg, io_info, num_ports[i], i);
 			if (rc) {
 				CAM_ERR(CAM_ISP, "MC context[%u] failed for base[%d]",
@@ -1290,7 +1217,6 @@ int cam_isp_add_io_buffers(struct cam_isp_io_buf_info   *io_info)
 				goto err;
 			}
 		}
-
 		vfree(mc_cfg);
 	}
 
@@ -1330,9 +1256,7 @@ int cam_isp_add_io_buffers(struct cam_isp_io_buf_info   *io_info)
 
 	return rc;
 err:
-	if (mc_cfg)
-		vfree(mc_cfg);
-
+	vfree(mc_cfg);
 	return rc;
 }
 
@@ -1935,7 +1859,6 @@ int cam_isp_add_csid_reg_update(
 	bool                                  combine)
 {
 	int rc;
-	bool add_toggled_entry;
 	struct cam_isp_resource_node         *res;
 	uint32_t kmd_buf_remain_size, reg_update_size = 0;
 	struct cam_isp_csid_reg_update_args *rup_args = NULL;
@@ -1949,7 +1872,7 @@ int cam_isp_add_csid_reg_update(
 	}
 
 	rup_args = (struct cam_isp_csid_reg_update_args *)args;
-	add_toggled_entry = rup_args->add_toggled_mup_entry;
+
 	if (!rup_args->num_res) {
 		CAM_ERR(CAM_ISP, "No Res for Reg Update");
 		return -EINVAL;
@@ -1967,13 +1890,13 @@ int cam_isp_add_csid_reg_update(
 	kmd_buf_remain_size = kmd_buf_info->size -
 		(kmd_buf_info->used_bytes +
 		reg_update_size);
+
 	rup_args->cmd.used_bytes = 0;
 	rup_args->cmd.cmd_buf_addr = kmd_buf_info->cpu_addr +
 		kmd_buf_info->used_bytes/4 +
 		reg_update_size/4;
 	rup_args->cmd.size = kmd_buf_remain_size;
 	rup_args->reg_write = false;
-	rup_args->add_toggled_mup_entry = false;
 	res = rup_args->res[0];
 
 	rc = res->hw_intf->hw_ops.process_cmd(
@@ -1993,38 +1916,6 @@ int cam_isp_add_csid_reg_update(
 		cam_isp_update_hw_entry(CAM_ISP_COMMON_CFG_BL,
 			prepare, kmd_buf_info, reg_update_size,
 			combine);
-
-	if (add_toggled_entry) {
-		kmd_buf_remain_size = kmd_buf_info->size -
-			(kmd_buf_info->used_bytes + reg_update_size);
-		if (kmd_buf_info->size <= (kmd_buf_info->used_bytes +
-			reg_update_size)) {
-			CAM_WARN(CAM_ISP, "no free mem %u %u %u",
-				kmd_buf_info->size, kmd_buf_info->used_bytes +
-				reg_update_size);
-			return 0;
-		}
-		rup_args->cmd.used_bytes = 0;
-		rup_args->cmd.cmd_buf_addr = kmd_buf_info->cpu_addr +
-			kmd_buf_info->used_bytes/4 + reg_update_size/4;
-		rup_args->cmd.size = kmd_buf_remain_size;
-		rup_args->reg_write = false;
-		rup_args->add_toggled_mup_entry = true;
-		res = rup_args->res[0];
-		reg_update_size = 0;
-		rc = res->hw_intf->hw_ops.process_cmd(
-			res->hw_intf->hw_priv,
-			CAM_ISP_HW_CMD_GET_REG_UPDATE, rup_args,
-			sizeof(struct cam_isp_csid_reg_update_args));
-		if (!rc) {
-			reg_update_size += rup_args->cmd.used_bytes;
-			/* Update hw entries */
-			if (reg_update_size)
-				cam_isp_update_hw_entry(CAM_ISP_DEBUG_ENTRY,
-					prepare, kmd_buf_info, reg_update_size, false);
-		}
-	}
-
 	return 0;
 }
 

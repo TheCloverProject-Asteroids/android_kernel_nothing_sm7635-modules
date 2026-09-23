@@ -29,11 +29,8 @@ static int cam_tfe_csid_component_bind(struct device *dev,
 	struct cam_tfe_csid_hw_info    *csid_hw_data = NULL;
 	uint32_t                        csid_dev_idx = 0;
 	int                             rc = 0;
-	struct platform_device         *pdev = to_platform_device(dev);
-	struct timespec64               ts_start, ts_end;
-	long                            microsec = 0;
+	struct platform_device *pdev = to_platform_device(dev);
 
-	CAM_GET_TIMESTAMP(ts_start);
 	CAM_DBG(CAM_ISP, "probe called");
 
 	/* get tfe csid hw index */
@@ -55,13 +52,13 @@ static int cam_tfe_csid_component_bind(struct device *dev,
 		goto err;
 	}
 
-	csid_hw_info = CAM_MEM_ZALLOC(sizeof(struct cam_hw_info), GFP_KERNEL);
+	csid_hw_info = kzalloc(sizeof(struct cam_hw_info), GFP_KERNEL);
 	if (!csid_hw_info) {
 		rc = -ENOMEM;
 		goto free_hw_intf;
 	}
 
-	csid_dev = CAM_MEM_ZALLOC(sizeof(struct cam_tfe_csid_hw), GFP_KERNEL);
+	csid_dev = kzalloc(sizeof(struct cam_tfe_csid_hw), GFP_KERNEL);
 	if (!csid_dev) {
 		rc = -ENOMEM;
 		goto free_hw_info;
@@ -103,17 +100,14 @@ static int cam_tfe_csid_component_bind(struct device *dev,
 	else
 		goto free_dev;
 
-	CAM_GET_TIMESTAMP(ts_end);
-	CAM_GET_TIMESTAMP_DIFF_IN_MICRO(ts_start, ts_end, microsec);
-	cam_record_bind_latency(pdev->name, microsec);
 	return 0;
 
 free_dev:
-	CAM_MEM_FREE(csid_dev);
+	kfree(csid_dev);
 free_hw_info:
-	CAM_MEM_FREE(csid_hw_info);
+	kfree(csid_hw_info);
 free_hw_intf:
-	CAM_MEM_FREE(csid_hw_intf);
+	kfree(csid_hw_intf);
 err:
 	return rc;
 }
@@ -142,9 +136,9 @@ void cam_tfe_csid_component_unbind(struct device *dev,
 	cam_tfe_csid_hw_deinit(csid_dev);
 
 	/*release the csid device memory */
-	CAM_MEM_FREE(csid_dev);
-	CAM_MEM_FREE(csid_hw_info);
-	CAM_MEM_FREE(csid_hw_intf);
+	kfree(csid_dev);
+	kfree(csid_hw_info);
+	kfree(csid_hw_intf);
 }
 
 const static struct component_ops cam_tfe_csid_component_ops = {

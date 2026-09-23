@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_CPAS_HW_H_
@@ -68,9 +68,6 @@
 #define CAM_CPAS_DUMP_NUM_WORDS_VOTE_TYEP_HLOS    2
 #define CAM_CPAS_DUMP_NUM_WORDS_RT_WR_NIUS        2
 #define CAM_CPAS_DUMP_NUM_WORDS_VCD_CURR_LVL      2
-
-/* MAX number of qchannel*/
-#define CAM_CAMNOC_QCHANNEL_MAX      3
 
 /**
  * enum cam_camnoc_domain_type - Enum for different camnoc domains
@@ -150,36 +147,6 @@ struct cam_cpas_axi_bw_info {
 };
 
 /**
- * struct cam_cpas_axi_consolidate_per_path_bw_vote - Internal per path bandwidth vote after
- *                                                    consolidation. Consolidation is agnostic
- *                                                    of actual vote that will be done (HLOS or DRV)
- *
- * @transac_type:            Transaction type on the path (read/write)
- * @path_data_type:          Path for which vote is given (video, display, rdi)
- * @drv_vote:                Consolidated BW values for high and low level vote.
- *                           Low level also contains VOTE_LEVEL_NONE for backward
- *                           compatibility.
- */
-struct cam_cpas_axi_consolidate_per_path_bw_vote {
-	uint32_t                      transac_type;
-	uint32_t                      path_data_type;
-	struct cam_cpas_drv_vote      drv_vote;
-
-};
-
-/**
- * struct cam_axi_consolidate_vote : Consolidated AXI vote
- *
- * @num_paths: Number of paths on which BW vote is to be applied after consolidation
- * @axi_path: Per path consolidate BW vote info
- *
- */
-struct cam_axi_consolidate_vote {
-	uint32_t num_paths;
-	struct cam_cpas_axi_consolidate_per_path_bw_vote axi_path[CAM_CPAS_MAX_PATHS_PER_CLIENT];
-};
-
-/**
  * struct cam_cpas_kobj_map: wrapper structure for base kobject
  *                               and cam cpas private soc info
  * @base_kobj: kernel object for camera sysfs
@@ -253,8 +220,7 @@ struct cam_cpas_reg {
  * @tree_node_valid: Indicates whether tree node has at least one valid node
  * @is_drv_dyn: Indicates whether this client is DRV dynamic voting client
  * @ahb_level: Determined/Applied ahb level for the client
- * @axi_level: Determined/Applied axi level for the client
- * @axi_vote: Determined/Applied consolidate axi vote for the client
+ * @axi_vote: Determined/Applied axi vote for the client
  * @axi_port: Client's parent axi port
  * @tree_node: All granular path voting nodes for the client
  *
@@ -266,8 +232,7 @@ struct cam_cpas_client {
 	bool tree_node_valid;
 	bool is_drv_dyn;
 	enum cam_vote_level ahb_level;
-	enum cam_vote_level axi_level;
-	struct cam_axi_consolidate_vote cons_axi_vote;
+	struct cam_axi_vote axi_vote;
 	struct cam_cpas_axi_port *axi_port;
 	struct cam_cpas_tree_node *tree_node[CAM_CPAS_PATH_DATA_MAX]
 		[CAM_CPAS_TRANSACTION_MAX];
@@ -432,7 +397,6 @@ struct cam_cpas_monitor {
  * @dentry: debugfs file entry
  * @ahb_bus_scaling_disable: ahb scaling based on src clk corner for bus
  * @applied_camnoc_axi_rate: applied camnoc axi clock rate through sw, hw clients
- * @applied_hlos_rt_camnoc_axi_rate: applied hlos RT camnoc axi clock rate
  * @monitor_head: Monitor array head
  * @monitor_entries: cpas monitor array
  * @camnoc_info: array of camnoc info pointer
@@ -447,9 +411,6 @@ struct cam_cpas_monitor {
  * @smmu_fault_handled: Handled address decode error, on fault at SMMU
  * @force_hlos_drv: Whether to force disable DRV voting
  * @force_cesta_sw_client: Whether to force voting through cesta sw client
- * @force_core_secure: Whether to force ife and cdm core to secure access mode
- * @hlos_axi_floor_lvl: Determined hlos axi floor level across all clients
- * @hlos_axi_clk_lvl: Determined/applied hlos axi clk level
  */
 struct cam_cpas {
 	struct cam_cpas_hw_caps hw_caps;
@@ -474,7 +435,6 @@ struct cam_cpas {
 	struct dentry *dentry;
 	bool ahb_bus_scaling_disable;
 	struct cam_soc_util_clk_rates applied_camnoc_axi_rate;
-	unsigned long applied_hlos_rt_camnoc_axi_rate;
 	atomic64_t  monitor_head;
 	struct cam_cpas_monitor monitor_entries[CAM_CPAS_MONITOR_MAX_ENTRIES];
 	void *camnoc_info[CAM_CAMNOC_HW_TYPE_MAX];
@@ -488,9 +448,6 @@ struct cam_cpas {
 	bool smmu_fault_handled;
 	bool force_hlos_drv;
 	bool force_cesta_sw_client;
-	bool force_core_secure;
-	enum cam_vote_level hlos_axi_floor_lvl;
-	enum cam_vote_level hlos_axi_bw_calc_lvl;
 };
 
 int cam_camsstop_get_internal_ops(struct cam_cpas_internal_ops *internal_ops);

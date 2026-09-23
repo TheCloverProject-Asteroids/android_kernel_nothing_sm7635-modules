@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _WCD939X_INTERNAL_H
@@ -153,7 +153,6 @@ struct wcd939x_priv {
 	/* wcd to swr dmic notification */
 	bool notify_swr_dmic;
 	struct blocking_notifier_head notifier;
-	struct proc_dir_entry *wcd939x_proc_entry;
 };
 
 struct wcd939x_micbias_setting {
@@ -342,7 +341,6 @@ enum {
 	WCD939X_NUM_IRQS,
 };
 
-extern int wcd_init_mb_regulator(struct device *dev);
 extern struct wcd939x_mbhc *wcd939x_soc_get_mbhc(
 				struct snd_soc_component *component);
 extern void wcd939x_disable_bcs_before_slow_insert(
@@ -353,8 +351,4 @@ extern int wcd939x_mbhc_micb_adjust_voltage(struct snd_soc_component *component,
 extern int wcd939x_get_micb_vout_ctl_val(u32 micb_mv);
 extern int wcd939x_micbias_control(struct snd_soc_component *component,
 			int micb_num, int req, bool is_dapm);
-
-extern int wcd939x_slave_register_notify(struct swr_device *pdev,
-			int (*rst_notify)(void *), void *handle);
-
 #endif /* _WCD939X_INTERNAL_H */

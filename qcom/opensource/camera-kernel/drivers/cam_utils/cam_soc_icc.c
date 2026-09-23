@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2019-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/interconnect.h>
@@ -12,11 +12,7 @@
 static inline struct icc_path *cam_wrapper_icc_get(struct device *dev,
 	const int src_id, const int dst_id, const char *name, bool use_path_name)
 {
-	struct timespec64 ts1, ts2;
-	long usec = 0;
-	struct icc_path *temp;
-
-	if (cam_vmrm_proxy_icc_voting_enable() || (debug_bypass_drivers & CAM_BYPASS_ICC)) {
+	if (debug_bypass_drivers & CAM_BYPASS_ICC) {
 		CAM_WARN(CAM_UTIL, "Bypass icc get for %d %d", src_id, dst_id);
 		return (struct icc_path *)BYPASS_VALUE;
 	}
@@ -26,61 +22,34 @@ static inline struct icc_path *cam_wrapper_icc_get(struct device *dev,
 
 static inline void cam_wrapper_icc_put(struct icc_path *path)
 {
-	struct timespec64 ts1, ts2;
-	long usec = 0;
-
-	if (cam_vmrm_proxy_icc_voting_enable() || (debug_bypass_drivers & CAM_BYPASS_ICC)) {
+	if (debug_bypass_drivers & CAM_BYPASS_ICC) {
 		CAM_WARN(CAM_UTIL, "Bypass icc put");
 		return;
 	}
 
-	CAM_SAVE_START_TIMESTAMP_IF(ts1);
-
-	icc_put(path);
-
-	CAM_COMPUTE_TIME_TAKEN_IF(ts1, ts2, usec,
-		"ClkRegBusOpsProfile", "icc_put (time taken in usec)");
+	return icc_put(path);
 }
 
 static inline int cam_wrapper_icc_set_bw(struct icc_path *path,
 	u32 avg_bw, u32 peak_bw)
 {
-	struct timespec64 ts1, ts2;
-	long usec = 0;
-	int temp;
-
-	if (cam_vmrm_proxy_icc_voting_enable() || (debug_bypass_drivers & CAM_BYPASS_ICC)) {
+	if (debug_bypass_drivers & CAM_BYPASS_ICC) {
 		CAM_WARN(CAM_UTIL, "Bypass icc set bw");
 		return 0;
 	}
 
-	CAM_SAVE_START_TIMESTAMP_IF(ts1);
-
-	temp = icc_set_bw(path, avg_bw, peak_bw);
-
-	CAM_COMPUTE_TIME_TAKEN_IF(ts1, ts2, usec,
-		"ClkRegBusOpsProfile", "icc_set_bw (time taken in usec)");
-
-	return temp;
+	return icc_set_bw(path, avg_bw, peak_bw);
 }
 
 static inline void cam_wrapper_icc_set_tag(struct icc_path *path,
 	u32 tag)
 {
-	struct timespec64 ts1, ts2;
-	long usec = 0;
-
-	if (cam_vmrm_proxy_icc_voting_enable() || (debug_bypass_drivers & CAM_BYPASS_ICC)) {
+	if (debug_bypass_drivers & CAM_BYPASS_ICC) {
 		CAM_WARN(CAM_UTIL, "Bypass icc set tag");
 		return;
 	}
 
-	CAM_SAVE_START_TIMESTAMP_IF(ts1);
-
 	icc_set_tag(path, tag);
-
-	CAM_COMPUTE_TIME_TAKEN_IF(ts1, ts2, usec,
-		"ClkRegBusOpsProfile", "icc_set_tag (time taken in usec)");
 }
 
 /**
@@ -114,11 +83,6 @@ int cam_soc_bus_client_update_request(void *client, unsigned int idx)
 	struct cam_soc_bus_client_data *bus_client_data =
 		(struct cam_soc_bus_client_data *) bus_client->client_data;
 
-	if (debug_bypass_drivers & CAM_BYPASS_ICC) {
-		CAM_WARN(CAM_UTIL, "Bypass icc set bw");
-		return rc;
-	}
-
 	if (idx >= bus_client->common_data->num_usecases) {
 		CAM_ERR(CAM_UTIL, "Invalid vote level=%d, usecases=%d", idx,
 			bus_client->common_data->num_usecases);
@@ -131,15 +95,6 @@ int cam_soc_bus_client_update_request(void *client, unsigned int idx)
 
 	CAM_DBG(CAM_PERF, "Bus client=[%s] index[%d] ab[%llu] ib[%llu]",
 		bus_client->common_data->name, idx, ab, ib);
-
-	if (cam_vmrm_proxy_icc_voting_enable()) {
-		rc = cam_vmrm_icc_vote(bus_client->common_data->name, ab, ib);
-		if (rc)
-			CAM_ERR(CAM_PERF,
-				"Bus client=[%s] index[%d] ab[%llu] ib[%llu] vmrm icc vote failed",
-				bus_client->common_data->name, idx, ab, ib);
-		goto end;
-	}
 
 	rc = cam_wrapper_icc_set_bw(
 		bus_client_data->icc_data[CAM_SOC_BUS_PATH_DATA_HLOS],
@@ -159,34 +114,23 @@ end:
 int cam_soc_bus_client_update_bw(void *client, uint64_t ab, uint64_t ib,
 	enum cam_soc_bus_path_data bus_path_data)
 {
-	struct cam_soc_bus_client *bus_client =
-		(struct cam_soc_bus_client *) client;
-	struct cam_soc_bus_client_data *bus_client_data =
-		(struct cam_soc_bus_client_data *) bus_client->client_data;
-	int rc = 0;
+		struct cam_soc_bus_client *bus_client =
+			(struct cam_soc_bus_client *) client;
+		struct cam_soc_bus_client_data *bus_client_data =
+			(struct cam_soc_bus_client_data *) bus_client->client_data;
+		int rc = 0;
 
-	CAM_DBG(CAM_PERF, "Bus client=[%s] [%s] :ab[%llu] ib[%llu]",
-		bus_client->common_data->name, cam_soc_bus_path_data_to_str(bus_path_data),
-		ab, ib);
-
-	if (cam_vmrm_proxy_icc_voting_enable()) {
-		rc = cam_vmrm_icc_vote(bus_client->common_data->name, ab, ib);
-		if (rc)
-			CAM_ERR(CAM_PERF,
-				"Bus client=[%s] [%s] :ab[%llu] ib[%llu] vmrm icc vote failed",
-				bus_client->common_data->name,
-				cam_soc_bus_path_data_to_str(bus_path_data), ab, ib);
-		goto end;
-	}
-
-	rc = cam_wrapper_icc_set_bw(
-		bus_client_data->icc_data[bus_path_data], Bps_to_icc(ab),
-		Bps_to_icc(ib));
-	if (rc) {
-		CAM_ERR(CAM_UTIL, "Update request failed, client[%s]",
-			bus_client->common_data->name);
-		goto end;
-	}
+		CAM_DBG(CAM_PERF, "Bus client=[%s] [%s] :ab[%llu] ib[%llu]",
+			bus_client->common_data->name, cam_soc_bus_path_data_to_str(bus_path_data),
+			ab, ib);
+		rc = cam_wrapper_icc_set_bw(
+			bus_client_data->icc_data[bus_path_data], Bps_to_icc(ab),
+			Bps_to_icc(ib));
+		if (rc) {
+			CAM_ERR(CAM_UTIL, "Update request failed, client[%s]",
+				bus_client->common_data->name);
+			goto end;
+		}
 
 end:
 	return rc;
@@ -201,7 +145,7 @@ int cam_soc_bus_client_register(struct platform_device *pdev,
 	struct cam_soc_bus_client_data *bus_client_data = NULL;
 	int rc = 0;
 
-	bus_client = CAM_MEM_ZALLOC(sizeof(struct cam_soc_bus_client), GFP_KERNEL);
+	bus_client = kzalloc(sizeof(struct cam_soc_bus_client), GFP_KERNEL);
 	if (!bus_client) {
 		CAM_ERR(CAM_UTIL, "soc bus client is NULL");
 		rc = -ENOMEM;
@@ -210,9 +154,9 @@ int cam_soc_bus_client_register(struct platform_device *pdev,
 
 	*client = bus_client;
 
-	bus_client_data = CAM_MEM_ZALLOC(sizeof(struct cam_soc_bus_client_data), GFP_KERNEL);
+	bus_client_data = kzalloc(sizeof(struct cam_soc_bus_client_data), GFP_KERNEL);
 	if (!bus_client_data) {
-		CAM_MEM_FREE(bus_client);
+		kfree(bus_client);
 		*client = NULL;
 		rc = -ENOMEM;
 		goto end;
@@ -309,9 +253,9 @@ fail_unregister_client:
 	}
 
 error:
-	CAM_MEM_FREE(bus_client_data);
+	kfree(bus_client_data);
 	bus_client->client_data = NULL;
-	CAM_MEM_FREE(bus_client);
+	kfree(bus_client);
 	*client = NULL;
 end:
 	return rc;
@@ -335,9 +279,9 @@ void cam_soc_bus_client_unregister(void **client)
 			bus_client_data->icc_data[CAM_SOC_BUS_PATH_DATA_HLOS]);
 	}
 
-	CAM_MEM_FREE(bus_client_data);
+	kfree(bus_client_data);
 	bus_client->client_data = NULL;
-	CAM_MEM_FREE(bus_client);
+	kfree(bus_client);
 	*client = NULL;
 
 }

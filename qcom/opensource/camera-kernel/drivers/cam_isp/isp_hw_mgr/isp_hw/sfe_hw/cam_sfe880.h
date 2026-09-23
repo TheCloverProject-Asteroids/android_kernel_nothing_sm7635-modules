@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_SFE880_H_
@@ -402,24 +402,22 @@ static struct cam_sfe_top_err_irq_desc sfe_880_top_irq_err_desc[] = {
 	{
 		.bitmask = BIT(14),
 		.err_name = "PP_VIOLATION",
-		.desc = "CCIF protocol violation within modules in pixel pipeline",
+		.desc = "CCIF protocol violation within any of the modules in pixel pipeline",
 	},
 	{
 		.bitmask = BIT(15),
 		.err_name = "DIAG_VIOLATION",
-		.desc = "Sensor: HBI is less than the minimum required HBI",
-		.debug = "Check Sensor config",
+		.desc = "HBI is less than the minimum required HBI",
 	},
 	{
 		.bitmask = BIT(17),
 		.err_name = "CONTEXT_CONTROLLER_VIOLATION",
-		.desc =
-			"HW detects that there is third context entering SFE core, possible hang downstream or incoming input is streaming faster",
+		.desc = "HW detects that there is third context entering SFE core",
 	},
 	{
 		.bitmask = BIT(18),
 		.err_name = "CONTEXT_CONTROLLER_SWITCH_VIOLATION",
-		.desc = "Old context is not completed processing during switch mode",
+		.desc = "The old context is not completed processing inside SFE.",
 	},
 };
 
@@ -797,7 +795,6 @@ static struct cam_sfe_bus_rd_constraint_error_desc
 static struct cam_sfe_bus_rd_constraint_error_info sfe880_bus_rd_constraint_error_info = {
 	.constraint_error_list = sfe880_bus_rd_cons_error_desc,
 	.num_cons_err          = 8,
-	.cons_chk_en_val       = 0xC,
 	.cons_chk_en_avail     = true,
 };
 
@@ -890,8 +887,8 @@ static struct cam_sfe_bus_rd_hw_info sfe880_bus_rd_hw_info = {
 			.max_height    = -1,
 		},
 	},
-	.num_bus_rd_errors      = ARRAY_SIZE(sfe880_bus_rd_irq_err_desc),
-	.bus_rd_err_desc        = sfe880_bus_rd_irq_err_desc,
+	.num_bus_rd_errors     = ARRAY_SIZE(sfe880_bus_rd_irq_err_desc),
+	.bus_rd_err_desc       = sfe880_bus_rd_irq_err_desc,
 	.top_irq_shift          = 0x1,
 	.latency_buf_allocation = 2048,
 	.sys_cache_default_val  = 0x20,
@@ -1102,26 +1099,6 @@ static struct cam_sfe_bus_wr_hw_info sfe880_bus_wr_hw_info = {
 			.irq_reg_set = sfe880_bus_wr_irq_reg,
 			.global_irq_cmd_offset = 0x00000830,
 			.global_clear_bitmask  = 0x00000001,
-		},
-		.num_perf_counters                = 4,
-		.perf_cnt_status                  = 0x000008B4,
-		.perf_cnt_reg = {
-			{
-				.perf_cnt_cfg = 0x00000874,
-				.perf_cnt_val = 0x00000894,
-			},
-			{
-				.perf_cnt_cfg = 0x00000878,
-				.perf_cnt_val = 0x00000898,
-			},
-			{
-				.perf_cnt_cfg = 0x0000087C,
-				.perf_cnt_val = 0x0000089C,
-			},
-			{
-				.perf_cnt_cfg = 0x00000880,
-				.perf_cnt_val = 0x000008A0,
-			},
 		},
 	},
 	.num_client = 17,

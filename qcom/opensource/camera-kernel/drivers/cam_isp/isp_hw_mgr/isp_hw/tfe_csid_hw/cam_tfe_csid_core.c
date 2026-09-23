@@ -3779,10 +3779,9 @@ static int cam_tfe_csid_put_evt_payload(
 			csid_hw->hw_intf->hw_idx);
 		return -EINVAL;
 	}
-
-	CAM_COMMON_SANITIZE_LIST_ENTRY((*evt_payload), struct cam_csid_evt_payload);
 	spin_lock_irqsave(&csid_hw->spin_lock, flags);
-	list_add_tail(&(*evt_payload)->list, &csid_hw->free_payload_list);
+	list_add_tail(&(*evt_payload)->list,
+		&csid_hw->free_payload_list);
 	*evt_payload = NULL;
 	spin_unlock_irqrestore(&csid_hw->spin_lock, flags);
 
@@ -4653,7 +4652,7 @@ int cam_tfe_csid_hw_probe_init(struct cam_hw_intf  *csid_hw_intf,
 		tfe_csid_hw->ipp_res.res_state =
 			CAM_ISP_RESOURCE_STATE_AVAILABLE;
 		tfe_csid_hw->ipp_res.hw_intf = tfe_csid_hw->hw_intf;
-		path_data = CAM_MEM_ZALLOC(sizeof(*path_data),
+		path_data = kzalloc(sizeof(*path_data),
 					GFP_KERNEL);
 		if (!path_data) {
 			rc = -ENOMEM;
@@ -4692,7 +4691,7 @@ int cam_tfe_csid_hw_probe_init(struct cam_hw_intf  *csid_hw_intf,
 			CAM_ISP_RESOURCE_STATE_AVAILABLE;
 		tfe_csid_hw->rdi_res[i].hw_intf = tfe_csid_hw->hw_intf;
 
-		path_data = CAM_MEM_ZALLOC(sizeof(*path_data),
+		path_data = kzalloc(sizeof(*path_data),
 			GFP_KERNEL);
 		if (!path_data) {
 			rc = -ENOMEM;
@@ -4753,7 +4752,7 @@ err:
 		for (i = 0; i <
 			tfe_csid_hw->csid_info->csid_reg->cmn_reg->num_rdis;
 			i++)
-			CAM_MEM_FREE(tfe_csid_hw->rdi_res[i].res_priv);
+			kfree(tfe_csid_hw->rdi_res[i].res_priv);
 	}
 
 	return rc;
@@ -4771,7 +4770,7 @@ int cam_tfe_csid_hw_deinit(struct cam_tfe_csid_hw *tfe_csid_hw)
 	}
 
 	/* release the privdate data memory from resources */
-	CAM_MEM_FREE(tfe_csid_hw->ipp_res.res_priv);
+	kfree(tfe_csid_hw->ipp_res.res_priv);
 
 	if (tfe_csid_hw->csid_info->csid_reg->cmn_reg->num_ppp)
 		kfree(tfe_csid_hw->ppp_res.res_priv);
@@ -4779,7 +4778,7 @@ int cam_tfe_csid_hw_deinit(struct cam_tfe_csid_hw *tfe_csid_hw)
 	for (i = 0; i <
 		tfe_csid_hw->csid_info->csid_reg->cmn_reg->num_rdis;
 		i++) {
-		CAM_MEM_FREE(tfe_csid_hw->rdi_res[i].res_priv);
+		kfree(tfe_csid_hw->rdi_res[i].res_priv);
 	}
 
 	cam_tfe_csid_deinit_soc_resources(&tfe_csid_hw->hw_info->soc_info);

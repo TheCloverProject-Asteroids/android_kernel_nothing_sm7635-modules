@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -45,6 +45,24 @@ enum {
 	SDE_SSPP_COMP_3,
 
 	SDE_SSPP_COMP_MAX
+};
+
+/**
+ * SDE_SSPP_RECT_SOLO - multirect disabled
+ * SDE_SSPP_RECT_0 - rect0 of a multirect pipe
+ * SDE_SSPP_RECT_1 - rect1 of a multirect pipe
+ * SDE_SSPP_RECT_MAX - max enum of multirect pipe
+ *
+ * Note: HW supports multirect with either RECT0 or
+ * RECT1. Considering no benefit of such configs over
+ * SOLO mode and to keep the plane management simple,
+ * we dont support single rect multirect configs.
+ */
+enum sde_sspp_multirect_index {
+	SDE_SSPP_RECT_SOLO = 0,
+	SDE_SSPP_RECT_0,
+	SDE_SSPP_RECT_1,
+	SDE_SSPP_RECT_MAX,
 };
 
 enum sde_sspp_multirect_mode {
@@ -94,21 +112,6 @@ enum sde_sspp_ucsc_igc {
 	UCSC_IGC_MODE_GAMMA2_2,
 	UCSC_IGC_MODE_HLG,
 	UCSC_IGC_MODE_PQ,
-};
-
-enum {
-	SDE_CAC_NONE = 0,
-	SDE_CAC_UNPACK = BIT(0),
-	SDE_CAC_FETCH = BIT(1),
-	SDE_CAC_LOOPBACK_UNPACK = BIT(2),
-	SDE_CAC_LOOPBACK_FETCH = BIT(3),
-};
-
-enum {
-	SDE_SSPP_FOV_MODE_DISABLED = 0,
-	SDE_SSPP_FOV_MODE_SINGLE_EYE,
-	SDE_SSPP_FOV_MODE_DUAL_EYE_HORZ,
-	SDE_SSPP_FOV_MODE_DUAL_EYE_VERT,
 };
 
 struct sde_hw_sharp_cfg {
@@ -173,8 +176,6 @@ struct sde_hw_pixel_ext {
  * @src_rect:  src ROI, caller takes into account the different operations
  *             such as decimation, flip etc to program this field
  * @dest_rect: destination ROI.
- * @src_rect_extn: extension source rect values
- * @dst_rect_extn: extension destination rect values
  * @ horz_decimation : horizontal decimation factor( 0, 2, 4, 8, 16)
  * @ vert_decimation : vertical decimation factor( 0, 2, 4, 8, 16)
  *              2: Read 1 line/pixel drop 1 line/pixel
@@ -186,8 +187,6 @@ struct sde_hw_pipe_cfg {
 	struct sde_hw_fmt_layout layout;
 	struct sde_rect src_rect;
 	struct sde_rect dst_rect;
-	struct sde_rect src_rect_extn;
-	struct sde_rect dst_rect_extn;
 	u8 horz_decimation;
 	u8 vert_decimation;
 };
@@ -338,14 +337,11 @@ struct sde_hw_sspp_ops {
 	 * @blend_enabled: flag indicating blend enabled or disabled on plane
 	 * @flags: Extra flags for format config
 	 * @index: rectangle index in multirect
-	 * @color_mask: color components to be extracted
 	 */
 	void (*setup_format)(struct sde_hw_pipe *ctx,
 			const struct sde_format *fmt,
 			bool blend_enabled, u32 flags,
-			enum sde_sspp_multirect_index index,
-			enum sde_color_component_mask color_mask);
-
+			enum sde_sspp_multirect_index index);
 
 	/**
 	 * setup_rects - setup pipe ROI rectangles
@@ -361,10 +357,9 @@ struct sde_hw_sspp_ops {
 	 * setup_pe - setup pipe pixel extension
 	 * @ctx: Pointer to pipe context
 	 * @pe_ext: Pointer to pixel ext settings
-	 * @cac_en : Boolean to indicate cac is enabled or disabled
 	 */
 	void (*setup_pe)(struct sde_hw_pipe *ctx,
-			struct sde_hw_pixel_ext *pe_ext, bool cac_en);
+			struct sde_hw_pixel_ext *pe_ext);
 
 	/**
 	 * setup_excl_rect - setup pipe exclusion rectangle
@@ -543,11 +538,10 @@ struct sde_hw_sspp_ops {
 	 * @buf: Defines structure for reg dma ops on the reg dma buffer.
 	 * @scaler3_cfg: QSEEDv3 configuration
 	 * @offset: Scaler Offset
-	 * @dpu_idx: dpu index
 	 */
 	void (*setup_scaler_lut)(struct sde_reg_dma_setup_ops_cfg *buf,
 			struct sde_hw_scaler3_cfg *scaler3_cfg,
-			u32 offset, u32 dpu_idx);
+			u32 offset);
 
 	/**
 	 * setup_pre_downscale - setup pre-downscaler for inline rotation
@@ -781,32 +775,6 @@ struct sde_hw_sspp_ops {
 	 */
 	void (*setup_ucsc_alpha_dither)(struct sde_hw_pipe *ctx,
 		enum sde_sspp_multirect_index index, void *data);
-
-	/**
-	 * setup_cac_ctrl - set CAC mode for each sspp
-	 * @ctx: Pointer to pipe object
-	 * @cac_mode: cac mode for that particular pipe
-	 * @fov_en: is foveation enabled
-	 * @pp_idx: pp_idx used in cac loopback
-	 */
-	void (*setup_cac_ctrl)(struct sde_hw_pipe *ctx, u32 cac_mode,
-		bool fov_en, u32 pp_idx);
-
-	/**
-	 * setup_scaler_cac - set CAC scaler params for each sspp
-	 * @ctx: Pointer to pipe object
-	 * @cac_cfg: cac scaler config for each sspp
-	 */
-	void (*setup_scaler_cac)(struct sde_hw_pipe *ctx,
-		struct sde_hw_cac_cfg *cac_cfg);
-
-	/**
-	 * setup_img_size - set img size params for CAC
-	 * @ctx: Pointer to pipe object
-	 * @img_rec: Pointer to image rect structure
-	 */
-	void (*setup_img_size)(struct sde_hw_pipe *ctx,
-		struct sde_rect *img_rec);
 };
 
 /**
@@ -818,7 +786,6 @@ struct sde_hw_sspp_ops {
  * @idx: pipe index
  * @cap: pointer to layer_cfg
  * @ops: pointer to operations possible for this pipe
- * @dpu_idx: dpu index
  */
 struct sde_hw_pipe {
 	struct sde_hw_blk_reg_map hw;
@@ -832,8 +799,6 @@ struct sde_hw_pipe {
 	/* Ops */
 	struct sde_hw_sspp_ops ops;
 	struct sde_hw_ctl *ctl;
-
-	u32 dpu_idx;
 };
 
 /**
@@ -844,12 +809,10 @@ struct sde_hw_pipe {
  * @catalog : Pointer to mdss catalog data
  * @is_virtual_pipe: is this pipe virtual pipe
  * @client: Pointer to VBIF clock client info
- * @dpu_idx: dpu index
  */
 struct sde_hw_pipe *sde_hw_sspp_init(enum sde_sspp idx,
 		void __iomem *addr, struct sde_mdss_cfg *catalog,
-		bool is_virtual_pipe, struct sde_vbif_clk_client *client,
-		u32 dpu_idx);
+		bool is_virtual_pipe, struct sde_vbif_clk_client *client);
 
 /**
  * sde_hw_sspp_destroy(): Destroys SSPP driver context

@@ -252,29 +252,6 @@ void wlan_cfg80211_tdls_rx_callback(void *user_data,
  */
 void hdd_notify_tdls_reset_adapter(struct wlan_objmgr_vdev *vdev);
 
-/**
- * wlan_cfg80211_tdls_send_mgmt_on_active_link() - process TDLS management
- * frames from the supplicant on the active link only
- * @adapter: adapter object
- * @peer: MAC address of the TDLS peer
- * @action_code: type of TDLS mgmt frame to be sent
- * @dialog_token: dialog token used in the frame
- * @status_code: status to be included in the frame
- * @peer_capability: peer capability information
- * @buf: additional IEs to be included
- * @len: length of additional Ies
- * @link_id: link id
- *
- * Return: 0 on success; negative errno otherwise
- */
-int wlan_cfg80211_tdls_send_mgmt_on_active_link(struct hdd_adapter *adapter,
-						const uint8_t *peer,
-						uint8_t action_code,
-						uint8_t dialog_token,
-						uint16_t status_code,
-						uint32_t peer_capability,
-						const uint8_t *buf, size_t len,
-						int link_id);
 #else /* FEATURE_WLAN_TDLS */
 static inline
 QDF_STATUS wlan_cfg80211_tdls_osif_priv_init(struct wlan_objmgr_vdev *vdev)
@@ -295,19 +272,6 @@ hdd_notify_tdls_reset_adapter(struct wlan_objmgr_vdev *vdev)
 static inline
 int wlan_cfg80211_tdls_configure_mode(struct wlan_objmgr_vdev *vdev,
 						uint32_t trigger_mode)
-{
-	return 0;
-}
-
-static inline
-int wlan_cfg80211_tdls_send_mgmt_on_active_link(struct hdd_adapter *adapter,
-						const uint8_t *peer,
-						uint8_t action_code,
-						uint8_t dialog_token,
-						uint16_t status_code,
-						uint32_t peer_capability,
-						const uint8_t *buf, size_t len,
-						int link_id)
 {
 	return 0;
 }

@@ -286,8 +286,6 @@ bool cm_handle_fw_roam_connected_event(struct cnx_mgr *cm_ctx, uint16_t event,
 		break;
 	case WLAN_CM_SM_EV_ROAM_ABORT:
 	case WLAN_CM_SM_EV_ROAM_INVOKE_FAIL:
-		cm_roam_abort_event(cm_ctx->vdev);
-		fallthrough;
 	case WLAN_CM_SM_EV_ROAM_HO_FAIL:
 		cm_remove_cmd(cm_ctx, data);
 		break;
@@ -1313,11 +1311,39 @@ enum wlan_cm_sm_state cm_get_sub_state(struct cnx_mgr *cm_ctx)
 	return cm_ctx->sm.cm_substate;
 }
 
+static void cm_sm_print_state_event(struct cnx_mgr *cm_ctx,
+				    enum wlan_cm_sm_evt event)
+{
+	enum wlan_cm_sm_state state;
+	enum wlan_cm_sm_state substate;
+
+	state = cm_get_state(cm_ctx);
+	substate = cm_get_sub_state(cm_ctx);
+
+	mlme_nofl_debug("[%s]%s - %s, %s", cm_ctx->sm.sm_hdl->name,
+			cm_sm_info[state].name, cm_sm_info[substate].name,
+			cm_sm_event_names[event]);
+}
+
+static void cm_sm_print_state(struct cnx_mgr *cm_ctx)
+{
+	enum wlan_cm_sm_state state;
+	enum wlan_cm_sm_state substate;
+
+	state = cm_get_state(cm_ctx);
+	substate = cm_get_sub_state(cm_ctx);
+
+	mlme_nofl_debug("[%s]%s - %s", cm_ctx->sm.sm_hdl->name,
+			cm_sm_info[state].name, cm_sm_info[substate].name);
+}
+
 QDF_STATUS cm_sm_deliver_event(struct wlan_objmgr_vdev *vdev,
 			       enum wlan_cm_sm_evt event,
 			       uint16_t data_len, void *data)
 {
 	QDF_STATUS status;
+	enum wlan_cm_sm_state state_entry, state_exit;
+	enum wlan_cm_sm_state substate_entry, substate_exit;
 	enum QDF_OPMODE op_mode = wlan_vdev_mlme_get_opmode(vdev);
 	struct cnx_mgr *cm_ctx;
 
@@ -1332,7 +1358,19 @@ QDF_STATUS cm_sm_deliver_event(struct wlan_objmgr_vdev *vdev,
 		return QDF_STATUS_E_FAILURE;
 
 	cm_lock_acquire(cm_ctx);
+
+	/* store entry state and sub state for prints */
+	state_entry = cm_get_state(cm_ctx);
+	substate_entry = cm_get_sub_state(cm_ctx);
+	cm_sm_print_state_event(cm_ctx, event);
+
 	status = cm_sm_deliver_event_sync(cm_ctx, event, data_len, data);
+	/* Take exit state, exit substate for prints */
+	state_exit = cm_get_state(cm_ctx);
+	substate_exit = cm_get_sub_state(cm_ctx);
+	/* If no state and substate change, don't print */
+	if (!((state_entry == state_exit) && (substate_entry == substate_exit)))
+		cm_sm_print_state(cm_ctx);
 	cm_lock_release(cm_ctx);
 
 	return status;

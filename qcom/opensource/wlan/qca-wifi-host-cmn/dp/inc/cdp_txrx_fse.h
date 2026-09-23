@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -27,9 +27,7 @@ static inline QDF_STATUS
 cdp_fse_flow_add(ol_txrx_soc_handle soc,
 		 uint32_t *src_ip, uint32_t src_port,
 		 uint32_t *dest_ip, uint32_t dest_port,
-		 uint8_t protocol, uint8_t version, uint32_t svc_id,
-		 uint32_t tid, uint8_t *dest_mac, uint8_t pdev_id, bool drop,
-		 uint8_t ring_id)
+		 uint8_t protocol, uint8_t version)
 {
 	if (!soc || !soc->ops) {
 		dp_cdp_debug("Invalid Instance");
@@ -45,16 +43,14 @@ cdp_fse_flow_add(ol_txrx_soc_handle soc,
 	return soc->ops->fse_ops->fse_rule_add(soc,
 					       src_ip, src_port,
 					       dest_ip, dest_port,
-					       protocol, version, svc_id, tid,
-					       dest_mac, pdev_id, drop,
-					       ring_id);
+					       protocol, version);
 }
 
 static inline QDF_STATUS
 cdp_fse_flow_delete(ol_txrx_soc_handle soc,
 		    uint32_t *src_ip, uint32_t src_port,
 		    uint32_t *dest_ip, uint32_t dest_port,
-		    uint8_t protocol, uint8_t version, uint8_t pdev_id)
+		    uint8_t protocol, uint8_t version)
 {
 	if (!soc || !soc->ops) {
 		dp_cdp_debug("Invalid Instance");
@@ -70,7 +66,7 @@ cdp_fse_flow_delete(ol_txrx_soc_handle soc,
 	return soc->ops->fse_ops->fse_rule_delete(soc,
 						  src_ip, src_port,
 						  dest_ip, dest_port,
-						  protocol, version, pdev_id);
+						  protocol, version);
 }
 
 #endif /* WLAN_SUPPORT_RX_FLOW_TAG */

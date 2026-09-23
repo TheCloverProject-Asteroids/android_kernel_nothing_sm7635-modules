@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -115,10 +115,6 @@
 
 #ifdef WLAN_FEATURE_COAP
 #include <target_if_coap.h>
-#endif
-
-#ifdef WLAN_WIFI_RADAR_ENABLE
-#include <target_if_wifi_radar.h>
 #endif
 
 static struct target_if_ctx *g_target_if_ctx;
@@ -261,13 +257,6 @@ static void target_if_sa_api_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
 
 #ifndef WLAN_CFR_ENABLE
 static void target_if_cfr_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
-{
-}
-#endif
-
-#ifndef WLAN_WIFI_RADAR_ENABLE
-static void
-target_if_wifi_radar_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
 {
 }
 #endif
@@ -611,7 +600,6 @@ void target_if_twt_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
 static
 QDF_STATUS target_if_register_umac_tx_ops(struct wlan_lmac_if_tx_ops *tx_ops)
 {
-	target_if_register_afc_tx_ops(tx_ops);
 	/* call regulatory callback to register tx ops */
 	target_if_register_regulatory_tx_ops(tx_ops);
 
@@ -628,8 +616,6 @@ QDF_STATUS target_if_register_umac_tx_ops(struct wlan_lmac_if_tx_ops *tx_ops)
 	target_if_cfr_tx_ops_register(tx_ops);
 
 	target_if_wifi_pos_tx_ops_register(tx_ops);
-
-	target_if_wifi_radar_tx_ops_register(tx_ops);
 
 	target_if_dfs_tx_ops_register(tx_ops);
 
@@ -729,7 +715,6 @@ qdf_export_symbol(target_if_register_legacy_service_ready_cb);
 QDF_STATUS target_if_alloc_pdev_tgt_info(struct wlan_objmgr_pdev *pdev)
 {
 	struct target_pdev_info *tgt_pdev_info;
-	struct wlan_objmgr_psoc *psoc;
 
 	if (!pdev) {
 		target_if_err("pdev is null");
@@ -741,11 +726,6 @@ QDF_STATUS target_if_alloc_pdev_tgt_info(struct wlan_objmgr_pdev *pdev)
 	if (!tgt_pdev_info)
 		return QDF_STATUS_E_NOMEM;
 
-	psoc = wlan_pdev_get_psoc(pdev);
-	wlan_minidump_log(tgt_pdev_info, sizeof(*tgt_pdev_info),
-			  psoc, WLAN_MD_OBJMGR_PDEV_TGT_INFO,
-			  "target_pdev_info");
-
 	wlan_pdev_set_tgt_if_handle(pdev, tgt_pdev_info);
 
 	return QDF_STATUS_SUCCESS;
@@ -754,7 +734,6 @@ QDF_STATUS target_if_alloc_pdev_tgt_info(struct wlan_objmgr_pdev *pdev)
 QDF_STATUS target_if_free_pdev_tgt_info(struct wlan_objmgr_pdev *pdev)
 {
 	struct target_pdev_info *tgt_pdev_info;
-	struct wlan_objmgr_psoc *psoc;
 
 	if (!pdev) {
 		target_if_err("pdev is null");
@@ -764,11 +743,6 @@ QDF_STATUS target_if_free_pdev_tgt_info(struct wlan_objmgr_pdev *pdev)
 	tgt_pdev_info = wlan_pdev_get_tgt_if_handle(pdev);
 
 	wlan_pdev_set_tgt_if_handle(pdev, NULL);
-
-	psoc = wlan_pdev_get_psoc(pdev);
-	wlan_minidump_remove(tgt_pdev_info, sizeof(*tgt_pdev_info),
-			     psoc, WLAN_MD_OBJMGR_PDEV_TGT_INFO,
-			     "target_pdev_info");
 
 	qdf_mem_free(tgt_pdev_info);
 

@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
-#include <linux/devcoredump.h>
 #include <linux/of_address.h>
 #include <linux/soc/qcom/mdt_loader.h>
 
@@ -35,49 +34,6 @@ static const struct hfi_ops hfi_icp_v2_ops = {
 	.irq_enable = cam_icp_v2_irq_enable,
 	.iface_addr = cam_icp_v2_iface_addr,
 };
-
-static void cam_icp_v2_fw_coredump(struct platform_device *pdev)
-{
-	int rc = 0;
-	struct device_node *node = NULL;
-	struct resource res = {0};
-	phys_addr_t phys_mem = 0;
-	size_t res_size = 0;
-	void *cpu_addr = NULL, *data = NULL;
-
-	node = of_parse_phandle(pdev->dev.of_node, "memory-region", 0);
-	if (!node)
-		return;
-
-	rc = of_address_to_resource(node, 0, &res);
-	of_node_put(node);
-	if (rc) {
-		CAM_ERR(CAM_ICP, "Failed to get firmware resource address rc=%d", rc);
-		return;
-	}
-
-	phys_mem = res.start;
-	res_size = (size_t)resource_size(&res);
-
-	cpu_addr = memremap(phys_mem, res_size, MEMREMAP_WC);
-	if (!cpu_addr) {
-		CAM_ERR(CAM_ICP, "Unable to map firmware carve out");
-		return;
-	}
-
-	data = vmalloc(res_size);
-	if (!data) {
-		CAM_ERR(CAM_ICP, "Failed to dynamically allocate memory of size: %llu",
-			res_size);
-		goto unmap_iomem;
-	}
-
-	memcpy(data, cpu_addr, res_size);
-	dev_coredumpv(&pdev->dev, data, res_size, GFP_KERNEL);
-
-unmap_iomem:
-	memunmap(cpu_addr);
-}
 
 static int cam_icp_v2_ubwc_configure(struct cam_hw_soc_info *soc_info,
 	struct cam_icp_v2_core_info *core_info, void *args, uint32_t arg_size)
@@ -164,7 +120,7 @@ int cam_icp_v2_cpas_register(struct cam_hw_intf *icp_v2_intf)
 	params.cam_cpas_client_cb = cam_icp_v2_cpas_cb;
 	params.userdata = NULL;
 
-	strscpy(params.identifier, "icp", CAM_HW_IDENTIFIER_LENGTH);
+	strlcpy(params.identifier, "icp", CAM_HW_IDENTIFIER_LENGTH);
 
 	rc = cam_cpas_register_client(&params);
 	if (rc)
@@ -270,18 +226,10 @@ int cam_icp_v2_hw_init(void *priv, void *args, uint32_t arg_size)
 
 	spin_lock_irqsave(&icp_v2->hw_lock, flags);
 	if (icp_v2->hw_state == CAM_HW_STATE_POWER_UP) {
-		core_info->power_on_cnt++;
 		spin_unlock_irqrestore(&icp_v2->hw_lock, flags);
 		return 0;
 	}
 	spin_unlock_irqrestore(&icp_v2->hw_lock, flags);
-
-	rc = cam_vmrm_soc_acquire_resources(CAM_HW_ID_ICP + icp_v2->soc_info.index);
-	if (rc) {
-		CAM_ERR(CAM_ICP, "ICP hw id %x acquire ownership failed",
-			CAM_HW_ID_ICP + icp_v2->soc_info.index);
-		return rc;
-	}
 
 	rc = cam_icp_v2_cpas_start(icp_v2->core_info);
 	if (rc)
@@ -296,17 +244,14 @@ int cam_icp_v2_hw_init(void *priv, void *args, uint32_t arg_size)
 			int32_t clk_rate = 0;
 
 			clk_rate = cam_wrapper_clk_get_rate(
-				icp_v2->soc_info.clk[icp_v2->soc_info.src_clk_idx],
-				icp_v2->soc_info.clk_name[icp_v2->soc_info.src_clk_idx]);
+				icp_v2->soc_info.clk[icp_v2->soc_info.src_clk_idx]);
 			hfi_send_freq_info(core_info->hfi_handle, clk_rate);
 		}
 	}
 
 	spin_lock_irqsave(&icp_v2->hw_lock, flags);
 	icp_v2->hw_state = CAM_HW_STATE_POWER_UP;
-	core_info->power_on_cnt++;
 	spin_unlock_irqrestore(&icp_v2->hw_lock, flags);
-	CAM_DBG(CAM_ICP, "ICP%u powered on", icp_v2->soc_info.index);
 
 	return 0;
 
@@ -343,14 +288,6 @@ int cam_icp_v2_hw_deinit(void *priv, void *args,
 		spin_unlock_irqrestore(&icp_v2_info->hw_lock, flags);
 		return 0;
 	}
-
-	core_info->power_on_cnt--;
-	if (core_info->power_on_cnt) {
-		spin_unlock_irqrestore(&icp_v2_info->hw_lock, flags);
-		CAM_DBG(CAM_ICP, "power on reference still held %u",
-			core_info->power_on_cnt);
-		return 0;
-	}
 	spin_unlock_irqrestore(&icp_v2_info->hw_lock, flags);
 
 	if (send_freq_info)
@@ -369,26 +306,14 @@ int cam_icp_v2_hw_deinit(void *priv, void *args,
 	icp_v2_info->hw_state = CAM_HW_STATE_POWER_DOWN;
 	spin_unlock_irqrestore(&icp_v2_info->hw_lock, flags);
 
-	rc = cam_vmrm_soc_release_resources(CAM_HW_ID_ICP + icp_v2_info->soc_info.index);
-	if (rc) {
-		CAM_ERR(CAM_ICP, "ICP hw id %x release ownership failed",
-			CAM_HW_ID_ICP + icp_v2_info->soc_info.index);
-		return rc;
-	}
-
-	CAM_DBG(CAM_ICP, "ICP%u powered off", icp_v2_info->soc_info.index);
 	return rc;
 }
-static int prepare_boot(struct cam_hw_info *icp_v2_info, struct cam_icp_boot_args *args)
+
+static void prepare_boot(struct cam_hw_info *icp_v2_info,
+	struct cam_icp_boot_args *args)
 {
 	struct cam_icp_v2_core_info *core_info = icp_v2_info->core_info;
 	unsigned long flags;
-
-	if (!core_info) {
-		CAM_ERR(CAM_ICP, "invalid args: core_info is NULL icp_v2_info=%pK args=%pK",
-			icp_v2_info, args);
-		return -EINVAL;
-	}
 
 	if (!args->use_sec_pil) {
 		core_info->fw_params.fw_buf = args->firmware.iova;
@@ -400,45 +325,12 @@ static int prepare_boot(struct cam_hw_info *icp_v2_info, struct cam_icp_boot_arg
 	core_info->irq_cb.data = args->irq_cb.data;
 	core_info->irq_cb.cb = args->irq_cb.cb;
 	spin_unlock_irqrestore(&icp_v2_info->hw_lock, flags);
-
-	return 0;
 }
 
-static int cam_icp_v2_prepare_boot(struct cam_hw_info *icp_v2_info,
-	struct cam_icp_boot_args *args, uint32_t arg_size)
-{
-	int rc;
-
-	if (!icp_v2_info || !args) {
-		CAM_ERR(CAM_ICP, "invalid args: icp_v2_info=%pK args=%pK", icp_v2_info, args);
-		return -EINVAL;
-	}
-
-	if (arg_size != sizeof(struct cam_icp_boot_args)) {
-		CAM_ERR(CAM_ICP, "invalid boot args size");
-		return -EINVAL;
-	}
-
-	rc = prepare_boot(icp_v2_info, args);
-	if (rc) {
-		CAM_ERR(CAM_ICP, "prepare boot failed");
-		return rc;
-	}
-
-	((struct cam_icp_v2_core_info *)(icp_v2_info->core_info))->use_sec_pil = true;
-	return 0;
-
-}
-
-static int prepare_shutdown(struct cam_hw_info *icp_v2_info)
+static void prepare_shutdown(struct cam_hw_info *icp_v2_info)
 {
 	struct cam_icp_v2_core_info *core_info = icp_v2_info->core_info;
 	unsigned long flags;
-
-	if (!core_info) {
-		CAM_ERR(CAM_ICP, "invalid args:core_info is NULL icp_v2_info=%pK", icp_v2_info);
-		return -EINVAL;
-	}
 
 	core_info->fw_params.fw_buf = 0x0;
 	core_info->fw_params.fw_kva_addr = 0x0;
@@ -448,26 +340,6 @@ static int prepare_shutdown(struct cam_hw_info *icp_v2_info)
 	core_info->irq_cb.data = NULL;
 	core_info->irq_cb.cb = NULL;
 	spin_unlock_irqrestore(&icp_v2_info->hw_lock, flags);
-	return 0;
-}
-
-static int cam_icp_v2_prepare_shutdown(struct cam_hw_info *icp_v2_info)
-{
-	int rc;
-
-	if (!icp_v2_info) {
-		CAM_ERR(CAM_ICP, "invalid args: icp_v2_info is NULL");
-		return -EINVAL;
-	}
-
-	rc = prepare_shutdown(icp_v2_info);
-	if (rc) {
-		CAM_ERR(CAM_ICP, "prepare shutdown failed");
-		return rc;
-	}
-
-	((struct cam_icp_v2_core_info *)(icp_v2_info->core_info))->use_sec_pil = false;
-	return 0;
 }
 
 /* Used if ICP_SYS is not protected */
@@ -541,28 +413,6 @@ static int __cam_icp_v2_power_resume(struct cam_hw_info *icp_v2_info)
 
 	cam_io_w_mb(ICP_V2_FUNC_RESET,
 		sys_base + ICP_V2_SYS_RESET);
-
-	/*
-	 * ICP0 fw starts at 0x0 as before, while ICP1 fw in non-secure loading
-	 * starts at 128MB in order to avoid conflicts with ICP0 fw or AHB space
-	 */
-	if (soc_info->index == 1) {
-		struct cam_cpas_addr_trans_data addr_trans_data;
-
-		addr_trans_data.enable = true;
-		/* Mapped (0 - 64MB) to (128MB - 192MB) */
-		addr_trans_data.val_offset0 = 0x08000000;
-		addr_trans_data.val_base1 = 0x04000000;
-
-		/* Avoid address translator touching other space */
-		addr_trans_data.val_offset1 = 0x0;
-		addr_trans_data.val_base2 = 0xfc000000;
-		addr_trans_data.val_offset2 = 0x0;
-		addr_trans_data.val_base3 = 0xfc000000;
-		addr_trans_data.val_offset3 = 0x0;
-
-		cam_cpas_set_addr_trans(core_info->cpas_handle, &addr_trans_data);
-	}
 
 	if (soc_priv->qos_val)
 		cam_io_w_mb(soc_priv->qos_val, sys_base + ICP_V2_SYS_ACCESS);
@@ -720,12 +570,7 @@ static int cam_icp_v2_non_sec_boot(
 		return -EINVAL;
 	}
 
-	rc = prepare_boot(icp_v2_info, args);
-	if (rc) {
-		CAM_ERR(CAM_ICP, "prepare boot failed");
-		return rc;
-	}
-
+	prepare_boot(icp_v2_info, args);
 
 	rc = __cam_non_sec_load_fw(icp_v2_info);
 	if (rc) {
@@ -843,7 +688,7 @@ out:
 static int cam_icp_v2_boot(struct cam_hw_info *icp_v2_info,
 	struct cam_icp_boot_args *args, uint32_t arg_size)
 {
-	int rc = 0;
+	int rc;
 	struct cam_icp_v2_core_info *core_info = NULL;
 	struct cam_icp_soc_info     *soc_priv;
 
@@ -865,11 +710,7 @@ static int cam_icp_v2_boot(struct cam_hw_info *icp_v2_info,
 	core_info = (struct cam_icp_v2_core_info *)icp_v2_info->core_info;
 	soc_priv = (struct cam_icp_soc_info *)icp_v2_info->soc_info.soc_private;
 
-	rc = prepare_boot(icp_v2_info, args);
-	if (rc) {
-		CAM_ERR(CAM_ICP, "prepare boot failed");
-		return rc;
-	}
+	prepare_boot(icp_v2_info, args);
 
 #if IS_REACHABLE(CONFIG_QCOM_MDT_LOADER)
 	rc = __load_firmware(icp_v2_info->soc_info.pdev, soc_priv->fw_pas_id);
@@ -892,32 +733,19 @@ err:
 	return rc;
 }
 
-static int cam_icp_v2_shutdown(struct cam_hw_info *icp_v2_info, bool *args,
-	uint32_t arg_size)
+static int cam_icp_v2_shutdown(struct cam_hw_info *icp_v2_info)
 {
 	int rc = 0;
-	bool fw_dump = false;
 	struct cam_icp_v2_core_info *core_info =
 		(struct cam_icp_v2_core_info *)icp_v2_info->core_info;
 	struct cam_icp_soc_info *soc_priv =
 		(struct cam_icp_soc_info *)icp_v2_info->soc_info.soc_private;
 
-	rc = prepare_shutdown(icp_v2_info);
-	if (rc) {
-		CAM_ERR(CAM_ICP, "prepare shutdown failed");
-		return rc;
-	}
+	prepare_shutdown(icp_v2_info);
 
-	if (arg_size != sizeof(bool))
-		CAM_ERR(CAM_ICP, "Invalid args size %u", arg_size);
-	else
-		fw_dump = *args;
-
-	if (core_info->use_sec_pil) {
+	if (core_info->use_sec_pil)
 		rc = qcom_scm_pas_shutdown(soc_priv->fw_pas_id);
-		if (fw_dump)
-			cam_icp_v2_fw_coredump(icp_v2_info->soc_info.pdev);
-	} else {
+	else {
 		int32_t sys_base_idx = core_info->reg_base_idx[ICP_V2_SYS_BASE];
 		void __iomem *base;
 
@@ -988,11 +816,6 @@ static int cam_icp_v2_core_control(struct cam_hw_info *icp_v2_info,
 			__cam_icp_v2_core_reg_dump(icp_v2_info, CAM_ICP_DUMP_STATUS_REGISTERS);
 		}
 	} else {
-		if (cam_presil_mode_enabled()) {
-			CAM_INFO(CAM_ICP, "PRESIL-ICP-B2B-HFI-INIT no PC no resume return 0");
-			return 0;
-		}
-
 		if (state == TZ_STATE_RESUME) {
 			rc = __cam_icp_v2_power_resume(icp_v2_info);
 			if (rc)
@@ -1155,7 +978,7 @@ int cam_icp_v2_process_cmd(void *priv, uint32_t cmd_type,
 		rc = cam_icp_v2_set_hfi_handle(icp_v2_info->core_info, args, arg_size);
 		break;
 	case CAM_ICP_CMD_PROC_SHUTDOWN:
-		rc = cam_icp_v2_shutdown(icp_v2_info, args, arg_size);
+		rc = cam_icp_v2_shutdown(icp_v2_info);
 		break;
 	case CAM_ICP_CMD_PROC_BOOT:
 		rc = cam_icp_v2_download_fw(icp_v2_info, args, arg_size);
@@ -1210,12 +1033,6 @@ int cam_icp_v2_process_cmd(void *priv, uint32_t cmd_type,
 		rc = 0;
 		break;
 	}
-	case CAM_ICP_CMD_PREP_BOOT:
-		rc = cam_icp_v2_prepare_boot(icp_v2_info, args, arg_size);
-		break;
-	case CAM_ICP_CMD_PREP_SHUTDOWN:
-		rc = cam_icp_v2_prepare_shutdown(icp_v2_info);
-		break;
 	default:
 		CAM_ERR(CAM_ICP, "invalid command type=%u", cmd_type);
 		break;
@@ -1243,7 +1060,6 @@ irqreturn_t cam_icp_v2_handle_irq(int irq_num, void *data)
 
 	status = cam_io_r_mb(irq_base + core_info->hw_info->ob_irq_status);
 
-	CAM_DBG(CAM_ICP, "irq icp[%d] received status 0x%x", icp_v2_info->soc_info.index, status);
 	cam_io_w_mb(status, irq_base + core_info->hw_info->ob_irq_clear);
 	cam_io_w_mb(ICP_V2_IRQ_CLEAR_CMD, irq_base + core_info->hw_info->ob_irq_cmd);
 

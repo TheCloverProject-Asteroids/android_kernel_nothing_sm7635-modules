@@ -132,7 +132,7 @@
 
 #define CFG_HE_FLEX_TWT_SCHED CFG_BOOL( \
 				"he_flex_twt_sched", \
-				1, \
+				0, \
 				"HE Flex Twt Sched")
 
 #define CFG_HE_RX_CTRL CFG_BOOL( \

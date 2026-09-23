@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -75,7 +75,6 @@ enum dsi_ctrl_tpg_pattern {
  * @DSI_CTRL_VERSION_2_6:     DSI host v2.6 controller
  * @DSI_CTRL_VERSION_2_7:     DSI host v2.7 controller
  * @DSI_CTRL_VERSION_2_8:     DSI host v2.8 controller
- * @DSI_CTRL_VERSION_2_9:     DSI host v2.9 controller
  * @DSI_CTRL_VERSION_MAX:     max version
  */
 enum dsi_ctrl_version {
@@ -87,7 +86,6 @@ enum dsi_ctrl_version {
 	DSI_CTRL_VERSION_2_6,
 	DSI_CTRL_VERSION_2_7,
 	DSI_CTRL_VERSION_2_8,
-	DSI_CTRL_VERSION_2_9,
 	DSI_CTRL_VERSION_MAX
 };
 
@@ -451,12 +449,12 @@ struct dsi_ctrl_hw_ops {
 	/**
 	 * set_video_timing() - set up the timing for video frame
 	 * @ctrl:          Pointer to controller host hardware.
-	 * @host_config:   Configuration of DSI host controller.
+	 * @mode:          Video mode information.
 	 *
 	 * Set up the video timing parameters for the DSI video mode operation.
 	 */
 	void (*set_video_timing)(struct dsi_ctrl_hw *ctrl,
-				 struct dsi_host_config *host_config);
+				 struct dsi_mode_info *mode);
 
 	/**
 	 * cmd_engine_setup() - setup dsi host controller for command mode
@@ -819,12 +817,11 @@ struct dsi_ctrl_hw_ops {
 
 	/** schedule_dma_cmd() - Schdeule DMA command transfer on a
 	 *                       particular blanking line.
-	 * @ctrl:                Pointer to the controller host hardware.
-	 * @line_no:             Blanking line number on whihch DMA command
-	 *                       needs to be sent.
-	 * @do_peripheral_flush: Flag for sending this command with peripheral flush.
+	 * @ctrl:         Pointer to the controller host hardware.
+	 * @line_no:      Blanking line number on whihch DMA command
+	 *                needs to be sent.
 	 */
-	void (*schedule_dma_cmd)(struct dsi_ctrl_hw *ctrl, int line_no, bool do_peripheral_flush);
+	void (*schedule_dma_cmd)(struct dsi_ctrl_hw *ctrl, int line_no);
 
 	/**
 	 * ctrl_reset() - Reset DSI lanes to recover from DSI errors
@@ -915,12 +912,11 @@ struct dsi_ctrl_hw_ops {
 	/**
 	 * hw.ops.init_cmddma_trig_ctrl() - Initialize the default trigger used
 	 *                             for command mode DMA path.
-	 * @ctrl:                Pointer to the controller host hardware.
-	 * @cfg:                 Common configuration parameters.
-	 * @do_peripheral_flush: Flag for sending this command with peripheral flush.
+	 * @ctrl:	Pointer to the controller host hardware.
+	 * @cfg:	Common configuration parameters.
 	 */
 	void (*init_cmddma_trig_ctrl)(struct dsi_ctrl_hw *ctrl,
-			struct dsi_host_common_cfg *cfg, bool do_peripheral_flush);
+			struct dsi_host_common_cfg *cfg);
 
 	/**
 	 * hw.ops.log_line_count() - reads the MDP interface line count

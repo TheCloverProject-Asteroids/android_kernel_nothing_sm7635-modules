@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #define pr_fmt(fmt) "%s:%s: " fmt, KBUILD_MODNAME, __func__
 
@@ -365,7 +365,7 @@ static size_t ipcmem_rx_avail(struct ipclite_fifo *rx_fifo)
 	if (WARN_ON_ONCE(len > rx_fifo->length))
 		len = 0;
 
-	IPCLITE_OS_LOG(IPCLITE_DBG, "len=%zu\n", len);
+	IPCLITE_OS_LOG(IPCLITE_DBG, "len=%d\n", len);
 
 	return len;
 }
@@ -654,7 +654,7 @@ static int ipclite_tx(struct ipclite_channel *channel,
 		ret = -EAGAIN;
 		return ret;
 	}
-	channel->irq_info->signal_id = ipclite_signal;
+
 	ipclite_tx_write(channel, &data, dlen);
 
 	mbox_send_message(channel->irq_info[ipclite_signal].mbox_chan, NULL);
@@ -726,7 +726,7 @@ static int map_ipcmem(struct ipclite_info *ipclite, const char *name)
 	if (!ipclite->ipcmem.mem.virt_base)
 		return -ENOMEM;
 
-	IPCLITE_OS_LOG(IPCLITE_DBG, "aux_base = %llu, size=%d,virt_base=%p\n",
+	IPCLITE_OS_LOG(IPCLITE_DBG, "aux_base = %lx, size=%d,virt_base=%p\n",
 			ipclite->ipcmem.mem.aux_base, ipclite->ipcmem.mem.size,
 			ipclite->ipcmem.mem.virt_base);
 
@@ -814,7 +814,7 @@ static void update_partition(struct ipclite_mem *ipcmem, uint32_t p)
 	ipcmem->partition[p] = ADD_OFFSET(ipcmem->mem.virt_base,
 					ipcmem->toc_data.partition_entry[p].base_offset);
 
-	IPCLITE_OS_LOG(IPCLITE_DBG, "partition[%d] = %p,partition_base_offset[%d]= %u ",
+	IPCLITE_OS_LOG(IPCLITE_DBG, "partition[%d] = %p,partition_base_offset[%d]=%lx",
 				p, ipcmem->partition[p],
 				p, ipcmem->toc_data.partition_entry[p].base_offset);
 
@@ -918,12 +918,6 @@ static int32_t ipcmem_init(struct ipclite_mem *ipcmem, struct device_node *pn)
 	return 0;
 }
 
-static void ipclite_device_release(struct device *dev)
-{
-	IPCLITE_OS_LOG(IPCLITE_INFO, "Releasing ipclite device\n");
-	kfree(dev);
-}
-
 static int ipclite_channel_irq_init(struct device *parent, struct device_node *node,
 								struct ipclite_channel *channel)
 {
@@ -940,7 +934,6 @@ static int ipclite_channel_irq_init(struct device *parent, struct device_node *n
 
 	dev->parent = parent;
 	dev->of_node = node;
-	dev->release = ipclite_device_release;
 	dev_set_name(dev, "%s:%pOFn", dev_name(parent->parent), node);
 	IPCLITE_OS_LOG(IPCLITE_DBG, "Registering %s device\n", dev_name(parent->parent));
 	ret = device_register(dev);
@@ -964,11 +957,8 @@ static int ipclite_channel_irq_init(struct device *parent, struct device_node *n
 	irq_info->mbox_chan = mbox_request_channel(&irq_info->mbox_client, 0);
 	IPCLITE_OS_LOG(IPCLITE_DBG, "irq_info[%d].mbox_chan=%p\n", index, irq_info->mbox_chan);
 	if (IS_ERR(irq_info->mbox_chan)) {
-		ret = PTR_ERR(irq_info->mbox_chan);
-		if (ret != -EPROBE_DEFER)
+		if (PTR_ERR(irq_info->mbox_chan) != -EPROBE_DEFER)
 			IPCLITE_OS_LOG(IPCLITE_ERR, "failed to acquire IPC channel\n");
-		else
-			IPCLITE_OS_LOG(IPCLITE_WARN, "IPCC Probe Deferred\n");
 		goto err_dev;
 	}
 
@@ -990,6 +980,7 @@ static int ipclite_channel_irq_init(struct device *parent, struct device_node *n
 
 err_dev:
 	device_unregister(dev);
+	kfree(dev);
 	return ret;
 }
 
@@ -1013,6 +1004,11 @@ static struct ipcmem_partition_header *get_ipcmem_partition_hdr(struct ipclite_m
 		return NULL;
 }
 
+static void ipclite_channel_release(struct device *dev)
+{
+	IPCLITE_OS_LOG(IPCLITE_INFO, "Releasing ipclite channel\n");
+	kfree(dev);
+}
 
 /* Sets up following fields of IPCLite channel structure:
  *	remote_pid,tx_fifo, rx_fifo
@@ -1035,7 +1031,7 @@ static int ipclite_channel_init(struct device *parent,
 
 	dev->parent = parent;
 	dev->of_node = node;
-	dev->release = ipclite_device_release;
+	dev->release = ipclite_channel_release;
 	dev_set_name(dev, "%s:%pOFn", dev_name(parent->parent), node);
 	IPCLITE_OS_LOG(IPCLITE_DBG, "Registering %s device\n", dev_name(parent->parent));
 	ret = device_register(dev);
@@ -1145,7 +1141,17 @@ static int ipclite_channel_init(struct device *parent,
 err_put_dev:
 	ipclite->channel[remote_pid].status = INACTIVE;
 	device_unregister(dev);
+	kfree(dev);
 	return ret;
+}
+
+static void probe_subsystem(struct device *dev, struct device_node *np)
+{
+	int ret = 0;
+
+	ret = ipclite_channel_init(dev, np);
+	if (ret)
+		IPCLITE_OS_LOG(IPCLITE_ERR, "IPCLite Channel init failed\n");
 }
 
 /* IPCLite Debug related functions start */
@@ -1398,7 +1404,8 @@ static int ipclite_init_v0(struct platform_device *pdev)
 	ipclite = kzalloc(sizeof(*ipclite), GFP_KERNEL);
 	if (!ipclite) {
 		IPCLITE_OS_LOG(IPCLITE_ERR, "IPCLite Memory Allocation Failed\n");
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto error;
 	}
 
 	ipclite->dev = &pdev->dev;
@@ -1409,7 +1416,7 @@ static int ipclite_init_v0(struct platform_device *pdev)
 		if (hwlock_id != -EPROBE_DEFER)
 			dev_err(&pdev->dev, "failed to retrieve hwlock\n");
 		ret = hwlock_id;
-		goto free_ipclite;
+		goto release;
 	}
 	IPCLITE_OS_LOG(IPCLITE_DBG, "Hwlock id retrieved, hwlock_id=%d\n", hwlock_id);
 
@@ -1418,7 +1425,7 @@ static int ipclite_init_v0(struct platform_device *pdev)
 	if (!ipclite->hwlock) {
 		IPCLITE_OS_LOG(IPCLITE_ERR, "Failed to assign hwlock_id\n");
 		ret = -ENXIO;
-		goto free_ipclite;
+		goto release;
 	}
 	IPCLITE_OS_LOG(IPCLITE_DBG, "Hwlock id assigned successfully, hwlock=%p\n",
 									ipclite->hwlock);
@@ -1442,21 +1449,16 @@ static int ipclite_init_v0(struct platform_device *pdev)
 	}
 
 	/* Setup Channel for each Remote Subsystem */
-	for_each_available_child_of_node(pn, cn) {
-		ret = ipclite_channel_init(&pdev->dev, cn);
-		if (ret == -EPROBE_DEFER)
-			goto release;
-	}
+	for_each_available_child_of_node(pn, cn)
+		probe_subsystem(&pdev->dev, cn);
 
 	/* Broadcast init_done signal to all subsystems once mbox channels are set up */
-	if (ipclite->channel[IPCMEM_APPS].status == ACTIVE) {
-		broadcast = ipclite->channel[IPCMEM_APPS];
-		ret = mbox_send_message(broadcast.irq_info[IPCLITE_MEM_INIT_SIGNAL].mbox_chan, NULL);
-		if (ret < 0)
-			goto mem_release;
+	broadcast = ipclite->channel[IPCMEM_APPS];
+	ret = mbox_send_message(broadcast.irq_info[IPCLITE_MEM_INIT_SIGNAL].mbox_chan, NULL);
+	if (ret < 0)
+		goto mem_release;
 
-		mbox_client_txdone(broadcast.irq_info[IPCLITE_MEM_INIT_SIGNAL].mbox_chan, 0);
-	}
+	mbox_client_txdone(broadcast.irq_info[IPCLITE_MEM_INIT_SIGNAL].mbox_chan, 0);
 
 	/* Debug Setup */
 	ret = ipclite_debug_setup();
@@ -1494,10 +1496,9 @@ mem_release:
 	 * braodcast)
 	 */
 release:
-	hwspin_lock_free(ipclite->hwlock);
-free_ipclite:
 	kfree(ipclite);
 	ipclite = NULL;
+error:
 	return ret;
 }
 
@@ -1596,7 +1597,7 @@ static int32_t get_global_partition_info_v0(struct global_region_info *global_ip
 							global_partition->hdr.region_offset);
 	global_ipcmem->size = (size_t)(global_partition->hdr.region_size);
 
-	IPCLITE_OS_LOG(IPCLITE_DBG, "base = %p, size= %u ", global_ipcmem->virt_base,
+	IPCLITE_OS_LOG(IPCLITE_DBG, "base = %p, size=%lx\n", global_ipcmem->virt_base,
 									global_ipcmem->size);
 	return 0;
 }

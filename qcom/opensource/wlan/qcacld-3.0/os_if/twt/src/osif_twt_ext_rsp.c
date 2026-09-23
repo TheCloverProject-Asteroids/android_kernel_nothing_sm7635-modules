@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -199,8 +199,6 @@ twt_del_status_to_vendor_twt_status(enum HOST_TWT_DEL_STATUS status)
 		return QCA_WLAN_VENDOR_TWT_STATUS_SCAN_IN_PROGRESS;
 	case HOST_TWT_DEL_STATUS_PS_DISABLE_TEARDOWN:
 		return QCA_WLAN_VENDOR_TWT_STATUS_POWER_SAVE_EXIT_TERMINATE;
-	case HOST_TWT_DEL_STATUS_MULTIPLE_LINKS_ACTIVE_TERMINATE:
-		return QCA_WLAN_VENDOR_TWT_STATUS_MULTIPLE_LINKS_ACTIVE_TERMINATE;
 	default:
 		return QCA_WLAN_VENDOR_TWT_STATUS_UNKNOWN_ERROR;
 	}
@@ -465,24 +463,6 @@ osif_twt_setup_pack_resp_nlmsg(struct sk_buff *reply_skb,
 		attr = QCA_WLAN_VENDOR_ATTR_TWT_SETUP_TWT_INFO_ENABLED;
 		if (nla_put_flag(reply_skb, attr)) {
 			osif_err("Failed to put twt info enable flag");
-			return QDF_STATUS_E_FAILURE;
-		}
-	}
-
-	if (event->additional_params.implicit) {
-		attr = QCA_WLAN_VENDOR_ATTR_TWT_SETUP_IMPLICIT;
-		if (nla_put_u8(reply_skb, attr,
-			       event->additional_params.implicit)) {
-			osif_err("TWT: fail to put twt setup implicit param");
-			return QDF_STATUS_E_FAILURE;
-		}
-	}
-
-	if (event->additional_params.renegotiate) {
-		attr = QCA_WLAN_VENDOR_ATTR_TWT_SETUP_UPDATABLE;
-		if (nla_put_u8(reply_skb, attr,
-			       event->additional_params.renegotiate)) {
-			osif_err("TWT: fail to put twt setup updatable param");
 			return QDF_STATUS_E_FAILURE;
 		}
 	}
@@ -846,50 +826,6 @@ osif_twt_send_get_capabilities_response(struct wlan_objmgr_psoc *psoc,
 		osif_err("TWT: Failed to fill capabilities");
 		qdf_status = QDF_STATUS_E_FAILURE;
 		goto free_skb;
-	}
-
-	if (min_wake_intvl) {
-		if (nla_put_u32(
-			reply_skb,
-			QCA_WLAN_VENDOR_ATTR_TWT_CAPABILITIES_MIN_WAKE_INTVL,
-			min_wake_intvl)) {
-			osif_err("TWT: Failed to fill min_wake_intvl capabilities");
-			qdf_status = QDF_STATUS_E_FAILURE;
-			goto free_skb;
-		}
-	}
-
-	if (max_wake_intvl) {
-		if (nla_put_u32(
-			reply_skb,
-			QCA_WLAN_VENDOR_ATTR_TWT_CAPABILITIES_MAX_WAKE_INTVL,
-			max_wake_intvl)) {
-			osif_err("TWT: Failed to fill max_wake_intvl capabilities");
-			qdf_status = QDF_STATUS_E_FAILURE;
-			goto free_skb;
-		}
-	}
-
-	if (min_wake_dur) {
-		if (nla_put_u32(
-			reply_skb,
-			QCA_WLAN_VENDOR_ATTR_TWT_CAPABILITIES_MIN_WAKE_DURATION,
-			min_wake_dur)) {
-			osif_err("TWT: Failed to fill min_wake_duration capabilities");
-			qdf_status = QDF_STATUS_E_FAILURE;
-			goto free_skb;
-		}
-	}
-
-	if (max_wake_dur) {
-		if (nla_put_u32(
-			reply_skb,
-			QCA_WLAN_VENDOR_ATTR_TWT_CAPABILITIES_MAX_WAKE_DURATION,
-			max_wake_dur)) {
-			osif_err("TWT: Failed to fill max_wake_duration capabilities");
-			qdf_status = QDF_STATUS_E_FAILURE;
-			goto free_skb;
-		}
 	}
 
 	nla_nest_end(reply_skb, config_attr);
@@ -1605,19 +1541,6 @@ osif_twt_pack_get_stats_resp_nlmsg(struct wlan_objmgr_vdev *vdev,
 		    twt_get_stats_status_to_vendor_twt_status(params[i].status);
 		if (nla_put_u32(reply_skb, attr, vendor_status)) {
 			osif_err("get_params failed to put status");
-			return QDF_STATUS_E_INVAL;
-		}
-
-		attr = QCA_WLAN_VENDOR_ATTR_TWT_STATS_AVG_EOSP_DUR_US;
-		if (nla_put_u32(reply_skb, attr,
-				params[i].avg_eosp_sp_dur_us)) {
-			osif_err("get_params failed to put avg_eosp_sp_dur_us");
-			return QDF_STATUS_E_INVAL;
-		}
-
-		attr = QCA_WLAN_VENDOR_ATTR_TWT_STATS_EOSP_COUNT;
-		if (nla_put_u32(reply_skb, attr, params[i].eosp_sp_count)) {
-			osif_err("get_params failed to put eosp_sp_count");
 			return QDF_STATUS_E_INVAL;
 		}
 

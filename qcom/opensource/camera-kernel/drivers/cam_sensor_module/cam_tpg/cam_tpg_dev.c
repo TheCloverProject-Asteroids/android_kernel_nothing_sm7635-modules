@@ -11,8 +11,6 @@
 #include "tpg_hw/tpg_hw_v_1_2/tpg_hw_v_1_2_data.h"
 #include "tpg_hw/tpg_hw_v_1_3/tpg_hw_v_1_3_data.h"
 #include "tpg_hw/tpg_hw_v_1_4/tpg_hw_v_1_4_data.h"
-#include "cam_req_mgr_dev.h"
-#include <linux/of_device.h>
 
 static int cam_tpg_subdev_close(struct v4l2_subdev *sd,
 	struct v4l2_subdev_fh *fh)
@@ -239,7 +237,7 @@ static int tpg_register_cpas_client(struct cam_tpg_device *tpg_dev,
 	cpas_parms.dev = &pdev->dev;
 	cpas_parms.userdata = tpg_dev;
 
-	strscpy(cpas_parms.identifier, "tpg", CAM_HW_IDENTIFIER_LENGTH);
+	strlcpy(cpas_parms.identifier, "tpg", CAM_HW_IDENTIFIER_LENGTH);
 
 	rc = cam_cpas_register_client(&cpas_parms);
 	if (rc) {
@@ -290,13 +288,10 @@ static int cam_tpg_hw_layer_init(struct cam_tpg_device *tpg_dev,
 static int cam_tpg_component_bind(struct device *dev,
 	struct device *master_dev, void *data)
 {
-	int                      rc = 0;
-	struct cam_tpg_device   *tpg_dev = NULL;
-	struct platform_device  *pdev = to_platform_device(dev);
-	struct timespec64        ts_start, ts_end;
-	long                     microsec = 0;
+	int rc = 0;
+	struct cam_tpg_device  *tpg_dev = NULL;
+	struct platform_device *pdev = to_platform_device(dev);
 
-	CAM_GET_TIMESTAMP(ts_start);
 	tpg_dev = devm_kzalloc(&pdev->dev,
 		sizeof(struct cam_tpg_device), GFP_KERNEL);
 	if (!tpg_dev) {
@@ -304,7 +299,7 @@ static int cam_tpg_component_bind(struct device *dev,
 		return -ENOMEM;
 	}
 
-	strscpy(tpg_dev->device_name, CAMX_TPG_DEV_NAME,
+	strlcpy(tpg_dev->device_name, CAMX_TPG_DEV_NAME,
 		sizeof(tpg_dev->device_name));
 	mutex_init(&tpg_dev->mutex);
 	tpg_dev->tpg_subdev.pdev = pdev;
@@ -334,9 +329,6 @@ static int cam_tpg_component_bind(struct device *dev,
 	}
 
 	platform_set_drvdata(pdev, tpg_dev);
-	CAM_GET_TIMESTAMP(ts_end);
-	CAM_GET_TIMESTAMP_DIFF_IN_MICRO(ts_start, ts_end, microsec);
-	cam_record_bind_latency(pdev->name, microsec);
 
 	return rc;
 

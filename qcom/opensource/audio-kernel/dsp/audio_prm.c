@@ -19,7 +19,7 @@
 #include <dsp/spf-core.h>
 #include <dsp/audio_notifier.h>
 
-#define TIMEOUT_MS 200
+#define TIMEOUT_MS 500
 #define MAX_RETRY_COUNT 3
 #define APM_READY_WAIT_DURATION 2
 #define GPR_SEND_PKT_APM_TIMEOUT_MS 0
@@ -124,7 +124,7 @@ static int prm_gpr_send_pkt(struct gpr_pkt *pkt, wait_queue_head_t *wait)
 	if (wait) {
 		ret = wait_event_timeout(g_prm.wait,
 				(g_prm.resp_received),
-				msecs_to_jiffies(TIMEOUT_MS));
+				msecs_to_jiffies(2 * TIMEOUT_MS));
 		if (!ret) {
 			pr_err("%s: pkt send timeout\n", __func__);
 			ret = -ETIMEDOUT;

@@ -451,10 +451,8 @@ static QDF_STATUS sta_mlme_vdev_up_send(struct vdev_mlme_obj *vdev_mlme,
 			  vdev_mlme->vdev->vdev_objmgr.vdev_id);
 	status = wma_sta_vdev_up_send(vdev_mlme, event_data_len, event_data);
 
-	if (QDF_IS_STATUS_SUCCESS(status)) {
+	if (QDF_IS_STATUS_SUCCESS(status))
 		mlme_sr_update(vdev_mlme->vdev, true);
-		wlan_p2p_validate_ap_assist_dfs_group(vdev_mlme->vdev);
-	}
 
 	return status;
 }
@@ -1403,6 +1401,20 @@ QDF_STATUS mlme_set_mbssid_info(struct wlan_objmgr_vdev *vdev,
 	return QDF_STATUS_SUCCESS;
 }
 
+void mlme_get_mbssid_info(struct wlan_objmgr_vdev *vdev,
+			  struct vdev_mlme_mbss_11ax *mbss_11ax)
+{
+	struct vdev_mlme_obj *vdev_mlme;
+
+	vdev_mlme = wlan_vdev_mlme_get_cmpt_obj(vdev);
+	if (!vdev_mlme) {
+		mlme_legacy_err("vdev component object is NULL");
+		return;
+	}
+
+	mbss_11ax = &vdev_mlme->mgmt.mbss_11ax;
+}
+
 QDF_STATUS mlme_set_tx_power(struct wlan_objmgr_vdev *vdev,
 			     int8_t tx_power)
 {
@@ -1612,11 +1624,7 @@ static void mlme_ext_handler_destroy(struct vdev_mlme_obj *vdev_mlme)
 		&vdev_mlme->ext_vdev_ptr->bss_color_change_wakelock);
 	qdf_runtime_lock_deinit(
 		&vdev_mlme->ext_vdev_ptr->disconnect_runtime_lock);
-	qdf_runtime_lock_deinit(
-			&vdev_mlme->ext_vdev_ptr->peer_set_key_rt_wakelock);
-	qdf_wake_lock_destroy(
-		&vdev_mlme->ext_vdev_ptr->peer_set_key_wakelock);
-	qdf_atomic_set(&vdev_mlme->ext_vdev_ptr->set_key_wakelock_counter, 0);
+	mlme_free_self_disconnect_ies(vdev_mlme->vdev);
 	mlme_free_peer_disconnect_ies(vdev_mlme->vdev);
 	mlme_free_sae_auth_retry(vdev_mlme->vdev);
 	mlme_deinit_wait_for_key_timer(&vdev_mlme->ext_vdev_ptr->wait_key_timer);
@@ -1734,12 +1742,6 @@ QDF_STATUS vdevmgr_mlme_ext_hdl_create(struct vdev_mlme_obj *vdev_mlme)
 		mlme_ext_handler_destroy(vdev_mlme);
 		return status;
 	}
-
-	qdf_atomic_init(&vdev_mlme->ext_vdev_ptr->set_key_wakelock_counter);
-	qdf_wake_lock_create(&vdev_mlme->ext_vdev_ptr->peer_set_key_wakelock,
-			     "peer_set_key");
-	qdf_runtime_lock_init(
-			&vdev_mlme->ext_vdev_ptr->peer_set_key_rt_wakelock);
 
 	status = vdev_mgr_create_send(vdev_mlme);
 	if (QDF_IS_STATUS_ERROR(status)) {
@@ -1919,21 +1921,6 @@ static QDF_STATUS mon_mlme_vdev_down_send(struct vdev_mlme_obj *vdev_mlme,
 	mlme_legacy_debug("vdev id = %d",
 			  vdev_mlme->vdev->vdev_objmgr.vdev_id);
 	return wma_mon_mlme_vdev_down_send(vdev_mlme, data_len, data);
-}
-
-static QDF_STATUS mon_mlme_vdev_stop_resp(struct vdev_mlme_obj *vdev_mlme,
-					  struct vdev_stop_response *rsp)
-{
-	mlme_legacy_debug("vdev id = %d",
-			  vdev_mlme->vdev->vdev_objmgr.vdev_id);
-	return wma_mon_mlme_vdev_stop_resp(vdev_mlme);
-}
-
-static void mon_mlme_vdev_down(struct vdev_mlme_obj *vdev_mlme)
-{
-	mlme_legacy_debug("vdev id = %d",
-			  vdev_mlme->vdev->vdev_objmgr.vdev_id);
-	wma_mon_mlme_vdev_stop_resp(vdev_mlme);
 }
 
 /**
@@ -2120,10 +2107,6 @@ vdevmgr_vdev_peer_delete_all_rsp_handle(struct vdev_mlme_obj *vdev_mlme,
 
 		status = rx_ops->wifi_pos_vdev_delete_all_ranging_peers_rsp_cb(
 							psoc, rsp->vdev_id);
-		return status;
-	} else if (QDF_HAS_PARAM(rsp->peer_type_bitmap, WLAN_PEER_NAN_PASN)) {
-		status = wlan_nan_handle_delete_all_pasn_peers(psoc,
-							       rsp->vdev_id);
 		return status;
 	}
 
@@ -2397,34 +2380,13 @@ bool wlan_ll_sap_freq_present_in_pcl(struct policy_mgr_pcl_list *pcl,
 
 	return false;
 }
-
-void wlan_ll_sap_send_continue_vdev_restart(struct wlan_objmgr_vdev *vdev)
-{
-	lim_ll_sap_continue_vdev_restart(vdev);
-}
-
-void wlan_ll_sap_send_action_frame(struct wlan_objmgr_vdev *vdev,
-				   uint8_t *macaddr)
-{
-	lim_ll_sap_send_ecsa_action_frame(vdev, macaddr);
-}
-
-void wlan_ll_sap_notify_chan_switch_started(struct wlan_objmgr_vdev *vdev)
-{
-	lim_ll_sap_notify_chan_switch_started(vdev);
-}
-
-void wlan_ll_sap_csa_bearer_switch_rsp(uint8_t vdev_id)
-{
-	csr_send_csa_restart_req(vdev_id);
-}
 #endif
 
-QDF_STATUS
+void
 wlan_sap_get_user_config_acs_ch_list(uint8_t vdev_id,
 				     struct scan_filter *filter)
 {
-	return wlansap_get_user_config_acs_ch_list(vdev_id, filter);
+	wlansap_get_user_config_acs_ch_list(vdev_id, filter);
 }
 
 static struct vdev_mlme_ops sta_mlme_ops = {
@@ -2488,9 +2450,7 @@ static struct vdev_mlme_ops mon_mlme_ops = {
 	.mlme_vdev_disconnect_peers = mon_mlme_vdev_disconnect_peers,
 	.mlme_vdev_stop_send = mon_mlme_vdev_stop_send,
 	.mlme_vdev_down_send = mon_mlme_vdev_down_send,
-	.mlme_vdev_ext_stop_rsp = mon_mlme_vdev_stop_resp,
 	.mlme_vdev_ext_start_rsp = vdevmgr_vdev_start_rsp_handle,
-	.mlme_vdev_init_down = mon_mlme_vdev_down,
 };
 
 static struct mlme_ext_ops ext_ops = {
@@ -2509,7 +2469,6 @@ static struct mlme_ext_ops ext_ops = {
 	.mlme_cm_ext_disconnect_start_ind_cb = cm_disconnect_start_ind,
 	.mlme_cm_ext_disconnect_req_cb = cm_handle_disconnect_req,
 	.mlme_cm_ext_bss_peer_delete_req_cb = cm_send_bss_peer_delete_req,
-	.mlme_cm_ext_force_bss_peer_delete_req_cb = cm_send_force_bss_peer_delete_req,
 	.mlme_cm_ext_disconnect_complete_ind_cb = cm_disconnect_complete_ind,
 	.mlme_cm_ext_vdev_down_req_cb = cm_send_vdev_down_req,
 	.mlme_cm_ext_reassoc_req_cb = cm_handle_reassoc_req,
@@ -2529,6 +2488,5 @@ static struct mlo_mlme_ext_ops mlo_ext_ops = {
 	.mlo_mlme_ext_peer_assoc_fail = lim_mlo_ap_sta_assoc_fail,
 	.mlo_mlme_ext_assoc_resp = lim_mlo_ap_sta_assoc_suc,
 	.mlo_mlme_ext_handle_sta_csa_param = lim_handle_mlo_sta_csa_param,
-	.mlo_mlme_ext_teardown_tdls = wlan_tdls_teardown_links_for_non_dbs,
 };
 #endif

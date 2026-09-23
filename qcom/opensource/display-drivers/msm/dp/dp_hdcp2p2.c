@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -27,7 +27,6 @@
 #define dp_read(offset) readl_relaxed((offset))
 #define dp_write(offset, data) writel_relaxed((data), (offset))
 #define DP_HDCP_RXCAPS_LENGTH 3
-#define HDCP_POLL_MODE_RETRY_CNT 30
 
 enum dp_hdcp2p2_sink_status {
 	SINK_DISCONNECTED,
@@ -677,7 +676,7 @@ error:
 
 static int dp_hdcp2p2_cp_irq(void *input)
 {
-	int rc, retries = HDCP_POLL_MODE_RETRY_CNT;
+	int rc, retries = 15;
 	struct dp_hdcp2p2_ctrl *ctrl = input;
 	SDE_EVT32_EXTERNAL(SDE_EVTLOG_FUNC_ENTRY);
 
@@ -719,9 +718,7 @@ static int dp_hdcp2p2_cp_irq(void *input)
 	 * state engine gets transitioned to the polling mode, which can
 	 * cause the test to fail as we would not read the
 	 * RepeaterAuth_Send_ReceiverID_List from the TE in response to the
-	 * CP_IRQ. Current wait time is (HDCP_POLL_MODE_RETRY_CNT*20) msecs.
-	 * Tune this constant if "HDCP 2.3 CTS test 1B-09" is failing, because
-	 * of a missed CP interrupt.
+	 * CP_IRQ.
 	 *
 	 * Skip this wait when any of the fields in the abort mask is set.
 	 */

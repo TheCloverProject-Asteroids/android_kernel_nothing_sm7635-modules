@@ -224,13 +224,15 @@ int cam_context_handle_crm_flush_req(struct cam_context *ctx,
 	}
 
 	mutex_lock(&ctx->ctx_mutex);
-	if (ctx->state_machine[ctx->state].crm_ops.flush_req) {
-		rc = ctx->state_machine[ctx->state].crm_ops.flush_req(ctx,
-			flush);
-	} else {
-		CAM_INFO(CAM_CORE, "No crm flush req in dev %d, state %d, name %s",
-			ctx->dev_hdl, ctx->state, ctx->dev_name);
-		rc = -EPROTO;
+	if (ctx->state != CAM_CTX_FLUSHED) {
+		if (ctx->state_machine[ctx->state].crm_ops.flush_req) {
+			rc = ctx->state_machine[ctx->state].crm_ops.flush_req(ctx,
+				flush);
+		} else {
+			CAM_INFO(CAM_CORE, "No crm flush req in dev %d, state %d, name %s",
+				ctx->dev_hdl, ctx->state, ctx->dev_name);
+			rc = -EPROTO;
+		}
 	}
 	mutex_unlock(&ctx->ctx_mutex);
 
@@ -379,7 +381,7 @@ int cam_context_handle_message(struct cam_context *ctx,
 }
 
 int cam_context_handle_acquire_dev(struct cam_context *ctx,
-	struct cam_acquire_dev_cmd_unified *cmd)
+	struct cam_acquire_dev_cmd *cmd)
 {
 	int rc;
 	int i;
@@ -400,7 +402,7 @@ int cam_context_handle_acquire_dev(struct cam_context *ctx,
 			ctx, cmd);
 	} else {
 		CAM_ERR(CAM_CORE, "No acquire device in dev %d, state %d",
-				cmd->dev_handle, ctx->state);
+			cmd->dev_handle, ctx->state);
 		rc = -EPROTO;
 	}
 
@@ -738,7 +740,7 @@ int cam_context_init(struct cam_context *ctx,
 	mutex_init(&ctx->sync_mutex);
 	spin_lock_init(&ctx->lock);
 
-	strscpy(ctx->dev_name, dev_name, CAM_CTX_DEV_NAME_MAX_LENGTH);
+	strlcpy(ctx->dev_name, dev_name, CAM_CTX_DEV_NAME_MAX_LENGTH);
 	ctx->dev_id = dev_id;
 	ctx->ctx_id = ctx_id;
 	ctx->last_flush_req = 0;

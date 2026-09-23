@@ -39,7 +39,6 @@ extern uint8_t g_instances_added;
 
 #define INTRL_MODE_DISABLE 0xEEEEEEEE
 #define INTRL_MODE_ENABLE 0x27D
-#define INTRL_MODE_RTP_STREAM_FILTER 0x1A7D
 
 #define ipa_fatal(params...) \
 	QDF_TRACE_FATAL(QDF_MODULE_ID_IPA, params)
@@ -98,21 +97,6 @@ void ipa_set_pld_enable(bool flag);
 bool ipa_get_pld_enable(void);
 
 /**
- * ipa_set_shared_smmu_enable() - set g_ipa_shared_smmu_enable
- * @flag: flag to set g_ipa_shared_smmu_enable
- *
- * Return: None
- */
-void ipa_set_shared_smmu_enable(bool flag);
-
-/**
- * ipa_get_shared_smmu_enable() - check if IPA shared smmu is disabled in pld
- *
- * Return: g_ipa_shared_smmu_enable
- */
-bool ipa_get_shared_smmu_enable(void);
-
-/**
  * ipa_check_hw_present() - get IPA hw status
  *
  * ipa_uc_reg_rdyCB is not directly designed to check
@@ -125,33 +109,41 @@ bool ipa_get_shared_smmu_enable(void);
 bool ipa_check_hw_present(void);
 
 /**
- * ipa_psoc_get_priv_obj() - private API to get ipa psoc object
- * @psoc: psoc object
+ * ipa_pdev_get_priv_obj() - private API to get ipa pdev object
+ * @pdev: pdev object
  *
  * Return: ipa object
  */
 static inline struct wlan_ipa_priv *
-ipa_psoc_get_priv_obj(struct wlan_objmgr_psoc *psoc)
+ipa_pdev_get_priv_obj(struct wlan_objmgr_pdev *pdev)
 {
-	struct wlan_ipa_priv *ipa_obj;
+	struct wlan_ipa_priv *pdev_obj;
 
-	ipa_obj = (struct wlan_ipa_priv *)
-		wlan_objmgr_psoc_get_comp_private_obj(psoc,
-						      WLAN_UMAC_COMP_IPA);
+	pdev_obj = (struct wlan_ipa_priv *)
+		wlan_objmgr_pdev_get_comp_private_obj(pdev,
+				WLAN_UMAC_COMP_IPA);
 
-	return ipa_obj;
+	return pdev_obj;
 }
 
 /**
- * ipa_priv_obj_get_psoc() - API to get psoc from IPA object
+ * get_ipa_config() - API to get IPAConfig INI
+ * @psoc : psoc handle
+ *
+ * Return: IPA config value
+ */
+uint32_t get_ipa_config(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * ipa_priv_obj_get_pdev() - API to get pdev from IPA object
  * @ipa_obj: IPA object
  *
- * Return: psoc object
+ * Return: pdev object
  */
-static inline struct wlan_objmgr_psoc *
-ipa_priv_obj_get_psoc(struct wlan_ipa_priv *ipa_obj)
+static inline struct wlan_objmgr_pdev *
+ipa_priv_obj_get_pdev(struct wlan_ipa_priv *ipa_obj)
 {
-	return ipa_obj->psoc;
+	return ipa_obj->pdev;
 }
 
 /**
@@ -204,13 +196,6 @@ bool ipa_config_is_opt_wifi_dp_enabled(void);
 bool ipa_config_is_vlan_enabled(void);
 
 /**
- * ipa_config_is_two_tx_pipes_enabled - Is IPA two tx pipes feature enabled
- *
- * Return: true if two tx pipes feature is enabled. Otherwise false.
- */
-bool ipa_config_is_two_tx_pipes_enabled(void);
-
-/**
  * ipa_obj_setup() - IPA obj initialization and setup
  * @ipa_ctx: IPA obj context
  *
@@ -228,23 +213,23 @@ QDF_STATUS ipa_obj_cleanup(struct wlan_ipa_priv *ipa_ctx);
 
 /**
  * ipa_send_uc_offload_enable_disable() - wdi enable/disable notify to fw
- * @psoc: objmgr psoc object
+ * @pdev: objmgr pdev object
  * @req: ipa offload control request
  *
  * Return: QDF status success or failure
  */
-QDF_STATUS ipa_send_uc_offload_enable_disable(struct wlan_objmgr_psoc *psoc,
-					      struct ipa_uc_offload_control_params *req);
+QDF_STATUS ipa_send_uc_offload_enable_disable(struct wlan_objmgr_pdev *pdev,
+				struct ipa_uc_offload_control_params *req);
 
 /**
  * ipa_send_intrabss_enable_disable() - wdi intrabss enable/disable notify to fw
- * @psoc: objmgr psoc object
+ * @pdev: objmgr pdev object
  * @req: ipa intrabss control request
  *
  * Return: QDF status success or failure
  */
 QDF_STATUS
-ipa_send_intrabss_enable_disable(struct wlan_objmgr_psoc *psoc,
+ipa_send_intrabss_enable_disable(struct wlan_objmgr_pdev *pdev,
 				 struct ipa_intrabss_control_params *req);
 
 /**
@@ -255,6 +240,15 @@ ipa_send_intrabss_enable_disable(struct wlan_objmgr_psoc *psoc,
  * Return: None
  */
 void ipa_set_dp_handle(struct wlan_objmgr_psoc *psoc, void *dp_soc);
+
+/**
+ * ipa_set_pdev_id() - set dp pdev id
+ * @psoc: psoc handle
+ * @pdev_id: dp txrx physical device id
+ *
+ * Return: None
+ */
+void ipa_set_pdev_id(struct wlan_objmgr_psoc *psoc, uint8_t pdev_id);
 
 /**
  * ipa_rm_set_perf_level() - set ipa rm perf level
@@ -282,27 +276,6 @@ void ipa_uc_info(struct wlan_objmgr_pdev *pdev);
  * Return: None
  */
 void ipa_uc_stat(struct wlan_objmgr_pdev *pdev);
-
-/**
- * ipa_set_opt_dp_ctrl_flt() - flt add for opt_dp_ctrl
- * @pdev: pdev obj
- * @flt: flt params
- *
- * Return: None
- */
-void ipa_set_opt_dp_ctrl_flt(struct wlan_objmgr_pdev *pdev,
-			     struct ipa_wdi_opt_dpath_flt_add_cb_params *flt);
-
-/*
- * ipa_set_opt_dp_ctrl_flt_rm() - flt del for opt_dp_ctrl
- * @pdev: pdev obj
- * @flt: flt params
- *
- * Return: None
- */
-void ipa_set_opt_dp_ctrl_flt_rm(
-			struct wlan_objmgr_pdev *pdev,
-			struct ipa_wdi_opt_dpath_flt_rem_cb_params *flt);
 
 /**
  * ipa_uc_rt_debug_host_dump() - IPA rt debug host dump
@@ -446,12 +419,12 @@ QDF_STATUS ipa_resume(struct wlan_objmgr_pdev *pdev);
 
 /**
  * ipa_uc_ol_init() - Initialize IPA uC offload
- * @psoc: psoc obj
+ * @pdev: pdev obj
  * @osdev: OS dev
  *
  * Return: QDF STATUS
  */
-QDF_STATUS ipa_uc_ol_init(struct wlan_objmgr_psoc *psoc,
+QDF_STATUS ipa_uc_ol_init(struct wlan_objmgr_pdev *pdev,
 			  qdf_device_t osdev);
 
 /**
@@ -509,11 +482,11 @@ int ipa_uc_smmu_map(bool map, uint32_t num_buf, qdf_mem_info_t *buf_arr);
 
 /**
  * ipa_is_fw_wdi_activated - Is FW WDI activated?
- * @psoc: psoc obj
+ * @pdev: pdev obj
  *
  * Return: true if FW WDI activated, false otherwise
  */
-bool ipa_is_fw_wdi_activated(struct wlan_objmgr_psoc *psoc);
+bool ipa_is_fw_wdi_activated(struct wlan_objmgr_pdev *pdev);
 
 /**
  * ipa_uc_cleanup_sta() - disconnect and cleanup sta iface
@@ -551,15 +524,6 @@ QDF_STATUS ipa_uc_disconnect_ap(struct wlan_objmgr_pdev *pdev,
  */
 void ipa_cleanup_dev_iface(struct wlan_objmgr_pdev *pdev,
 			   qdf_netdev_t net_dev, uint8_t session_id);
-
-/*
- * ipa_uc_shutdown_opt_dp_ctrl_cleanup() - enables flag to clean filters
- * in opt_dp_ctrl
- * @pdev: pdev obj
- *
- * Return: None
- */
-void ipa_uc_shutdown_opt_dp_ctrl_cleanup(struct wlan_objmgr_pdev *pdev);
 
 /**
  * ipa_uc_ssr_cleanup() - handle IPA UC cleanup during SSR
@@ -685,38 +649,6 @@ bool ipa_set_perf_level_bw_enabled(struct wlan_objmgr_pdev *pdev);
  */
 void ipa_set_perf_level_bw(struct wlan_objmgr_pdev *pdev,
 			   enum wlan_ipa_bw_level lvl);
-
-#if defined(QCA_IPA_LL_TX_FLOW_CONTROL)
-/**
- * ipa_event_wq() - Queue WLAN IPA event for later processing
- * @psoc: psoc handle
- * @peer_mac_addr: peer mac address
- * @vdev: vdev object
- * @wlan_event: wlan event
- *
- * Return: None
- */
-void ipa_event_wq(struct wlan_objmgr_psoc *psoc, uint8_t *peer_mac_addr,
-		  struct wlan_objmgr_vdev *vdev,
-		  enum wlan_ipa_wlan_event wlan_event);
-
-/**
- * wlan_psoc_ipa_evt_wq_attach() - Create WQ to handle IPA event
- * @psoc: psoc handle
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-wlan_psoc_ipa_evt_wq_attach(struct wlan_objmgr_psoc *psoc);
-
-/**
- * wlan_psoc_ipa_evt_wq_detach() - Detach WQ which handle IPA event
- * @psoc: psoc handle
- *
- * Return: None
- */
-void wlan_psoc_ipa_evt_wq_detach(struct wlan_objmgr_psoc *psoc);
-#endif
 
 #else /* Not IPA_OFFLOAD */
 typedef QDF_STATUS (*wlan_ipa_softap_xmit)(qdf_nbuf_t nbuf, qdf_netdev_t dev);

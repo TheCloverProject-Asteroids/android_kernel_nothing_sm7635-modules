@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -9,7 +9,6 @@
 #include "cam_cci_dev.h"
 #include "cam_req_mgr_workq.h"
 #include "cam_common_util.h"
-#include "cam_mem_mgr_api.h"
 
 static int32_t cam_cci_convert_type_to_num_bytes(
 	enum camera_sensor_i2c_type type)
@@ -298,7 +297,7 @@ void cam_cci_dump_registers(struct cci_device *cci_dev,
 }
 EXPORT_SYMBOL(cam_cci_dump_registers);
 
-static int cam_cci_wait(struct cci_device *cci_dev,
+static uint32_t cam_cci_wait(struct cci_device *cci_dev,
 	enum cci_i2c_master_t master,
 	enum cci_i2c_queue_t queue)
 {
@@ -1671,7 +1670,7 @@ read_again:
 
 		total_read_words += read_words;
 		while (read_words > 0) {
-			val = cam_io_r(base +
+			val = cam_io_r_mb(base +
 				CCI_I2C_M0_READ_DATA_ADDR + master * 0x100);
 			for (i = 0; (i < 4) &&
 				(index < read_cfg->num_byte); i++) {
@@ -1968,11 +1967,11 @@ static int32_t cam_cci_read(struct v4l2_subdev *sd,
 		goto rel_mutex_q;
 	}
 	index = 0;
-	CAM_DBG(CAM_CCI, "CCI%d_I2C_M%d_Q%d index: %d, num_bytes: %d",
+	CAM_DBG(CAM_CCI, "CCI%d_I2C_M%d_Q%d index: %d, num_type: %d",
 		cci_dev->soc_info.index, master, queue, index, read_cfg->num_byte);
 	first_byte = 0;
 	while (read_words > 0) {
-		val = cam_io_r(base +
+		val = cam_io_r_mb(base +
 			CCI_I2C_M0_READ_DATA_ADDR + master * 0x100);
 		CAM_DBG(CAM_CCI, "CCI%d_I2C_M%d_Q%d read val: 0x%x",
 			cci_dev->soc_info.index, master, queue, val);
@@ -2114,8 +2113,8 @@ static void cam_cci_write_async_helper(struct work_struct *work)
 		CAM_ERR(CAM_CCI, "CCI%d_I2C_M%d_Q%d Failed rc: %d",
 		cci_dev->soc_info.index, master, write_async->queue, rc);
 
-	CAM_MEM_FREE(write_async->c_ctrl.cfg.cci_i2c_write_cfg.reg_setting);
-	CAM_MEM_FREE(write_async);
+	kfree(write_async->c_ctrl.cfg.cci_i2c_write_cfg.reg_setting);
+	kfree(write_async);
 }
 
 static int32_t cam_cci_i2c_write_async(struct v4l2_subdev *sd,
@@ -2134,7 +2133,7 @@ static int32_t cam_cci_i2c_write_async(struct v4l2_subdev *sd,
 		return -EINVAL;
 	}
 
-	write_async = CAM_MEM_ZALLOC(sizeof(*write_async), GFP_KERNEL);
+	write_async = kzalloc(sizeof(*write_async), GFP_KERNEL);
 	if (!write_async) {
 		CAM_ERR(CAM_CCI, "CCI%d_I2C_M%d_Q%d Memory allocation failed for write_async",
 			cci_dev->soc_info.index, c_ctrl->cci_info->cci_i2c_master, queue);
@@ -2152,17 +2151,17 @@ static int32_t cam_cci_i2c_write_async(struct v4l2_subdev *sd,
 	cci_i2c_write_cfg_w = &write_async->c_ctrl.cfg.cci_i2c_write_cfg;
 
 	if (cci_i2c_write_cfg->size == 0) {
-		CAM_MEM_FREE(write_async);
+		kfree(write_async);
 		return -EINVAL;
 	}
 
 	cci_i2c_write_cfg_w->reg_setting =
-		CAM_MEM_ZALLOC(sizeof(struct cam_sensor_i2c_reg_array)*
+		kzalloc(sizeof(struct cam_sensor_i2c_reg_array)*
 		cci_i2c_write_cfg->size, GFP_KERNEL);
 	if (!cci_i2c_write_cfg_w->reg_setting) {
 		CAM_ERR(CAM_CCI, "CCI%d_I2C_M%d_Q%d Couldn't allocate memory for reg_setting",
 			cci_dev->soc_info.index, c_ctrl->cci_info->cci_i2c_master, queue);
-		CAM_MEM_FREE(write_async);
+		kfree(write_async);
 		return -ENOMEM;
 	}
 	memcpy(cci_i2c_write_cfg_w->reg_setting,
@@ -2379,7 +2378,7 @@ static int32_t cam_cci_i2c_set_sync_prms(struct v4l2_subdev *sd,
 static int32_t cam_cci_release(struct v4l2_subdev *sd,
 	enum cci_i2c_master_t master)
 {
-	int                rc;
+	uint8_t rc = 0;
 	struct cci_device *cci_dev;
 
 	cci_dev = v4l2_get_subdevdata(sd);

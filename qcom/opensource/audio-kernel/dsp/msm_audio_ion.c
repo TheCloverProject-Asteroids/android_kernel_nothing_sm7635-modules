@@ -24,7 +24,6 @@
 #include <linux/cdev.h>
 #include <linux/fs.h>
 #include <linux/device.h>
-#include <linux/version.h>
 #ifndef CONFIG_SPF_CORE
 #include <ipc/apr.h>
 #endif
@@ -120,11 +119,7 @@ static int msm_audio_ion_map_kernel(struct dma_buf *dma_buf,
 		goto exit;
 	}
 
-#if (KERNEL_VERSION(6, 2, 0) <= LINUX_VERSION_CODE)
-	rc = dma_buf_vmap_unlocked(dma_buf, iosys_vmap);
-#else
 	rc = dma_buf_vmap(dma_buf, iosys_vmap);
-#endif
 	if (rc) {
 		pr_err("%s: kernel mapping of dma_buf failed\n",
 		       __func__);
@@ -191,13 +186,8 @@ static int msm_audio_dma_buf_map(struct dma_buf *dma_buf,
 	 * read buffer, hence the request is bi-directional
 	 * to accommodate both read and write mappings.
 	 */
-#if (KERNEL_VERSION(6, 2, 0) <= LINUX_VERSION_CODE)
-	alloc_data->table = dma_buf_map_attachment_unlocked(alloc_data->attach,
-				DMA_BIDIRECTIONAL);
-#else
 	alloc_data->table = dma_buf_map_attachment(alloc_data->attach,
 				DMA_BIDIRECTIONAL);
-#endif
 	if (IS_ERR(alloc_data->table)) {
 		rc = PTR_ERR(alloc_data->table);
 		dev_err(cb_dev,
@@ -257,14 +247,10 @@ static int msm_audio_dma_buf_unmap(struct dma_buf *dma_buf, struct msm_audio_ion
 
 		if (alloc_data->dma_buf == dma_buf) {
 			found = true;
-#if (KERNEL_VERSION(6, 2, 0) <= LINUX_VERSION_CODE)
-			dma_buf_unmap_attachment_unlocked(alloc_data->attach,
-					alloc_data->table, DMA_BIDIRECTIONAL);
-#else
 			dma_buf_unmap_attachment(alloc_data->attach,
 						 alloc_data->table,
 						 DMA_BIDIRECTIONAL);
-#endif
+
 			dma_buf_detach(alloc_data->dma_buf,
 				       alloc_data->attach);
 
@@ -333,16 +319,12 @@ static int msm_audio_ion_unmap_kernel(struct dma_buf *dma_buf, struct msm_audio_
 		dev_err(cb_dev,
 			"%s: cannot find allocation for dma_buf %pK",
 			__func__, dma_buf);
-		rc = -ENOENT;
+		rc = -EINVAL;
 		goto err;
 	}
 
-#if (KERNEL_VERSION(6, 2, 0) <= LINUX_VERSION_CODE)
-	dma_buf_vunmap_unlocked(dma_buf, iosys_vmap);
-#else
 	dma_buf_vunmap(dma_buf, iosys_vmap);
 
-#endif
 	rc = dma_buf_end_cpu_access(dma_buf, DMA_BIDIRECTIONAL);
 	if (rc) {
 		dev_err(cb_dev, "%s: kmap dma_buf_end_cpu_access fail\n",
@@ -420,13 +402,13 @@ void msm_audio_update_fd_list(struct msm_audio_fd_data *msm_audio_fd_data)
 	mutex_unlock(&(msm_audio_ion_fd_list.list_mutex));
 }
 
-void msm_audio_delete_fd_entry(void *handle, int handle_fd)
+void msm_audio_delete_fd_entry(void *handle)
 {
 	struct msm_audio_fd_data *msm_audio_fd_data = NULL;
 	struct list_head *ptr, *next;
 
-	if (!handle || !handle_fd) {
-		pr_err("%s Invalid handle or fd\n", __func__);
+	if (!handle) {
+		pr_err("%s Invalid handle\n", __func__);
 		return;
 	}
 
@@ -435,10 +417,9 @@ void msm_audio_delete_fd_entry(void *handle, int handle_fd)
 			&msm_audio_ion_fd_list.fd_list) {
 		msm_audio_fd_data = list_entry(ptr, struct msm_audio_fd_data,
 					list);
-		if (msm_audio_fd_data->handle == handle
-				&& msm_audio_fd_data->fd == handle_fd) {
-			pr_debug("%s deleting handle %pK with fd = %d entry from list\n",
-				__func__, handle, handle_fd);
+		if (msm_audio_fd_data->handle == handle) {
+			pr_debug("%s deleting handle %pK entry from list\n",
+				__func__, handle);
 			list_del(&(msm_audio_fd_data->list));
 			kfree(msm_audio_fd_data);
 			break;
@@ -756,13 +737,9 @@ static long msm_audio_ion_ioctl(struct file *file, unsigned int ioctl_num,
 		ret = msm_audio_ion_free(mem_handle, ion_data);
 		if (ret < 0) {
 			pr_err("%s Ion free failed %d\n", __func__, ret);
-			if (ret == -ENOENT) {
-				msm_audio_delete_fd_entry(mem_handle, (int)ioctl_param);
-				return 0;
-			}
 			return ret;
 		}
-		msm_audio_delete_fd_entry(mem_handle, (int)ioctl_param);
+		msm_audio_delete_fd_entry(mem_handle);
 		break;
 	case IOCTL_MAP_HYP_ASSIGN:
 	    ret = msm_audio_get_phy_addr((int)ioctl_param, &paddr, &pa_len);

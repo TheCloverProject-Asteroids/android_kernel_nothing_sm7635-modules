@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_IFE_CSID_COMMON_H_
@@ -11,15 +11,9 @@
 #include "cam_ife_csid_hw_intf.h"
 #include "cam_ife_csid_soc.h"
 
-#define CAM_IFE_CSID_VER_1_0                              0x100
-#define CAM_IFE_CSID_VER_2_0                              0x200
-#define CAM_IFE_CSID_MAX_ERR_COUNT                        100
-
-/*
- * CRC error threshold is set to be 1% of frame width and
- * this macro is used as divisor in calculation
- */
-#define CAM_IFE_CSID_MAX_CRC_ERR_DIVISOR                  100
+#define CAM_IFE_CSID_VER_1_0  0x100
+#define CAM_IFE_CSID_VER_2_0  0x200
+#define CAM_IFE_CSID_MAX_ERR_COUNT  100
 
 #define CAM_IFE_CSID_HW_CAP_IPP                           0x1
 #define CAM_IFE_CSID_HW_CAP_RDI                           0x2
@@ -38,14 +32,7 @@
 #define CAM_IFE_CSID_HW_IDX_1                             0x2
 #define CAM_IFE_CSID_HW_IDX_2                             0x4
 
-#define CAM_IFE_CSID_LOG_BUF_LEN                          1024
-
-/**
- * CSID debug err vector related fields
- */
-#define CAM_IFE_CSID_DEBUG_VEC_FIFO_SIZE                  4
-#define CAM_IFE_CSID_DEBUG_TIMESTAMP_IRQ_SEL_SHIFT        1
-#define CAM_IFE_CSID_DEBUG_VEC_ERR_REGS                   3
+#define CAM_IFE_CSID_LOG_BUF_LEN                          512
 
 #define CAM_IFE_CSID_CAP_INPUT_LCR                        BIT(0)
 #define CAM_IFE_CSID_CAP_RDI_UNPACK_MSB                   BIT(1)
@@ -55,8 +42,6 @@
 #define CAM_IFE_CSID_CAP_SKIP_PATH_CFG1                   BIT(5)
 #define CAM_IFE_CSID_CAP_SKIP_EPOCH_CFG                   BIT(6)
 #define CAM_IFE_CSID_CAP_MULTI_CTXT                       BIT(7)
-#define CAM_IFE_CSID_CAP_DEBUG_ERR_VEC                    BIT(8)
-#define CAM_IFE_CSID_CAP_TOP_MASK_ALL_IRQS                BIT(9)
 
 /*
  * CSID RX debug vc-dt capture
@@ -104,16 +89,12 @@ extern int64_t qtime_to_boottime;
 enum cam_ife_csid_mem_base_id {
 	CAM_IFE_CSID_CLC_MEM_BASE_ID,
 	CAM_IFE_CSID_TOP_MEM_BASE_ID,
-	CAM_IFE_CSID_SEC_MEM_BASE_ID,
-	CAM_IFE_CSID_MAX_MEM_BASE_ID,
 };
 
 /* enum cam_ife_csid_path_multi_vc_dt_grp: for multi vc dt suppot */
 enum cam_ife_csid_path_multi_vc_dt_grp {
 	CAM_IFE_CSID_MULTI_VC_DT_GRP_0,
 	CAM_IFE_CSID_MULTI_VC_DT_GRP_1,
-	CAM_IFE_CSID_MULTI_VC_DT_GRP_2,
-	CAM_IFE_CSID_MULTI_VC_DT_GRP_3,
 	CAM_IFE_CSID_MULTI_VC_DT_GRP_MAX,
 };
 
@@ -140,88 +121,18 @@ enum cam_ife_csid_irq_reg {
 	CAM_IFE_CSID_IRQ_REG_MAX,
 };
 
-/**
- * enum cam_ife_csid_hw_top_events - Specify the top irq events
- */
-enum cam_ife_csid_hw_top_events {
-	CAM_IFE_CSID_TOP_INFO_VOTE_UP,
-	CAM_IFE_CSID_TOP_INFO_VOTE_DN,
-	CAM_IFE_CSID_TOP_ERR_NO_VOTE_DN,
-	CAM_IFE_CSID_TOP_ERR_VOTE_UP_LATE,
-	CAM_IFE_CSID_TOP_ERR_RDI_LINE_BUFFER_CONFLICT,
-	CAM_IFE_CSID_TOP_ERR_SENSOR_HBI,
-	CAM_IFE_CSID_TOP_REG_IRQ_EVENTS_MAX,
-};
-
-/**
- * enum cam_ife_csid_hw_rx_events - Specify the rx irq events
- */
-enum cam_ife_csid_hw_rx_events {
-	CAM_IFE_CSID_RX_DL0_EOT_CAPTURED,
-	CAM_IFE_CSID_RX_DL1_EOT_CAPTURED,
-	CAM_IFE_CSID_RX_DL2_EOT_CAPTURED,
-	CAM_IFE_CSID_RX_DL3_EOT_CAPTURED,
-	CAM_IFE_CSID_RX_DL0_SOT_CAPTURED,
-	CAM_IFE_CSID_RX_DL1_SOT_CAPTURED,
-	CAM_IFE_CSID_RX_DL2_SOT_CAPTURED,
-	CAM_IFE_CSID_RX_DL3_SOT_CAPTURED,
-	CAM_IFE_CSID_RX_LONG_PKT_CAPTURED,
-	CAM_IFE_CSID_RX_SHORT_PKT_CAPTURED,
-	CAM_IFE_CSID_RX_CPHY_PKT_HDR_CAPTURED,
-	CAM_IFE_CSID_RX_CPHY_EOT_RECEPTION,
-	CAM_IFE_CSID_RX_CPHY_SOT_RECEPTION,
-	CAM_IFE_CSID_RX_ERROR_CPHY_PH_CRC,
-	CAM_IFE_CSID_RX_WARNING_ECC,
-	CAM_IFE_CSID_RX_LANE0_FIFO_OVERFLOW,
-	CAM_IFE_CSID_RX_LANE1_FIFO_OVERFLOW,
-	CAM_IFE_CSID_RX_LANE2_FIFO_OVERFLOW,
-	CAM_IFE_CSID_RX_LANE3_FIFO_OVERFLOW,
-	CAM_IFE_CSID_RX_ERROR_CRC,
-	CAM_IFE_CSID_RX_ERROR_ECC,
-	CAM_IFE_CSID_RX_MMAPPED_VC_DT,
-	CAM_IFE_CSID_RX_UNMAPPED_VC_DT,
-	CAM_IFE_CSID_RX_STREAM_UNDERFLOW,
-	CAM_IFE_CSID_RX_UNBOUNDED_FRAME,
-	CAM_IFE_CSID_RX_ERROR_ILLEGAL_PROGRAMMING,
-	CAM_IFE_CSID_RX_INFO_SENSOR_MODE_ID_CHANGE,
-	CAM_IFE_CSID_RX_RX2_IRQ,
-	CAM_IFE_CSID_RX_DL0_EOT_LOST,
-	CAM_IFE_CSID_RX_DL1_EOT_LOST,
-	CAM_IFE_CSID_RX_DL2_EOT_LOST,
-	CAM_IFE_CSID_RX_DL3_EOT_LOST,
-	CAM_IFE_CSID_RX_DL0_SOT_LOST,
-	CAM_IFE_CSID_RX_DL1_SOT_LOST,
-	CAM_IFE_CSID_RX_DL2_SOT_LOST,
-	CAM_IFE_CSID_RX_DL3_SOT_LOST,
-	CAM_IFE_CSID_RX_REG_IRQ_EVENTS_MAX,
-};
-
-struct cam_ife_csid_top_debug_mask {
-	uint64_t evt_bitmap[CAM_IFE_CSID_TOP_IRQ_STATUS_REG_MAX];
-	uint8_t bit_pos[CAM_IFE_CSID_TOP_REG_IRQ_EVENTS_MAX];
-};
-
-struct cam_ife_csid_rx_debug_mask {
-	uint64_t evt_bitmap[CAM_IFE_CSID_RX_IRQ_STATUS_REG_MAX];
-	uint8_t bit_pos[CAM_IFE_CSID_RX_REG_IRQ_EVENTS_MAX];
-};
-
 /*
  * struct cam_ife_csid_irq_desc: Structure to hold IRQ description
  *
  * @bitmask    :     Bitmask of the IRQ
  * @err_type   :     Error type for ISP hardware event
- * @irq_name   :     IRQ name
- * @desc       :     String to describe the IRQ bit
- * @debug      :     Debug guidance for the error
+ * @irq_desc   :     String to describe the IRQ bit
  * @err_handler:     Error handler which gets invoked if error IRQ bit set
  */
 struct cam_ife_csid_irq_desc {
 	uint32_t    bitmask;
 	uint32_t    err_type;
-	char       *irq_name;
-	char       *desc;
-	char       *debug;
+	uint8_t    *desc;
 	void       (*err_handler)(void *csid_hw, void *res);
 };
 
@@ -232,7 +143,6 @@ struct cam_ife_csid_irq_desc {
  * @err_type   :        Error type for ISP hardware event
  * @err_name   :        IRQ name
  * @desc       :        String to describe about the IRQ
- * @debug      :        Debug guidance for the error
  * @err_handler:        Error handler which gets invoked if error IRQ bit set
  */
 struct cam_ife_csid_top_irq_desc {
@@ -240,7 +150,6 @@ struct cam_ife_csid_top_irq_desc {
 	uint32_t    err_type;
 	char       *err_name;
 	char       *desc;
-	char       *debug;
 	void       (*err_handler)(void *csid_hw);
 };
 
@@ -390,13 +299,11 @@ struct cam_ife_csid_core_info {
  * @csi2_reserve_cnt:       Reserve count for csi2
  * @irq_debug_cnt:          irq debug counter
  * @error_irq_count:        error irq counter
- * @crc_error_irq_count:    crc error irq counter
  */
 struct cam_ife_csid_hw_counters {
 	uint32_t                          csi2_reserve_cnt;
 	uint32_t                          irq_debug_cnt;
 	uint32_t                          error_irq_count;
-	uint32_t                          crc_error_irq_count;
 };
 
 /*
@@ -442,7 +349,6 @@ struct cam_ife_csid_debug_info {
  * @pf_err_detected:        flag to indicate if camnoc has encountered
  *                          error - page fault
  * @domain_id_security      Flag to determine if target has domain-id based security
- * @last_exp_valid:         Flag to indicate if last exp info is valid for epoch callback
  */
 struct cam_ife_csid_hw_flags {
 	bool                  device_enabled;
@@ -459,7 +365,6 @@ struct cam_ife_csid_hw_flags {
 	bool                  sfe_en;
 	bool                  pf_err_detected;
 	bool                  domain_id_security;
-	bool                  last_exp_valid;
 };
 
 /*
@@ -538,6 +443,10 @@ int cam_ife_csid_check_in_port_args(
 	uint32_t hw_idx);
 
 int cam_ife_csid_is_vc_full_width(struct cam_ife_csid_cid_data *cid_data);
+
+int cam_ife_csid_get_rt_irq_idx(
+	uint32_t irq_reg, uint32_t num_ipp,
+	uint32_t num_ppp, uint32_t num_rdi);
 
 int cam_ife_csid_convert_res_to_irq_reg(uint32_t res_id);
 

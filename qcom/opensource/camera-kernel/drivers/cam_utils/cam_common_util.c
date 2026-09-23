@@ -16,7 +16,6 @@
 #include "cam_debug_util.h"
 #include "cam_presil_hw_access.h"
 #include "cam_hw.h"
-#include "cam_mem_mgr_api.h"
 #if IS_REACHABLE(CONFIG_QCOM_VA_MINIDUMP)
 #include <soc/qcom/minidump.h>
 static struct cam_common_mini_dump_dev_info g_minidump_dev_info;
@@ -119,7 +118,7 @@ int cam_common_read_poll_timeout(
 			wait_time_us);
 	} else {
 		rc = cam_presil_readl_poll_timeout(addr, mask,
-			wait_time_us/(CAM_PRESIL_POLL_DELAY * 600), CAM_PRESIL_POLL_DELAY);
+			wait_time_us/(CAM_PRESIL_POLL_DELAY * 1000), CAM_PRESIL_POLL_DELAY);
 	}
 
 	return rc;
@@ -217,7 +216,7 @@ static int cam_common_md_notify_handler(struct notifier_block *this,
 	int rc = 0;
 
 	cbentry.vaddr = 0x0;
-	strscpy(cbentry.owner, "Camera", sizeof(cbentry.owner));
+	strlcpy(cbentry.owner, "Camera", sizeof(cbentry.owner));
 	cbentry.size = CAM_COMMON_MINI_DUMP_SIZE;
 	cbentry.cb = cam_common_mini_dump_handler;
 	rc = qcom_va_md_add_region(&cbentry);
@@ -410,7 +409,7 @@ void cam_common_release_evt_params(int32_t dev_hdl)
 		if (inject_params->dev_hdl == dev_hdl) {
 			CAM_INFO(CAM_UTIL, "entry deleted for %d dev hdl", dev_hdl);
 			list_del(pos);
-			CAM_MEM_FREE(inject_params);
+			kfree(inject_params);
 		}
 	}
 }
@@ -649,7 +648,7 @@ static int cam_common_evt_inject_set(const char *kmessage,
 	char    *msg                                          = NULL;
 	uint32_t param_output                                 = 0;
 
-	inject_params = CAM_MEM_ZALLOC(sizeof(struct cam_common_inject_evt_param), GFP_KERNEL);
+	inject_params = kzalloc(sizeof(struct cam_common_inject_evt_param), GFP_KERNEL);
 	if (!inject_params) {
 		CAM_ERR(CAM_UTIL, "no free memory");
 		return -ENOMEM;
@@ -707,9 +706,6 @@ static int cam_common_evt_inject_set(const char *kmessage,
 		CAM_ERR(CAM_UTIL, "Invalid Injection id: %u", hw_evt_params->inject_id);
 	}
 
-	if (!parse_handler)
-		goto free;
-
 	rc = cam_common_evt_inject_generic_command_parser(inject_params, &msg,
 		param_output, parse_handler);
 	if (rc) {
@@ -737,7 +733,7 @@ static int cam_common_evt_inject_set(const char *kmessage,
 	return rc;
 
 free:
-	CAM_MEM_FREE(inject_params);
+	kfree(inject_params);
 	return rc;
 }
 

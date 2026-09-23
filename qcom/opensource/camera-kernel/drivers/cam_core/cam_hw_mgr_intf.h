@@ -21,8 +21,8 @@
 /* maximum context numbers */
 #define CAM_CTX_MAX                         8
 
-/* maximum buf done irqs, multiplied by 3 hw context entries per resource */
-#define CAM_NUM_OUT_PER_COMP_IRQ_MAX        36
+/* maximum buf done irqs */
+#define CAM_NUM_OUT_PER_COMP_IRQ_MAX        12
 
 /* Maximum reg dump cmd buffer entries in a context */
 #define CAM_REG_DUMP_MAX_BUF_ENTRIES        10
@@ -50,17 +50,6 @@ enum cam_faulted_mem_type {
 	CAM_FAULT_BUF_NOT_FOUND,
 	CAM_FAULT_IO_CFG_BUF,
 	CAM_FAULT_PATCH_BUF
-};
-
-/**
- * enum cam_pf_pid_found_status -
- *    Status of PID found for a hardware node
- *
- */
-enum cam_pf_pid_found_status {
-	CAM_PF_PID_FOUND_PENDING,
-	CAM_PF_PID_FOUND_FAILURE,
-	CAM_PF_PID_FOUND_SUCCESS
 };
 
 #define CAM_CTX_EVT_ID_SUCCESS 0
@@ -103,7 +92,6 @@ typedef int (*cam_ctx_message_cb_func)(void *context,
  * @len:                   Size of the configuration
  * @flags:                 Flags for the config entry(eg. DMI)
  * @addr:                  Address of hardware update entry
- * @single_apply_only:     If set entry is configured to cdm only once
  *
  */
 struct cam_hw_update_entry {
@@ -112,16 +100,13 @@ struct cam_hw_update_entry {
 	uint32_t           len;
 	uint32_t           flags;
 	uintptr_t          addr;
-	bool               single_apply_only;
 };
 
 /**
  * struct cam_hw_fence_map_entry - Entry for the resource to sync id map
  *
  * @resrouce_handle:       Resource port id for the buffer
- * @hw_ctxt_id:            Hw ctxt id for multi-context capable targets
  * @sync_id:               Sync id
- * @sync_id:               Early sync id
  * @image_buf_addr:        Image buffer address array
  * @buffer_tracker:        Some buffers with fences have buf dones come
  *                         separately from each out port, and signalled
@@ -132,9 +117,7 @@ struct cam_hw_update_entry {
  */
 struct cam_hw_fence_map_entry {
 	uint32_t                        resource_handle;
-	uint32_t                        hw_ctxt_id;
 	int32_t                         sync_id;
-	int32_t                         early_sync_id;
 	dma_addr_t                      image_buf_addr[CAM_PACKET_MAX_PLANES];
 	struct cam_smmu_buffer_tracker *buffer_tracker;
 };
@@ -161,13 +144,11 @@ struct cam_hw_done_event_data {
  * struct cam_hw_acquire_stream_caps - Any HW caps info from HW mgr to ctx
  *                                     Params to be interpreted by the
  *                                     respective drivers
- * @fcg_caps         : SFE/IFE/MC_TFE FCG capabilities during hw acquire
  * @num_valid_params : Number of valid params
  * @param_list       : List of params interpreted by the driver
  *
  */
 struct cam_hw_acquire_stream_caps {
-	void             *fcg_caps;
 	uint32_t          num_valid_params;
 	uint32_t          param_list[4];
 };
@@ -185,7 +166,7 @@ struct cam_hw_acquire_stream_caps {
  * @num_acq:               Total number of acquire in the payload
  * @acquire_info:          Acquired resource array pointer
  * @ctxt_to_hw_map:        HW context (returned)
- * @hw_mgr_ctx_id:         HWMgr context id(returned)
+ * @hw_mgr_ctx_id          HWMgr context id(returned)
  * @op_flags:              Used as bitwise params from hw_mgr to ctx
  *                         See xxx_hw_mgr_intf.h for definitions
  * @link_hdl:              Link handle
@@ -197,7 +178,6 @@ struct cam_hw_acquire_stream_caps {
  * @total_ports_acq        Total ports acquired ipp+ppp+rdi
  * @op_params:             OP Params from hw_mgr to ctx
  * @mini_dump_cb:          Mini dump callback function
- * @api_version:           Version of the acquire API
  *
  */
 struct cam_hw_acquire_args {
@@ -218,7 +198,6 @@ struct cam_hw_acquire_args {
 	uint32_t                     total_ports_acq;
 	struct cam_hw_acquire_stream_caps op_params;
 	cam_ctx_mini_dump_cb_func    mini_dump_cb;
-	uint32_t                     api_version;
 };
 
 /**
@@ -262,10 +241,14 @@ struct cam_hw_stop_args {
 /**
  * struct cam_hw_mgr_pf_request_info - page fault debug data
  *
+ * @packet_handle:     packet handle
+ * @offset:            packet offset
  * @req:               pointer to req (HW specific)
  */
 struct cam_hw_mgr_pf_request_info {
-	void              *req;
+	uint64_t packet_handle;
+	uint64_t packet_offset;
+	void    *req;
 };
 
 /**
@@ -288,7 +271,6 @@ struct cam_hw_mgr_pf_request_info {
  * @priv:                  Private pointer of hw update
  * @buf_tracker:           Ptr to list of buffers we want to keep ref counts on
  * @pf_data:               Debug data for page fault
- * @init_pending_req_cnt:  Count of the init pending reqs received before stream on
  *
  */
 struct cam_hw_prepare_update_args {
@@ -310,7 +292,6 @@ struct cam_hw_prepare_update_args {
 	void                           *priv;
 	struct list_head                   *buf_tracker;
 	struct cam_hw_mgr_pf_request_info  *pf_data;
-	uint32_t                            init_pending_req_cnt;
 };
 
 /**
@@ -425,16 +406,11 @@ struct cam_context_pf_info {
  * @pf_context_info:       Page fault info related to faulted context or
  *                         faulted request.
  * @handle_sec_pf:         Indicates if this PF args comes from HW level
- * @check_pid:             Indicates if simply checking error client by pid without dumping ctx
- *                         or active requests
- * @pf_pid_found_status:   Indicates if client with the same pid is found for the PF issue
  */
 struct cam_hw_dump_pf_args {
-	struct cam_smmu_pf_info     *pf_smmu_info;
-	struct cam_context_pf_info   pf_context_info;
-	bool                         handle_sec_pf;
-	bool                         check_pid;
-	enum cam_pf_pid_found_status pf_pid_found_status;
+	struct cam_smmu_pf_info    *pf_smmu_info;
+	struct cam_context_pf_info  pf_context_info;
+	bool                        handle_sec_pf;
 };
 
 /**
@@ -482,7 +458,6 @@ enum cam_hw_mgr_command {
 	CAM_HW_MGR_CMD_DUMP_PF_INFO,
 	CAM_HW_MGR_CMD_REG_DUMP_ON_FLUSH,
 	CAM_HW_MGR_CMD_REG_DUMP_ON_ERROR,
-	CAM_HW_MGR_CMD_REG_DUMP_PER_REQ,
 	CAM_HW_MGR_CMD_DUMP_ACQ_INFO,
 };
 
@@ -493,16 +468,14 @@ enum cam_hw_mgr_command {
  * @cmd_type               HW command type
  * @internal_args          Arguments for internal command
  * @pf_cmd_args            Arguments for Dump PF info command
- * @hw_update_data         HW update data for register dump
  *
  */
 struct cam_hw_cmd_args {
 	void                               *ctxt_to_hw_map;
 	uint32_t                            cmd_type;
 	union {
-		void                                  *internal_args;
-		struct cam_hw_cmd_pf_args             *pf_cmd_args;
-		struct cam_isp_prepare_hw_update_data *hw_update_data;
+		void                           *internal_args;
+		struct cam_hw_cmd_pf_args      *pf_cmd_args;
 	} u;
 };
 
@@ -658,73 +631,6 @@ struct cam_hw_inject_evt_param {
 	} u;
 	bool is_valid;
 };
-
-/**
- * struct cam_acquire_dev_cmd_unified - Unified payload for acquire devices
- *
- * @struct_version:     API version of the acquire command
- * @session_handle:     Session handle for the acquire command
- * @dev_handle:         Device handle to be returned
- * @handle_type:        Resource handle type:
- *                      1 = user pointer, 2 = mem handle
- * @num_resources:      Number of the resources to be acquired
- * @resources_hdl:      Resource handle that refers to the actual
- *                      resource array. Each item in this
- *                      array is device specific resource structure
- *
- */
-struct cam_acquire_dev_cmd_unified {
-	__u32        struct_version;
-	__s32        session_handle;
-	__s32        dev_handle;
-	__u32        handle_type;
-	__u32        num_resources;
-	__u64        resource_hdl;
-};
-
-/**
- * struct cam_icp_res_info_unified - ICP output resource info
- *
- * @format: format of the resource
- * @width:  width in pixels
- * @height: height in lines
- * @fps:  fps
- * @port_id: ID of the out resource
- * @is_secure:  whether the port is secure
- */
-struct cam_icp_res_info_unified {
-	__u32 format;
-	__u32 width;
-	__u32 height;
-	__u32 fps;
-	__u32 port_id;
-	__u32 is_secure;
-};
-
-/**
- * struct cam_icp_acquire_dev_info_unified - An ICP device info
- *
- * @scratch_mem_size: Output param - size of scratch memory
- * @dev_type: device type (IPE_RT/IPE_NON_RT/BPS)
- * @io_config_cmd_size: size of IO config command
- * @io_config_cmd_handle: IO config command for each acquire
- * @secure_mode: camera mode (secure/non secure)
- * @chain_info: chaining info of FW device handles
- * @in_res: resource info used for clock and bandwidth calculation
- * @num_out_res: number of output resources
- * @out_res_flex: output resource
- */
-struct cam_icp_acquire_dev_info_unified {
-	__u32                   scratch_mem_size;
-	__u32                   dev_type;
-	__u32                   io_config_cmd_size;
-	__s32                   io_config_cmd_handle;
-	__u32                   secure_mode;
-	__s32                   chain_info;
-	struct cam_icp_res_info_unified in_res;
-	__u32                   num_out_res;
-	__DECLARE_FLEX_ARRAY(struct cam_icp_res_info_unified, out_res_flex);
-} __attribute__((__packed__));
 
 /**
  * cam_hw_mgr_intf - HW manager interface

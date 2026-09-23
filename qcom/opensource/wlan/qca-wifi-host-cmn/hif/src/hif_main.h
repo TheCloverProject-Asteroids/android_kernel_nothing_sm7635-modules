@@ -95,7 +95,6 @@
 #define QCN6122_DEVICE_ID (0xFFFB)
 #define QCN9160_DEVICE_ID (0xFFF8)
 #define QCN6432_DEVICE_ID (0xFFF7)
-#define QCA5424_DEVICE_ID (0xFFF6)
 #define QCA6390_EMULATION_DEVICE_ID (0x0108)
 #define QCA6390_DEVICE_ID (0x1101)
 /* TODO: change IDs for HastingsPrime */
@@ -113,10 +112,6 @@
 
 /*TODO: change IDs for Evros */
 #define WCN6450_DEVICE_ID (0x1108)
-
-#define WCN7750_DEVICE_ID (0x1110)
-
-#define QCC2072_DEVICE_ID (0x1112)
 
 #define ADRASTEA_DEVICE_ID_P2_E12 (0x7021)
 #define AR9887_DEVICE_ID    (0x0050)
@@ -851,6 +846,7 @@ void hif_uninit_rri_on_ddr(struct hif_softc *scn);
 static inline
 void hif_uninit_rri_on_ddr(struct hif_softc *scn) {}
 #endif
+void hif_cleanup_static_buf_to_target(struct hif_softc *scn);
 
 #ifdef FEATURE_RUNTIME_PM
 /**

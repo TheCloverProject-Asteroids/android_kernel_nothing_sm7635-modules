@@ -13,7 +13,6 @@
 #include <linux/clk.h>
 #include <linux/bitmap.h>
 #include <linux/sde_rsc.h>
-#include <soc/qcom/crm.h>
 
 #include "msm_prop.h"
 
@@ -85,57 +84,6 @@ static bool _sde_core_perf_crtc_is_power_on(struct drm_crtc *crtc)
 	return sde_crtc_is_enabled(crtc);
 }
 
-static int _sde_core_perf_crtc_cesta_update(struct sde_kms *sde_kms, struct sde_crtc *sde_crtc,
-		struct sde_crtc_state *sde_cstate, struct sde_core_perf_params *perf,
-		enum sde_perf_commit_state commit_state, bool check)
-{
-	struct sde_cesta_params params = {0,};
-
-	if (!sde_crtc || !sde_crtc->cesta_client)
-		return 0;
-
-	/*
-	 * In cases of no clk/bw votes provided by client or perf-mode changed through debugfs
-	 * vote for only the IB for all clients, so that the max vote will not be aggregated
-	 * over all the cesta clients
-	 */
-	if (!sde_cstate->bw_control || (sde_kms->perf.perf_tune.mode != SDE_PERF_MODE_NORMAL))
-		params.max_vote = true;
-
-	perf->ubwc_clk_rate = sde_crtc_get_property(sde_cstate, CRTC_PROP_UBWC_CLK);
-
-	if (commit_state != SDE_PERF_DISABLE_COMMIT) {
-		if (params.max_vote) {
-			params.data.core_clk_rate_ab = 0;
-			params.data.core_clk_rate_ib = sde_kms->perf.max_core_clk_rate;
-			params.data.bw_ab = 0;
-			params.data.bw_ib = sde_kms->catalog->perf.max_bw_high * 1000ull;
-		} else {
-			params.data.core_clk_rate_ab = perf->ubwc_clk_rate;
-			params.data.core_clk_rate_ib = perf->core_clk_rate;
-			params.data.bw_ab = perf->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_MNOC];
-			params.data.bw_ib = perf->max_per_pipe_ib[SDE_POWER_HANDLE_DBUS_ID_MNOC];
-		}
-	}
-
-	params.enable = (commit_state == SDE_PERF_DISABLE_COMMIT) ? false : true;
-	params.post_commit = (commit_state == SDE_PERF_COMPLETE_COMMIT) ? true : false;
-	params.pwr_st_override = ((commit_state == SDE_PERF_ENABLE_COMMIT)
-					|| (commit_state == SDE_PERF_DISABLE_COMMIT)
-					|| (sde_crtc->cesta_client->enabled != params.enable))
-						? true : false;
-	if (check)
-		return sde_cesta_clk_bw_check(sde_crtc->cesta_client, &params);
-
-	sde_cesta_clk_bw_update(sde_crtc->cesta_client, &params);
-
-	SDE_EVT32(DRMID(&sde_crtc->base), params.enable, params.post_commit, params.pwr_st_override,
-			commit_state, params.max_vote, params.data.core_clk_rate_ab,
-			params.data.core_clk_rate_ib, params.data.bw_ab, params.data.bw_ib);
-
-	return 0;
-}
-
 static void _sde_core_perf_calc_crtc(struct sde_kms *kms,
 		struct drm_crtc *crtc,
 		struct drm_crtc_state *state,
@@ -205,12 +153,6 @@ static void _sde_core_perf_calc_crtc(struct sde_kms *kms,
 						perf->core_clk_rate);
 	}
 
-	perf->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_DDR_RT] =
-		mult_frac(perf->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_EBI],
-			SDE_PERF_MAX_COMPRESSION_FACTOR, 100);
-	perf->max_per_pipe_ib[SDE_POWER_HANDLE_DBUS_ID_DDR_RT] =
-		SDE_POWER_HANDLE_DISABLE_BUS_IB_QUOTA;
-
 	SDE_EVT32(DRMID(crtc), perf->core_clk_rate,
 		GET_H32(perf->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_MNOC]),
 		GET_L32(perf->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_MNOC]),
@@ -252,7 +194,6 @@ int sde_core_perf_crtc_check(struct drm_crtc *crtc,
 	u64 bw_sum_of_intfs = 0;
 	enum sde_crtc_client_type curr_client_type;
 	struct sde_crtc_state *sde_cstate;
-	struct sde_crtc *sde_crtc;
 	struct msm_drm_private *priv;
 	struct drm_crtc *tmp_crtc;
 	struct sde_kms *kms;
@@ -271,16 +212,10 @@ int sde_core_perf_crtc_check(struct drm_crtc *crtc,
 	}
 
 	sde_cstate = to_sde_crtc_state(state);
-	sde_crtc = to_sde_crtc(crtc);
 	priv = kms->dev->dev_private;
 
 	/* obtain new values */
 	_sde_core_perf_calc_crtc(kms, crtc, state, &sde_cstate->new_perf);
-
-	/* do cesta check and return early, when sde cesta is enabled */
-	if (sde_cesta_is_enabled(DPUID(kms->dev)))
-		return _sde_core_perf_crtc_cesta_update(kms, sde_crtc, sde_cstate,
-						&sde_cstate->new_perf, SDE_PERF_NONE_COMMIT, true);
 
 	/* reserve core clk */
 	current_clk_rate = kms->perf.core_clk_rate;
@@ -785,7 +720,7 @@ void sde_core_perf_crtc_update_uidle(struct drm_crtc *crtc,
 
 			/* Check if FAL1 only should be enabled */
 			if (fps <=  kms->perf.catalog->uidle_cfg.max_fps)
-				uidle_crtc_status = UIDLE_STATE_FAL1_ONLY;
+				uidle_crtc_status = UIDLE_STATE_FAL1_FAL10;
 			else if (fps <= kms->perf.catalog->uidle_cfg.max_fal1_fps)
 				uidle_crtc_status = UIDLE_STATE_FAL1_ONLY;
 			else
@@ -848,8 +783,7 @@ static void _sde_core_perf_crtc_update_bus(struct sde_kms *kms,
 	bus_ab_quota = min(bus_ab_quota,
 			kms->catalog->perf.max_bw_high*1000ULL);
 
-	if (kms->catalog->perf.num_ddr_channels && kms->catalog->perf.dram_efficiency &&
-		(bus_id != SDE_POWER_HANDLE_DBUS_ID_DDR_RT)) {
+	if (kms->catalog->perf.num_ddr_channels && kms->catalog->perf.dram_efficiency) {
 		bus_ib_quota = div_u64(div_u64(bus_ab_quota,
 			kms->catalog->perf.num_ddr_channels) * 100,
 			kms->catalog->perf.dram_efficiency);
@@ -937,10 +871,6 @@ void sde_core_perf_crtc_release_bw(struct drm_crtc *crtc)
 	sde_crtc = to_sde_crtc(crtc);
 	sde_cstate = to_sde_crtc_state(crtc->state);
 
-	/* return early when cesta is enabled, as a separate bw release is not required */
-	if (sde_cesta_is_enabled(DPUID(kms->dev)))
-		return;
-
 	/* only do this for command mode rt client (non-rsc client) */
 	if ((sde_crtc_get_intf_mode(crtc, crtc->state) != INTF_MODE_CMD) &&
 		(sde_crtc_get_client_type(crtc) != RT_RSC_CLIENT))
@@ -974,7 +904,6 @@ void sde_core_perf_crtc_reserve_res(struct drm_crtc *crtc, u64 reserve_rate)
 	struct sde_crtc *sde_crtc;
 	struct sde_kms *kms;
 	struct msm_drm_private *priv;
-	struct sde_power_handle *phandle;
 
 	if (!crtc) {
 		SDE_ERROR("invalid crtc\n");
@@ -994,10 +923,7 @@ void sde_core_perf_crtc_reserve_res(struct drm_crtc *crtc, u64 reserve_rate)
 	kms->perf.core_clk_reserve_rate = max(kms->perf.core_clk_reserve_rate, reserve_rate);
 	kms->perf.core_clk_reserve_rate = min(kms->perf.core_clk_reserve_rate,
 			kms->perf.max_core_clk_rate);
-
-	phandle = kms->perf.cesta_phandle ? kms->perf.cesta_phandle : &priv->phandle;
-
-	sde_power_clk_reserve_rate(phandle, kms->perf.clk_name,
+	sde_power_clk_reserve_rate(&priv->phandle, kms->perf.clk_name,
 			kms->perf.core_clk_reserve_rate);
 
 	SDE_DEBUG("reserve clk:%llu\n", kms->perf.core_clk_reserve_rate);
@@ -1069,7 +995,7 @@ static void _sde_core_perf_crtc_update_check(struct drm_crtc *crtc,
 
 		/* display rsc override during solver mode */
 		if (kms->perf.bw_vote_mode == DISP_RSC_MODE &&
-				get_sde_rsc_current_state(DPUID(kms->dev)) !=
+				get_sde_rsc_current_state(SDE_RSC_INDEX) !=
 				SDE_RSC_CLK_STATE) {
 			/* update new bandwidth in all cases */
 			if (params_changed && ((new->bw_ctl[i] !=
@@ -1111,7 +1037,8 @@ static void _sde_core_perf_crtc_update_check(struct drm_crtc *crtc,
 	}
 }
 
-void sde_core_perf_crtc_update(struct drm_crtc *crtc, enum sde_perf_commit_state commit_state)
+void sde_core_perf_crtc_update(struct drm_crtc *crtc,
+		int params_changed, bool stop_req)
 {
 	struct sde_core_perf_params *new, *old;
 	int update_bus = 0, update_clk = 0;
@@ -1121,7 +1048,6 @@ void sde_core_perf_crtc_update(struct drm_crtc *crtc, enum sde_perf_commit_state
 	int ret, i;
 	struct msm_drm_private *priv;
 	struct sde_kms *kms;
-	bool params_changed = false;
 
 	if (!crtc) {
 		SDE_ERROR("invalid crtc\n");
@@ -1136,11 +1062,9 @@ void sde_core_perf_crtc_update(struct drm_crtc *crtc, enum sde_perf_commit_state
 	priv = kms->dev->dev_private;
 	sde_crtc = to_sde_crtc(crtc);
 	sde_cstate = to_sde_crtc_state(crtc->state);
-	params_changed = ((commit_state == SDE_PERF_BEGIN_COMMIT)
-				|| (commit_state == SDE_PERF_ENABLE_COMMIT)) ? true : false;
 
-	SDE_DEBUG("crtc:%d commit_state:%d core_clk:%llu\n",
-			DRMID(crtc), commit_state, kms->perf.core_clk_rate);
+	SDE_DEBUG("crtc:%d stop_req:%d core_clk:%llu\n",
+			crtc->base.id, stop_req, kms->perf.core_clk_rate);
 
 	mutex_lock(&sde_core_perf_lock);
 
@@ -1157,20 +1081,15 @@ void sde_core_perf_crtc_update(struct drm_crtc *crtc, enum sde_perf_commit_state
 	new = &sde_crtc->new_perf;
 
 	/* avoid the voting in fence error case when there is decrease in BW vote */
-	if ((commit_state == SDE_PERF_COMPLETE_COMMIT) && sde_crtc->handle_fence_error_bw_update) {
+	if (!params_changed && !stop_req && sde_crtc->handle_fence_error_bw_update) {
 		new = &sde_crtc->cur_perf;
-		SDE_EVT32(kms->dev, commit_state, sde_crtc->handle_fence_error_bw_update);
+		SDE_EVT32(kms->dev, params_changed, stop_req,
+			sde_crtc->handle_fence_error_bw_update);
+
 		sde_crtc->handle_fence_error_bw_update = false;
 	}
 
-	/* update votes through cesta and return early, when sde cesta is enabled */
-	if (sde_cesta_is_enabled(DPUID(kms->dev))) {
-		_sde_core_perf_crtc_cesta_update(kms, sde_crtc, sde_cstate,
-				&sde_crtc->new_perf, commit_state, false);
-		goto end;
-	}
-
-	if (_sde_core_perf_crtc_is_power_on(crtc) && (commit_state != SDE_PERF_DISABLE_COMMIT)) {
+	if (_sde_core_perf_crtc_is_power_on(crtc) && !stop_req) {
 		_sde_core_perf_crtc_update_check(crtc, params_changed,
 				&update_bus, &update_clk);
 	} else {
@@ -1180,6 +1099,15 @@ void sde_core_perf_crtc_update(struct drm_crtc *crtc, enum sde_perf_commit_state
 		update_bus = ~0;
 		update_clk = 1;
 	}
+	trace_sde_perf_crtc_update(crtc->base.id,
+		new->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_MNOC],
+		new->max_per_pipe_ib[SDE_POWER_HANDLE_DBUS_ID_MNOC],
+		new->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_LLCC],
+		new->max_per_pipe_ib[SDE_POWER_HANDLE_DBUS_ID_LLCC],
+		new->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_EBI],
+		new->max_per_pipe_ib[SDE_POWER_HANDLE_DBUS_ID_EBI],
+		new->core_clk_rate, stop_req,
+		update_bus, update_clk, params_changed);
 
 	for (i = 0; i < SDE_POWER_HANDLE_DBUS_ID_MAX; i++) {
 		if (update_bus & BIT(i))
@@ -1187,9 +1115,9 @@ void sde_core_perf_crtc_update(struct drm_crtc *crtc, enum sde_perf_commit_state
 	}
 
 	if (kms->perf.bw_vote_mode == DISP_RSC_MODE &&
-	    ((get_sde_rsc_current_state(DPUID(kms->dev)) != SDE_RSC_CLK_STATE
+	    ((get_sde_rsc_current_state(SDE_RSC_INDEX) != SDE_RSC_CLK_STATE
 	      && params_changed) ||
-	    (get_sde_rsc_current_state(DPUID(kms->dev)) == SDE_RSC_CLK_STATE)))
+	    (get_sde_rsc_current_state(SDE_RSC_INDEX) == SDE_RSC_CLK_STATE)))
 		sde_rsc_client_trigger_vote(sde_cstate->rsc_client,
 				update_bus ? true : false);
 
@@ -1200,7 +1128,8 @@ void sde_core_perf_crtc_update(struct drm_crtc *crtc, enum sde_perf_commit_state
 	if (update_clk) {
 		clk_rate = _sde_core_perf_get_core_clk_rate(kms);
 
-		SDE_EVT32(kms->dev, commit_state, clk_rate, old->core_clk_rate, new->core_clk_rate);
+		SDE_EVT32(kms->dev, stop_req, clk_rate, params_changed,
+			old->core_clk_rate, new->core_clk_rate);
 		ret = sde_power_clk_set_rate(&priv->phandle,
 				kms->perf.clk_name, clk_rate, 0);
 		if (ret) {
@@ -1213,18 +1142,6 @@ void sde_core_perf_crtc_update(struct drm_crtc *crtc, enum sde_perf_commit_state
 		kms->perf.core_clk_rate = clk_rate;
 		SDE_DEBUG("update clk rate = %lld HZ\n", clk_rate);
 	}
-
-end:
-	trace_sde_perf_crtc_update(crtc->base.id,
-		new->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_MNOC],
-		new->max_per_pipe_ib[SDE_POWER_HANDLE_DBUS_ID_MNOC],
-		new->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_LLCC],
-		new->max_per_pipe_ib[SDE_POWER_HANDLE_DBUS_ID_LLCC],
-		new->bw_ctl[SDE_POWER_HANDLE_DBUS_ID_EBI],
-		new->max_per_pipe_ib[SDE_POWER_HANDLE_DBUS_ID_EBI],
-		new->core_clk_rate, commit_state,
-		update_bus, update_clk, params_changed);
-
 	mutex_unlock(&sde_core_perf_lock);
 
 }
@@ -1589,16 +1506,12 @@ int sde_core_perf_init(struct sde_core_perf *perf,
 	perf->catalog = catalog;
 	perf->phandle = phandle;
 	perf->clk_name = clk_name;
-	perf->sde_rsc_available = is_sde_rsc_available(DPUID(dev));
+	perf->sde_rsc_available = is_sde_rsc_available(SDE_RSC_INDEX);
 	/* set default mode */
 	if (perf->sde_rsc_available)
 		perf->bw_vote_mode = DISP_RSC_MODE;
 	else
 		perf->bw_vote_mode = APPS_RSC_MODE;
-
-	/* core clk will be part of cesta node, when cesta is enabled */
-	perf->cesta_phandle = sde_cesta_get_phandle(DPUID(dev));
-	phandle = perf->cesta_phandle ? perf->cesta_phandle : phandle;
 
 	perf->core_clk = sde_power_clk_get_clk(phandle, clk_name);
 	if (!perf->core_clk) {

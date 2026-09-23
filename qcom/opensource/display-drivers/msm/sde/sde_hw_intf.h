@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -33,7 +33,6 @@ struct intf_timing_params {
 	u32 underflow_clr;
 	u32 hsync_skew;
 	u32 v_front_porch_fixed;
-	u32 pclk_factor;
 	bool wide_bus_en;
 	bool compression_en;
 	u32 extra_dto_cycles;	/* for DP only */
@@ -54,9 +53,6 @@ struct intf_status {
 	bool is_prog_fetch_en;	/* interface prog fetch counter is enabled or not */
 	u32 frame_count;	/* frame count since timing engine enabled */
 	u32 line_count;		/* current line count including blanking */
-	u32 intf_status_val;	/* value read from intf_status register */
-	u32 esync_vsync_counter; /* esync vsync line count */
-	u32 esync_emsync_counter; /* esync emsync line count */
 };
 
 struct intf_tear_status {
@@ -66,27 +62,11 @@ struct intf_tear_status {
 	u32 write_line_count;	/* line count for tear write */
 };
 
-struct intf_panic_wakeup_cfg {
-	bool enable;
-	u32 panic_start;
-	u32 panic_window;
-	u32 wakeup_start;
-	u32 wakeup_window;
-};
-
-struct intf_panic_ctrl_cfg {
-	bool enable;
-	u32 panic_level;
-	u32 ext_vfp_start;
-};
-
 struct intf_avr_params {
 	u32 default_fps;
 	u32 min_fps;
-	u32 avr_mode;
-	u32 avr_step_lines;
-	bool infinite_mode;
-	bool hw_avr_trigger;
+	u32 avr_mode; /* one of enum @sde_rm_qsync_modes */
+	u32 avr_step_lines; /* 0 or 1 means disabled */
 };
 /**
  * struct intf_wd_jitter_params : Interface to the INTF WD Jitter params.
@@ -105,47 +85,6 @@ struct intf_wd_jitter_params {
 	u32 ltj_initial_val;
 	u32 ltj_fractional_val;
 };
-
-/**
- * struct intf_esync_params : Interface to the INTF esync params.
- *
- * @avr_step_lines: number of lines in an AVR step
- * @emsync_pulse_width: modulated pulse width of the esync signal
- * @emsync_period_lines: period of the esync signal modulation in lines
- * @hsync_pulse_width: unmodulated pulse width of the esync signal
- * @hsync_period_cycles: period of the esync signal in esync clk cycles
- * @skew: esync signal skew relative to timing engine
- * @prog_fetch_start: programmable fetch start
- * @hw_fence_enabled: whether hardware fencing is enabled
- * @align_backup: whether this esync generator should align with its pair
- */
-struct intf_esync_params {
-	u32 avr_step_lines;
-	u32 emsync_pulse_width;
-	u32 emsync_period_lines;
-	u32 hsync_pulse_width;
-	u32 hsync_period_cycles;
-	u32 skew;
-	u32 prog_fetch_start;
-	bool hw_fence_enabled;
-	bool align_backup;
-};
-
-/**
- * struct intf_timestamps : captures hw timestamps.
- *
- * @panel_vsync_counter: INTF's MDSS Vsync equivalent to panel vsync
- * @mdp_vsync_counter:   MDP Vsync timestamp
- * @esync_counter:  Esync timestamp based on esync_ts_ctrl
- * @esync_ts_ctrl:  Esync timestamp ctrl value
- */
-struct intf_timestamps {
-	u64 panel_vsync_counter;
-	u64 mdp_vsync_counter;
-	u64 esync_counter;
-	u32 esync_ts_ctrl;
-};
-
 /**
  * struct sde_hw_intf_ops : Interface to the interface Hw driver functions
  *  Assumption is these functions will be called after clocks are enabled
@@ -170,13 +109,10 @@ struct intf_timestamps {
 struct sde_hw_intf_ops {
 	void (*setup_timing_gen)(struct sde_hw_intf *intf,
 			const struct intf_timing_params *p,
-			const struct sde_format *fmt, bool align_esync, bool align_avr);
+			const struct sde_format *fmt);
 
 	void (*setup_prg_fetch)(struct sde_hw_intf *intf,
 			const struct intf_prog_fetch *fetch);
-
-	void (*setup_prog_dynref)(struct sde_hw_intf *intf,
-			const u32 prog_dr_start_line);
 
 	void (*setup_rot_start)(struct sde_hw_intf *intf,
 			const struct intf_prog_fetch *fetch);
@@ -224,7 +160,8 @@ struct sde_hw_intf_ops {
 	/**
 	 * enables tear check block
 	 */
-	int (*enable_tearcheck)(struct sde_hw_intf *intf, bool enable);
+	int (*enable_tearcheck)(struct sde_hw_intf *intf,
+			bool enable);
 
 	/**
 	 * updates tearcheck configuration
@@ -282,11 +219,6 @@ struct sde_hw_intf_ops {
 	void (*avr_trigger)(struct sde_hw_intf *ctx);
 
 	/**
-	 * Program DPU RSCC panic logic to listen to TE
-	 */
-	void (*raw_te_setup)(struct sde_hw_intf *ctx, bool enabled);
-
-	/**
 	 * Enable AVR and select the mode
 	 */
 	void (*avr_ctrl)(struct sde_hw_intf *intf,
@@ -303,51 +235,6 @@ struct sde_hw_intf_ops {
 	 * @return: false if a trigger is pending, else true while AVR is enabled
 	 */
 	u32 (*get_avr_status)(struct sde_hw_intf *intf);
-
-	/**
-	 * Indicates the number of AVR armed
-	 */
-	void (*set_num_avr_step)(struct sde_hw_intf *intf, u32 num_avr_step);
-
-	/**
-	 * Indicates the current AVR step number
-	 */
-	u32 (*get_cur_num_avr_step)(struct sde_hw_intf *intf);
-
-	/**
-	 * Configure esync generator to prepare for enablement
-	 */
-	void (*prepare_esync)(struct sde_hw_intf *intf, struct intf_esync_params *params);
-
-	/**
-	 * Enable esync generator
-	 */
-	void (*enable_esync)(struct sde_hw_intf *intf, bool enable);
-
-	/**
-	 * Configure backup esync generator to prepare for enablement
-	 */
-	void (*prepare_backup_esync)(struct sde_hw_intf *intf, struct intf_esync_params *params);
-
-	/**
-	 * Enable backup esync generator
-	 */
-	void (*enable_backup_esync)(struct sde_hw_intf *intf, bool enable);
-
-	/**
-	 * Blocks until backup esync generator is enabled
-	 */
-	int (*wait_for_esync_src_switch)(struct sde_hw_intf *intf, bool main);
-
-	/**
-	 * Allow timing generator to extend VFP infinitely
-	 */
-	void (*enable_infinite_vfp)(struct sde_hw_intf *intf, bool enable);
-
-	/**
-	 * Get the HW esync timestamp value
-	 */
-	u64 (*get_esync_timestamp)(struct sde_hw_intf *intf);
 
 	/**
 	 * Enable/disable 64 bit compressed data input to interface block
@@ -372,11 +259,6 @@ struct sde_hw_intf_ops {
 	u64 (*get_vsync_timestamp)(struct sde_hw_intf *intf, bool is_vid);
 
 	/**
-	 * Get the HW panel vsync timestamp counter
-	 */
-	u64 (*get_panel_vsync_timestamp)(struct sde_hw_intf *intf);
-
-	/**
 	 * Enable processing of 2 pixels per clock
 	 */
 	void (*enable_wide_bus)(struct sde_hw_intf *intf, bool enable);
@@ -397,40 +279,6 @@ struct sde_hw_intf_ops {
 	 * Check if intf supports 32-bit registers for TE
 	 */
 	bool (*is_te_32bit_supported)(struct sde_hw_intf *intf);
-
-	/**
-	 * Setup the Sync programmable INTF offset between two DPU's
-	 */
-	void (*setup_dpu_sync_prog_intf_offset)(struct sde_hw_intf *intf,
-			const struct intf_prog_fetch *fetch);
-
-	/**
-	 * Setup timing engine enablement for slave DPU when enabled in sync mode
-	 */
-	void (*enable_dpu_sync_ctrl)(struct sde_hw_intf *intf,
-			u32 timing_en_mux_sel);
-
-	/**
-	 * Setup the panic & wakup window for cmd-mode CESTA HW clients.
-	 */
-	void (*setup_te_panic_wakeup)(struct sde_hw_intf *intf,
-			struct intf_panic_wakeup_cfg *cfg);
-
-	/**
-	 * Setup the panic ctrl/level for vid-mode CESTA HW clients.
-	 */
-	void (*setup_intf_panic_ctrl)(struct sde_hw_intf *intf,
-			struct intf_panic_ctrl_cfg *cfg);
-
-	/**
-	 * Update the vsync_count for interface tear check
-	 */
-	void (*update_tearcheck_vsync_count)(struct sde_hw_intf *intf, u32 val);
-
-	/**
-	 * Setup flush snapshot value for HW flush synchronisation
-	 */
-	void (*setup_flush_snapshot)(struct sde_hw_intf *intf, u32 snapshot_val, bool enable);
 };
 
 struct sde_hw_intf {

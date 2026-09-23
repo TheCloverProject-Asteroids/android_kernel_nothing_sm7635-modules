@@ -1,5 +1,4 @@
 /*
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2018, 2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
@@ -148,12 +147,3 @@ void qdf_streamfs_write(qdf_streamfs_chan_t chan,
 }
 
 qdf_export_symbol(qdf_streamfs_write);
-
-void *qdf_streamfs_reserve(qdf_streamfs_chan_t chan, size_t length)
-{
-	if (chan)
-		return relay_reserve(chan, length);
-	return NULL;
-}
-
-qdf_export_symbol(qdf_streamfs_reserve);

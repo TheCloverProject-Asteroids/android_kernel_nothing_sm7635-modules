@@ -235,18 +235,12 @@ enum dsi_dfps_type {
  *						change in hfp
  * @DSI_DYN_CLK_TYPE_CONST_FPS_ADJUST_VFP:	Constant FPS supported with
  *						change in vfp
- * @DSI_DYN_CLK_TYPE_ADJUST_HFP:		Variable FPS supported with
- *						change in hfp
- * @DSI_DYN_CLK_TYPE_ADJUST_VFP:		Variable FPS supported with
- *						change in vfp
  * @DSI_DYN_CLK_TYPE_MAX:
  */
 enum dsi_dyn_clk_feature_type {
 	DSI_DYN_CLK_TYPE_LEGACY = 0,
 	DSI_DYN_CLK_TYPE_CONST_FPS_ADJUST_HFP,
 	DSI_DYN_CLK_TYPE_CONST_FPS_ADJUST_VFP,
-	DSI_DYN_CLK_TYPE_ADJUST_HFP,
-	DSI_DYN_CLK_TYPE_ADJUST_VFP,
 	DSI_DYN_CLK_TYPE_MAX
 };
 
@@ -438,8 +432,6 @@ struct dsi_panel_cmd_set {
  * @roi_caps:         Panel ROI capabilities.
  * @qsync_min_fps:    Qsync min fps rate
  * @avr_step_fps:     AVR step fps rate
- * @esync_emsync_fps: esync EM pulse rate
- * @te_pulse_width_us:         Pulse width of TE in microseconds
  */
 struct dsi_mode_info {
 	u32 h_active;
@@ -468,8 +460,6 @@ struct dsi_mode_info {
 	struct msm_roi_caps roi_caps;
 	u32 qsync_min_fps;
 	u32 avr_step_fps;
-	u32 esync_emsync_fps;
-	u32 te_pulse_width_us;
 };
 
 /**
@@ -526,7 +516,8 @@ struct dsi_split_link_config {
  *			 cmd it points to the line after TE.
  * @dma_sched_window:	 Determines the width of the window during the
  *			 DSI command will be sent by the HW.
- * @skip_pps_update:	 Skip sending pps command.
+ * @vpadding:			 panel stacking height.
+ * @line_insertion_enable: line insertion support enable.
  */
 struct dsi_host_common_cfg {
 	enum dsi_pixel_format dst_format;
@@ -555,7 +546,8 @@ struct dsi_host_common_cfg {
 	u32 byte_intf_clk_div;
 	u32 dma_sched_line;
 	u32 dma_sched_window;
-	bool skip_pps_update;
+	u32 vpadding;
+	bool line_insertion_enable;
 };
 
 /**
@@ -629,7 +621,6 @@ struct dsi_host_config {
 	u64 esc_clk_rate_hz;
 	u64 bit_clk_rate_hz;
 	u64 bit_clk_rate_hz_override;
-	bool esync_enabled;
 	struct dsi_mode_info video_timing;
 	struct dsi_lane_map lane_map;
 };
@@ -654,7 +645,6 @@ struct dsi_host_config {
  * @clk_rate_hz:          DSI bit clock per lane in hz.
  * @min_dsi_clk_hz:       Min dsi clk per lane to transfer frame in vsync time.
  * @bit_clk_list:         List of dynamic bit clock rates supported.
- * @freq_step_list:       List of frequency scaling patterns
  * @topology:             Topology selected for the panel
  * @dsc:                  DSC compression info
  * @vdc:                  VDC compression info
@@ -685,7 +675,6 @@ struct dsi_display_mode_priv_info {
 	u64 clk_rate_hz;
 	u64 min_dsi_clk_hz;
 	struct msm_dyn_clk_list bit_clk_list;
-	struct msm_freq_step_list freq_step_list;
 
 	struct msm_display_topology topology;
 	struct msm_display_dsc_info dsc;
@@ -788,9 +777,6 @@ enum dsi_error_status {
 struct dsi_dyn_clk_delay {
 	u32 pipe_delay;
 	u32 pipe_delay2;
-	u32 pipe_delay3;
-	u32 pll_reg_flush_delay;
-	u32 pll_reg_post_flush_delay;
 	u32 pll_delay;
 };
 
@@ -800,7 +786,6 @@ enum dsi_dyn_clk_control_bits {
 	DYN_REFRESH_SYNC_MODE,
 	DYN_REFRESH_SW_TRIGGER,
 	DYN_REFRESH_SWI_CTRL,
-	DYN_REFRESH_PROG_DR,
 };
 
 /* convert dsi pixel format into bits per pixel */
@@ -862,13 +847,11 @@ static inline bool dsi_is_type_cphy(struct dsi_host_common_cfg *cfg)
 
 /**
  * dsi_host_transfer_sub() - transfers DSI commands from host to panel
- * @host:                pointer to the DSI mipi host device
- * @cmd:                 DSI command to be transferred
- * @do_peripheral_flush: Flag for sending this command with peripheral flush
+ * @host:    pointer to the DSI mipi host device
+ * @cmd:     DSI command to be transferred
  *
  * Return: error code.
  */
-int dsi_host_transfer_sub(struct mipi_dsi_host *host, struct dsi_cmd_desc *cmd,
-			  bool do_peripheral_flush);
+int dsi_host_transfer_sub(struct mipi_dsi_host *host, struct dsi_cmd_desc *cmd);
 
 #endif /* _DSI_DEFS_H_ */

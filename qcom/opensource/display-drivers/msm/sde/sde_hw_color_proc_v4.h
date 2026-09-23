@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2017-2019, 2021 The Linux Foundation. All rights reserved.
  */
 #ifndef _SDE_HW_COLOR_PROC_V4_H_
@@ -96,12 +96,14 @@ void sde_ltm_clear_merge_mode(struct sde_hw_dspp *dspp);
  */
 void sde_ltm_clear_merge_modev1_2(struct sde_hw_dspp *dspp);
 
+
 /**
  * sde_demura_backlight_cfg - api to set backlight for demura
  * @ctx: pointer to dspp object
- * @hw_cfg: pointer to sde_hw_cp_cfg
+ * @val: value of backlight
+ * @cfg: pointer to sde_hw_cp_cfg
  */
-void sde_demura_backlight_cfg(struct sde_hw_dspp *ctx, struct sde_hw_cp_cfg *hw_cfg);
+void sde_demura_backlight_cfg(struct sde_hw_dspp *ctx, u64 val, struct sde_hw_cp_cfg *cfg);
 
 /**
  * sde_demura_read_plane_status - api to read demura plane fetch setup.
@@ -184,30 +186,12 @@ void sde_setup_ucsc_cscv1(struct sde_hw_pipe *ctx,
 		enum sde_sspp_multirect_index index, void *data);
 
 /**
- * sde_setup_ucsc_cscv1_1 - api to set UCSC CSC cp block
- * @ctx: pointer to pipe object
- * @index: pipe rectangle to operate on
- * @data: pointer to sde_hw_cp_cfg object containing drm_msm_ucsc_csc data
- */
-void sde_setup_ucsc_cscv1_1(struct sde_hw_pipe *ctx,
-		enum sde_sspp_multirect_index index, void *data);
-
-/**
  * sde_setup_ucsc_gcv1 - api to set UCSC GC cp block
  * @ctx: pointer to pipe object
  * @index: pipe rectangle to operate on
  * @data: pointer to sde_hw_cp_cfg object containing gc mode data
  */
 void sde_setup_ucsc_gcv1(struct sde_hw_pipe *ctx,
-		enum sde_sspp_multirect_index index, void *data);
-
-/**
- * sde_setup_ucsc_gcv1_1 - api to set UCSC GC cp block
- * @ctx: pointer to pipe object
- * @index: pipe rectangle to operate on
- * @data: pointer to sde_hw_cp_cfg object containing gc mode data
- */
-void sde_setup_ucsc_gcv1_1(struct sde_hw_pipe *ctx,
 		enum sde_sspp_multirect_index index, void *data);
 
 /**
@@ -220,30 +204,12 @@ void sde_setup_ucsc_igcv1(struct sde_hw_pipe *ctx,
 		enum sde_sspp_multirect_index index, void *data);
 
 /**
- * sde_setup_ucsc_igcv1_1 - api to set UCSC IGC cp block
- * @ctx: pointer to pipe object
- * @index: pipe rectangle to operate on
- * @data: pointer to sde_hw_cp_cfg object containing igc mode data
- */
-void sde_setup_ucsc_igcv1_1(struct sde_hw_pipe *ctx,
-		enum sde_sspp_multirect_index index, void *data);
-
-/**
  * sde_setup_ucsc_unmultv1 - api to set UCSC UNMULT cp block
  * @ctx: pointer to pipe object
  * @index: pipe rectangle to operate on
  * @data: pointer to sde_hw_cp_cfg object containing bool data
  */
 void sde_setup_ucsc_unmultv1(struct sde_hw_pipe *ctx,
-		enum sde_sspp_multirect_index index, void *data);
-
-/**
- * sde_setup_ucsc_unmultv1_1 - api to set UCSC UNMULT cp block
- * @ctx: pointer to pipe object
- * @index: pipe rectangle to operate on
- * @data: pointer to sde_hw_cp_cfg object containing bool data
- */
-void sde_setup_ucsc_unmultv1_1(struct sde_hw_pipe *ctx,
 		enum sde_sspp_multirect_index index, void *data);
 
 /**
@@ -254,20 +220,5 @@ void sde_setup_ucsc_unmultv1_1(struct sde_hw_pipe *ctx,
  */
 void sde_setup_ucsc_alpha_ditherv1(struct sde_hw_pipe *ctx,
 		enum sde_sspp_multirect_index index, void *data);
-
-/**
- * sde_validate_ltm_roiv1_3 - api to validate the LTM roi configuration
- * @ctx: pointer to dspp object.
- * @cfg: sde_hw_cp_cfg containing LTM roi configuration for the frame.
- */
-int sde_validate_ltm_roiv1_3(struct sde_hw_dspp *ctx, void *cfg);
-
-/**
- * sde_demura_read_plane_status_v3 - api to read demura v3 plane fetch setup.
- * @ctx: pointer to dspp object.
- * @status: Currently present plane. Reported as a demura_fetch_planes value.
- */
-void sde_demura_read_plane_status_v3(struct sde_hw_dspp *ctx, u32 *status);
-
 
 #endif /* _SDE_HW_COLOR_PROC_V4_H_ */

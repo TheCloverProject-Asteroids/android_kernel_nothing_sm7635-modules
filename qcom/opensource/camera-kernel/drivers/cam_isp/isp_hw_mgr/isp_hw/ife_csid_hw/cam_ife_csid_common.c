@@ -28,7 +28,7 @@
 /* factor to conver qtime to boottime */
 int64_t qtime_to_boottime;
 
-const uint8_t *cam_ife_csid_irq_reg_tag[CAM_IFE_CSID_IRQ_REG_MAX + 1] = {
+const uint8_t *cam_ife_csid_irq_reg_tag[CAM_IFE_CSID_IRQ_REG_MAX] = {
 	"TOP",
 	"RX",
 	"RDI0",
@@ -41,11 +41,6 @@ const uint8_t *cam_ife_csid_irq_reg_tag[CAM_IFE_CSID_IRQ_REG_MAX + 1] = {
 	"UDI0",
 	"UDI1",
 	"UDI2",
-	"TOP2",
-	"RX2",
-	"IPP1",
-	"IPP2",
-	"MAX",
 };
 
 static int cam_ife_csid_get_cid(struct cam_ife_csid_cid_data *cid_data,
@@ -141,7 +136,6 @@ static int cam_ife_csid_validate_rdi_format(uint32_t in_format,
 		case CAM_FORMAT_MIPI_RAW_14:
 		case CAM_FORMAT_PLAIN128:
 		case CAM_FORMAT_PLAIN16_10:
-		case CAM_FORMAT_PLAIN16_10_LSB:
 		case CAM_FORMAT_PLAIN16_12:
 		case CAM_FORMAT_PLAIN16_14:
 		case CAM_FORMAT_PLAIN16_16:
@@ -280,7 +274,6 @@ int cam_ife_csid_get_format_rdi(
 			path_format->packing_fmt = 0x1;
 		break;
 	case CAM_FORMAT_PLAIN16_10:
-	case CAM_FORMAT_PLAIN16_10_LSB:
 	case CAM_FORMAT_PLAIN16_12:
 	case CAM_FORMAT_PLAIN16_14:
 	case CAM_FORMAT_PLAIN16_16:
@@ -573,6 +566,43 @@ int cam_ife_csid_check_in_port_args(
 	return 0;
 }
 
+int cam_ife_csid_get_rt_irq_idx(
+	uint32_t irq_reg, uint32_t num_ipp,
+	uint32_t num_ppp, uint32_t num_rdi)
+{
+	int rt_irq_reg_idx = -EINVAL;
+
+	switch (irq_reg) {
+	case CAM_IFE_CSID_IRQ_REG_IPP:
+		rt_irq_reg_idx = CAM_IFE_CSID_IRQ_REG_RX +
+			num_rdi + 1;
+		break;
+	case CAM_IFE_CSID_IRQ_REG_PPP:
+		rt_irq_reg_idx = CAM_IFE_CSID_IRQ_REG_RX +
+			num_rdi + num_ipp + 1;
+		break;
+	case CAM_IFE_CSID_IRQ_REG_RDI_0:
+	case CAM_IFE_CSID_IRQ_REG_RDI_1:
+	case CAM_IFE_CSID_IRQ_REG_RDI_2:
+	case CAM_IFE_CSID_IRQ_REG_RDI_3:
+	case CAM_IFE_CSID_IRQ_REG_RDI_4:
+		rt_irq_reg_idx = irq_reg;
+		break;
+	case CAM_IFE_CSID_IRQ_REG_UDI_0:
+	case CAM_IFE_CSID_IRQ_REG_UDI_1:
+	case CAM_IFE_CSID_IRQ_REG_UDI_2:
+		rt_irq_reg_idx = CAM_IFE_CSID_IRQ_REG_RX +
+			num_rdi + num_ipp + num_ppp +
+			(irq_reg - CAM_IFE_CSID_IRQ_REG_UDI_0) + 1;
+		break;
+	default:
+		CAM_ERR(CAM_ISP, "Invalid irq reg %d", irq_reg);
+		break;
+	}
+
+	return rt_irq_reg_idx;
+}
+
 int cam_ife_csid_convert_res_to_irq_reg(uint32_t res_id)
 {
 	switch (res_id) {
@@ -597,10 +627,6 @@ int cam_ife_csid_convert_res_to_irq_reg(uint32_t res_id)
 		return CAM_IFE_CSID_IRQ_REG_UDI_1;
 	case CAM_IFE_PIX_PATH_RES_UDI_2:
 		return CAM_IFE_CSID_IRQ_REG_UDI_2;
-	case CAM_IFE_PIX_PATH_RES_IPP_1:
-		return CAM_IFE_CSID_IRQ_REG_IPP_1;
-	case CAM_IFE_PIX_PATH_RES_IPP_2:
-		return CAM_IFE_CSID_IRQ_REG_IPP_2;
 	default:
 		return CAM_IFE_CSID_IRQ_REG_MAX;
 	}
@@ -611,8 +637,6 @@ const char *cam_ife_csid_reset_type_to_string(enum cam_ife_csid_reset_type reset
 	switch (reset_type) {
 	case CAM_IFE_CSID_RESET_GLOBAL: return "global";
 	case CAM_IFE_CSID_RESET_PATH: return "path";
-	case CAM_IFE_CSID_RESET_GLOBAL_HW_ONLY: return "global_hw";
-	case CAM_IFE_CSID_RESET_GLOBAL_IRQ_CNTRL: return "global_irq_rst";
 	default: return "invalid";
 	}
 }

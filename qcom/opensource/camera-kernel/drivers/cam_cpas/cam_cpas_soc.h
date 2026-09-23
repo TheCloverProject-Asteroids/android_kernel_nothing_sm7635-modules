@@ -38,7 +38,6 @@ enum cam_cpas_num_subparts_types {
  * @merge_type: Traffic merge type (calculation info) from device tree
  * @bus_width_factor: Factor for accounting bus width in CAMNOC bw calculation
  * @bw_info: AXI BW info for all drv ports
- * @is_rt_node: Indicates if a tree node is representing a RT bus node/port
  * @camnoc_max_needed: If node is needed for CAMNOC BW calculation then true
  * @constituent_paths: Constituent paths presence info from device tree
  *     Ex: For CAM_CPAS_PATH_DATA_IFE_UBWC_STATS, index corresponding to
@@ -70,7 +69,6 @@ struct cam_cpas_tree_node {
 	uint32_t merge_type;
 	uint32_t bus_width_factor;
 	struct cam_cpas_axi_bw_info *bw_info;
-	bool is_rt_node;
 	bool camnoc_max_needed;
 	bool constituent_paths[CAM_CPAS_PATH_DATA_MAX];
 	struct device_node *tree_dev_node;
@@ -104,52 +102,43 @@ struct cam_cpas_feature_info {
 /**
  * struct cam_sys_cache_local_info : camera cache info saving locally
  *
- * @type: Cache type, For example cache types are
- *        CAM_LLCC_SMALL_1/CAM_LLCC_SMALL_2/CAM_LLCC_LARGE_1/ ....
- *        CAM_LLCC_IPE_SRT_IP/CAM_LLCC_IPE_RT_RF
+ * @type:      cache type small/large etc.
  * @staling_distance:       staling_distance
- * @mode:       llcc staling mode params, possible allowed values
- *              CAM_LLCC_STALING_MODE_CAPACITY/CAM_LLCC_STALING_MODE_NOTIFY
- * @op_type:    cache operation type, possible allowed values are
- *                  CAM_LLCC_NOTIFY_STALING_EVICT/CAM_LLCC_NOTIFY_STALING_FORGET
+ * @mode:      camera llc's stalling mode
+ * @op_type:      cache operation type EVICT, FORGET
  */
 struct cam_sys_cache_local_info {
-	uint32_t        type;
-	uint32_t        staling_distance;
-	uint32_t        mode;
-	uint32_t        op_type;
+	enum cam_sys_cache_config_types  type;
+	uint32_t staling_distance;
+	enum cam_sys_cache_llcc_staling_mode mode;
+	enum cam_sys_cache_llcc_staling_op_type op_type;
 };
 
 /**
  * struct cam_sys_cache_info : Last level camera cache info
  *
  * @ref_cnt:   Ref cnt activate/deactivate cache
- * @type: Cache type, For example cache types are
- *        CAM_LLCC_SMALL_1/CAM_LLCC_SMALL_2/CAM_LLCC_LARGE_1/ ....
- *        CAM_LLCC_IPE_SRT_IP/CAM_LLCC_IPE_RT_RF
+ * @type:      cache type small/large etc.
  * @uid:       Client user ID
  * @size:      Cache size
  * @scid:      Slice ID
  * @slic_desc: Slice descriptor
  * @staling_distance:       staling_distance
- * @mode:       camera llcc's staling mode params, possible allowed values
- *              CAM_LLCC_STALING_MODE_CAPACITY/CAM_LLCC_STALING_MODE_NOTIFY
- * @op_type:    cache operation type, possible allowed values are
- *              CAM_LLCC_NOTIFY_STALING_EVICT/CAM_LLCC_NOTIFY_STALING_FORGET
- * @concur      concurrent usage is supported or not for a scid
+ * @mode:      camera llc's stalling mode
+ * @op_type:      cache operation type EVICT, FORGET
  */
 struct cam_sys_cache_info {
 	uint32_t                         ref_cnt;
-	uint32_t                         type;
+	enum cam_sys_cache_config_types  type;
 	uint32_t                         uid;
 	size_t                           size;
 	int32_t                          scid;
 	const char                      *name;
 	struct llcc_slice_desc          *slic_desc;
-	uint32_t                         staling_distance;
-	int32_t                          mode;
-	int32_t                          op_type;
-	uint32_t                         concur;
+	uint32_t staling_distance;
+	enum cam_sys_cache_llcc_staling_mode mode;
+	enum cam_sys_cache_llcc_staling_op_type op_type;
+
 };
 
 
@@ -273,7 +262,6 @@ struct cam_cpas_sysfs_info {
  * @camnoc_axi_clk_bw_margin : BW Margin in percentage to add while calculating
  *      camnoc axi clock
  * @camnoc_axi_min_ib_bw: Min camnoc BW which varies based on target
- * @cam_max_rt_axi_bw: Max axi BW in bytes which varies based on target
  * @fuse_info: fuse information
  * @sysfs_info: Camera subparts sysfs information
  * @rpmh_info: RPMH BCM info
@@ -308,7 +296,6 @@ struct cam_cpas_private_soc {
 	uint32_t camnoc_bus_width;
 	uint32_t camnoc_axi_clk_bw_margin;
 	uint64_t camnoc_axi_min_ib_bw;
-	uint64_t cam_max_rt_axi_bw;
 	struct cam_cpas_fuse_info fuse_info;
 	struct cam_cpas_sysfs_info sysfs_info;
 	uint32_t rpmh_info[CAM_RPMH_BCM_INFO_MAX];
@@ -334,10 +321,6 @@ void cam_cpas_dump_tree_vote_info(struct cam_hw_info *cpas_hw,
 void cam_cpas_dump_full_tree_state(struct cam_hw_info *cpas_hw, const char *identifier);
 
 void cam_cpas_util_debug_parse_data(struct cam_cpas_private_soc *soc_private);
-void cam_cpas_dump_cons_axi_vote_info(
-	const struct cam_cpas_client *cpas_client,
-	const char *identifier,
-	struct cam_axi_consolidate_vote *axi_vote);
 void cam_cpas_dump_axi_vote_info(
 	const struct cam_cpas_client *cpas_client,
 	const char *identifier,
@@ -352,5 +335,4 @@ int cam_cpas_soc_enable_resources(struct cam_hw_soc_info *soc_info,
 int cam_cpas_soc_disable_resources(struct cam_hw_soc_info *soc_info,
 	bool disable_clocks, bool disable_irq);
 int cam_cpas_soc_disable_irq(struct cam_hw_soc_info *soc_info);
-int cam_cpas_vmrm_callback_handler(void *cb_data, void *msg, uint32_t size);
 #endif /* _CAM_CPAS_SOC_H_ */

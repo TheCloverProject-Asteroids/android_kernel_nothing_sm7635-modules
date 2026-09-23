@@ -46,11 +46,6 @@
 #else
 #define CFG_CFR_ALL
 #endif
-#ifdef WLAN_WIFI_RADAR_ENABLE
-#include "wifi_radar_cfg.h"
-#else
-#define CFG_WIFI_RADAR_ALL
-#endif
 #ifdef FEATURE_CM_UTF_ENABLE
 #include <wlan_cm_utf.h>
 #else
@@ -59,7 +54,6 @@
 #include <cfg_cp_stats.h>
 #include <cfg_mgmt_txrx.h>
 #include <cfg_ipa.h>
-#include <cfg_mlme_cm.h>
 
 #define CFG_CONVERGED_ALL \
 		CFG_SCAN_ALL \
@@ -71,7 +65,6 @@
 		CFG_DCS_ALL \
 		CFG_CFR_ALL \
 		CFG_MLME_SCORE_ALL \
-		CFG_MLO_MLME_CM_CONFIG \
 		CFG_WLAN_CM_UTF_PARAM \
 		CFG_CMN_MLME_ALL \
 		CFG_MGMT_TXRX_ALL \

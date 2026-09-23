@@ -119,6 +119,8 @@
 #define DP_VCO_RATE_9720MHZDIV1000		9720000UL
 #define DP_VCO_RATE_10800MHZDIV1000		10800000UL
 
+#define DP_PLL_NUM_CLKS				2
+
 #define DP_4NM_C_READY		BIT(0)
 #define DP_4NM_FREQ_DONE	BIT(0)
 #define DP_4NM_PLL_LOCKED	BIT(1)
@@ -239,7 +241,7 @@ static int dp_config_vco_rate_4nm(struct dp_pll *pll,
 		unsigned long rate)
 {
 	int rc = 0;
-	struct dp_pll_db *pdb = &pll->pll_db;
+	struct dp_pll_db *pdb = (struct dp_pll_db *)pll->priv;
 	const struct dp_pll_params *params;
 
 	rc = dp_vco_pll_init_db_4nm(pdb, rate);
@@ -801,31 +803,37 @@ static const struct clk_ops pll_vco_div_clk_ops = {
 	.round_rate = dp_pll_vco_div_clk_round,
 };
 
-static struct clk_init_data phy_pll_clks[DP_PLL_NUM_CLKS] = {
+static struct dp_pll_vco_clk dp0_phy_pll_clks[DP_PLL_NUM_CLKS] = {
 	{
-		.name = "_phy_pll_link_clk",
+	.hw.init = &(struct clk_init_data) {
+		.name = "dp0_phy_pll_link_clk",
 		.ops = &pll_link_clk_ops,
+		},
 	},
 	{
-		.name = "_phy_pll_vco_div_clk",
+	.hw.init = &(struct clk_init_data) {
+		.name = "dp0_phy_pll_vco_div_clk",
 		.ops = &pll_vco_div_clk_ops,
+		},
 	},
 };
 
-static struct dp_pll_vco_clk *dp_pll_get_clks(struct dp_pll *pll)
-{
-	int i;
+static struct dp_pll_vco_clk dp_phy_pll_clks[DP_PLL_NUM_CLKS] = {
+	{
+	.hw.init = &(struct clk_init_data) {
+		.name = "dp_phy_pll_link_clk",
+		.ops = &pll_link_clk_ops,
+		},
+	},
+	{
+	.hw.init = &(struct clk_init_data) {
+		.name = "dp_phy_pll_vco_div_clk",
+		.ops = &pll_vco_div_clk_ops,
+		},
+	},
+};
 
-	for (i = 0; i < DP_PLL_NUM_CLKS; i++) {
-		snprintf(pll->pll_clks[i].name, DP_PLL_NAME_MAX_SIZE,
-				"%s%s", pll->name, phy_pll_clks[i].name);
-		pll->pll_clks[i].init_data.name = pll->pll_clks[i].name;
-		pll->pll_clks[i].init_data.ops = phy_pll_clks[i].ops;
-		pll->pll_clks[i].hw.init = &pll->pll_clks[i].init_data;
-	}
-
-	return pll->pll_clks;
-}
+static struct dp_pll_db dp_pdb;
 
 int dp_pll_clock_register_4nm(struct dp_pll *pll)
 {
@@ -851,18 +859,22 @@ int dp_pll_clock_register_4nm(struct dp_pll *pll)
 	}
 
 	pll->clk_data->clk_num = DP_PLL_NUM_CLKS;
-	pll->pll_db.pll = pll;
+	pll->priv = &dp_pdb;
+	dp_pdb.pll = pll;
 
 	if (pll->revision == DP_PLL_4NM_V1_1)
-		pll->pll_db.pll_params = pll_params_v1_1;
+		dp_pdb.pll_params = pll_params_v1_1;
 	else
-		pll->pll_db.pll_params = pll_params_v1;
+		dp_pdb.pll_params = pll_params_v1;
 
 	pll->pll_cfg = dp_pll_configure;
 	pll->pll_prepare = dp_pll_prepare;
 	pll->pll_unprepare = dp_pll_unprepare;
 
-	pll_clks = dp_pll_get_clks(pll);
+	if (pll->dp_core_revision >= 0x10040000)
+		pll_clks = dp0_phy_pll_clks;
+	else
+		pll_clks = dp_phy_pll_clks;
 
 	rc = dp_pll_clock_register_helper(pll, pll_clks, DP_PLL_NUM_CLKS);
 	if (rc) {

@@ -344,35 +344,28 @@ enum wlan_epcs_frame {
 		0, \
 		"rf test mode Enable Flag")
 
+#ifdef CONFIG_BAND_6GHZ
 /*
- * rf_mode_force_pwr_type - Force 6 GHz power type for RF mode enabled case
- * @Min: -1
- * @Max: 2
- * @Default: -1
+ * disable_vlp_sta_conn_to_sp_ap - Disable VLP STA connection to SP AP
+ * @Min: 0
+ * @Max: 1
+ * @Default: 0
  *
- * This cfg is used to set force power type for RF mode enabled case
- * as below.
+ * This cfg is used to disable connection when AP is operating in 6 GHz
+ * SP mode but STA doesn't support SP mode and supports VLP mode.
  *
- * rf_mode_force_pwr_type -> Force power type
- * -1 -> Use AP and STA intersected power type
- *  0 -> Force LPI power
- *  1 -> Force SP power
- *  2 -> Force VLP power
+ * Related: None
  *
- *  For rf_mode_force_pwr_type 1 and 2 if STA doesn't support SP and VLP
- *  power respectively for connection frequency try to force LPI power.
- *
- *  Related: None
- *
- *  Supported Feature: STA
+ * Supported Feature: STA
  */
-#define CFG_RF_MODE_FORCE_PWR_TYPE CFG_INT( \
-		"rf_mode_force_pwr_type", \
-		-1, \
-		2, \
-		-1, \
-		CFG_VALUE_OR_DEFAULT, \
-		"rf test mode force power type")
+#define CFG_DISABLE_VLP_STA_CONN_TO_SP_AP CFG_BOOL( \
+		"disable_vlp_sta_conn_to_sp_ap", \
+		0, \
+		"disable vlp sta conn to sp ap")
+#define CFG_DIS_VLP_STA_CONN_TO_SP_AP	CFG(CFG_DISABLE_VLP_STA_CONN_TO_SP_AP)
+#else
+#define CFG_DIS_VLP_STA_CONN_TO_SP_AP
+#endif
 
 #ifdef CONFIG_BAND_6GHZ
 /*
@@ -397,53 +390,28 @@ enum wlan_epcs_frame {
 #define CFG_6GHZ_STD_CONN_POLICY
 #endif
 
-#ifdef CONFIG_BAND_6GHZ
+#ifdef WLAN_FEATURE_11BE_MLO
 /*
- * relaxed_lpi_conn_policy - Enable relaxed LPI connection policy
+ * emlsr_mode_enable - Enable eMLSR mode support
  * @Min: 0
  * @Max: 1
  * @Default: 0
  *
- * This ini is used to set relaxed LPI connection policy where STA can connect
- * in LPI with a 6 GHz AP which didn't advertise 6 GHz power info or invalid
- * power type.
+ * This cfg is used to enable eMLSR mode
+ * If 0 - MLMR mode (Default mode)
+ * If 1 - eMLSR mode
  *
  * Related: None
  *
- * Supported feature: STA
+ * Supported Feature: STA
  */
-#define CFG_RELAXED_LPI_CONNECTION_POLICY CFG_INI_BOOL( \
-		"relaxed_lpi_conn_policy", \
+#define CFG_EMLSR_MODE_ENABLE CFG_BOOL( \
+		"emlsr_mode_enable", \
 		0, \
-		"Relaxed LPI connection policy")
-#define CFG_RELAXED_LPI_CONN_POLICY CFG(CFG_RELAXED_LPI_CONNECTION_POLICY)
+		"eMLSR mode enable flag")
+#define CFG_EMLSR_MODE_ENABLED	CFG(CFG_EMLSR_MODE_ENABLE)
 #else
-#define CFG_RELAXED_LPI_CONN_POLICY
-#endif
-
-#ifdef WLAN_FEATURE_11BE_MLO
-/*
- * sap_emlsr_mode_enable - Enable sap eMLSR mode support
- * @Min: 0
- * @Max: 1
- * @Default: 1
- *
- * This cfg is used to enable sap eMLSR mode
- * If 0 - MLMR mode
- * If 1 - eMLSR mode (Default mode)
- *
- * Related: None
- *
- * Supported Feature: SAP
- */
-#define CFG_SAP_EMLSR_MODE_ENABLE CFG_INI_BOOL( \
-		"sap_emlsr_mode_enable", \
-		1, \
-		"SAP eMLSR mode enable flag")
-#define CFG_SAP_EMLSR_MODE_ENABLED	CFG(CFG_SAP_EMLSR_MODE_ENABLE)
-
-#else
-#define CFG_SAP_EMLSR_MODE_ENABLED
+#define CFG_EMLSR_MODE_ENABLED
 #endif
 
 /*
@@ -1289,24 +1257,6 @@ enum wlan_epcs_frame {
 #define CFG_T2LM_NEGOTIATION_SUPPORTED
 #endif
 
-/*
- * <ini>
- *
- * enable_reduce_pwr_scan - Enable/Disable reduced power scan mode
- * @Min: 0 Disable
- * @Max: 1 Enable
- * @Default: 0
- *
- * Related: None
- *
- *
- * </ini>
- */
-#define CFG_REDUCE_PWR_SCAN_MODE CFG_INI_BOOL( \
-	"enable_reduce_pwr_scan", \
-	1, \
-	"Reduce power scan mode")
-
 #define CFG_GENERIC_ALL \
 	CFG(CFG_ENABLE_DEBUG_PACKET_LOG) \
 	CFG(CFG_PMF_SA_QUERY_MAX_RETRIES) \
@@ -1343,14 +1293,12 @@ enum wlan_epcs_frame {
 	CFG(CFG_WLS_6GHZ_CAPABLE) \
 	CFG(CFG_MONITOR_MODE_CONCURRENCY) \
 	CFG(CFG_RF_TEST_MODE_SUPP_ENABLED) \
-	CFG(CFG_RF_MODE_FORCE_PWR_TYPE) \
 	CFG_WDS_MODE_ALL \
 	CFG(CFG_TX_RETRY_MULTIPLIER) \
 	CFG(CFG_MGMT_FRAME_HW_TX_RETRY_COUNT) \
 	CFG_6GHZ_STD_CONN_POLICY \
-	CFG_SAP_EMLSR_MODE_ENABLED \
+	CFG_EMLSR_MODE_ENABLED \
 	CFG_SR_ENABLE_MODES_ALL \
-	CFG_T2LM_NEGOTIATION_SUPPORTED \
-	CFG_RELAXED_LPI_CONN_POLICY \
-	CFG(CFG_REDUCE_PWR_SCAN_MODE)
+	CFG_T2LM_NEGOTIATION_SUPPORTED\
+	CFG_DIS_VLP_STA_CONN_TO_SP_AP
 #endif /* __CFG_MLME_GENERIC_H */

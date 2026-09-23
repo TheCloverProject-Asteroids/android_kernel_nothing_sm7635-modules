@@ -38,7 +38,6 @@
 #include "cfg_p2p.h"
 #include "cfg_ucfg_api.h"
 #include "wlan_mlme_api.h"
-#include <target_if.h>
 
 /**
  * p2p_get_cmd_type_str() - parse cmd to string
@@ -65,8 +64,6 @@ static char *p2p_get_cmd_type_str(enum p2p_cmd_type cmd_type)
 		return "P2P cleanup tx";
 	case P2P_SET_RANDOM_MAC:
 		return "P2P set random mac";
-	case P2P_GROUP_CHAN_SWITCH_CMD:
-		return "P2P group channel switch";
 	default:
 		return "Invalid P2P command";
 	}
@@ -95,8 +92,6 @@ static char *p2p_get_event_type_str(enum p2p_event_type event_type)
 		return "P2P noa event";
 	case P2P_EVENT_ADD_MAC_RSP:
 		return "P2P add mac filter resp event";
-	case P2P_EVENT_AP_ASSIST_DFS_GROUP_BMISS_IND:
-		return "P2P AP assisted DFS Group bmiss event";
 	default:
 		return "Invalid P2P event";
 	}
@@ -758,7 +753,6 @@ QDF_STATUS p2p_psoc_object_open(struct wlan_objmgr_psoc *soc)
 
 	qdf_runtime_lock_init(&p2p_soc_obj->roc_runtime_lock);
 	p2p_soc_obj->cur_roc_vdev_id = P2P_INVALID_VDEV_ID;
-	p2p_soc_obj->sta_vdev_id = P2P_INVALID_VDEV_ID;
 	qdf_idr_create(&p2p_soc_obj->p2p_idr);
 
 	p2p_debug("p2p psoc object open successful");
@@ -857,7 +851,6 @@ QDF_STATUS p2p_psoc_start(struct wlan_objmgr_psoc *soc,
 	tgt_p2p_register_noa_ev_handler(soc);
 	tgt_p2p_register_macaddr_rx_filter_evt_handler(soc, true);
 	tgt_p2p_register_mcc_quota_ev_handler(soc, true);
-	tgt_p2p_register_ap_assist_bmiss_ev_handler(soc);
 	/* register scan request id */
 	p2p_soc_obj->scan_req_id = wlan_scan_register_requester(
 		soc, P2P_MODULE_NAME, tgt_p2p_scan_event_cb,
@@ -906,7 +899,6 @@ QDF_STATUS p2p_psoc_stop(struct wlan_objmgr_psoc *soc)
 	/* unrgister scan request id*/
 	wlan_scan_unregister_requester(soc, p2p_soc_obj->scan_req_id);
 
-	tgt_p2p_unregister_ap_assist_bmiss_ev_handler(soc);
 	tgt_p2p_register_mcc_quota_ev_handler(soc, false);
 	/* unregister p2p lo stop and noa event */
 	tgt_p2p_register_macaddr_rx_filter_evt_handler(soc, false);
@@ -922,23 +914,6 @@ QDF_STATUS p2p_psoc_stop(struct wlan_objmgr_psoc *soc)
 	qdf_mem_free(start_param);
 
 	p2p_debug("p2p psoc stop successful");
-
-	return QDF_STATUS_SUCCESS;
-}
-
-static QDF_STATUS
-p2p_process_chan_switch_req(struct p2p_chan_switch_req_params *req)
-{
-	struct p2p_soc_priv_obj *p2p_soc_obj;
-
-	p2p_soc_obj = req->p2p_soc_obj;
-	if (!p2p_soc_obj)
-		return QDF_STATUS_E_INVAL;
-
-	if (p2p_soc_obj->p2p_cb.p2p_group_chan_switch_req)
-		p2p_soc_obj->p2p_cb.p2p_group_chan_switch_req(req->vdev_id,
-							      req->channel,
-							      req->op_class);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -993,10 +968,7 @@ QDF_STATUS p2p_process_cmd(struct scheduler_msg *msg)
 		status = p2p_process_set_rand_mac(msg->bodyptr);
 		qdf_mem_free(msg->bodyptr);
 		break;
-	case P2P_GROUP_CHAN_SWITCH_CMD:
-		status = p2p_process_chan_switch_req(msg->bodyptr);
-		qdf_mem_free(msg->bodyptr);
-		break;
+
 	default:
 		p2p_err("drop unexpected message received %d",
 			msg->type);
@@ -1005,21 +977,6 @@ QDF_STATUS p2p_process_cmd(struct scheduler_msg *msg)
 	}
 
 	return status;
-}
-
-static QDF_STATUS p2p_process_ap_assist_dfs_group_bmiss(void *ev_data)
-{
-	struct p2p_soc_priv_obj *p2p_soc_obj;
-	struct p2p_ap_assist_dfs_group_bmiss *params = ev_data;
-
-	p2p_soc_obj = params->p2p_soc_obj;
-	if (!p2p_soc_obj)
-		return QDF_STATUS_E_INVAL;
-
-	if (p2p_soc_obj->p2p_cb.ap_assist_dfs_group_bmiss_notify)
-		p2p_soc_obj->p2p_cb.ap_assist_dfs_group_bmiss_notify(params->vdev_id);
-
-	return QDF_STATUS_SUCCESS;
 }
 
 QDF_STATUS p2p_process_evt(struct scheduler_msg *msg)
@@ -1059,9 +1016,6 @@ QDF_STATUS p2p_process_evt(struct scheduler_msg *msg)
 		status = p2p_process_set_rand_mac_rsp(
 				(struct p2p_mac_filter_rsp *)
 				msg->bodyptr);
-		break;
-	case P2P_EVENT_AP_ASSIST_DFS_GROUP_BMISS_IND:
-		status = p2p_process_ap_assist_dfs_group_bmiss(msg->bodyptr);
 		break;
 	default:
 		p2p_err("Drop unexpected message received %d",
@@ -1114,9 +1068,6 @@ QDF_STATUS p2p_event_flush_callback(struct scheduler_msg *msg)
 
 	p2p_debug("flush event, type:%d", msg->type);
 	switch (msg->type) {
-	case P2P_EVENT_AP_ASSIST_DFS_GROUP_BMISS_IND:
-		qdf_mem_free(msg->bodyptr);
-		break;
 	case P2P_EVENT_NOA:
 		noa_event = (struct p2p_noa_event *)msg->bodyptr;
 		qdf_mem_free(noa_event->noa_info);
@@ -1145,46 +1096,36 @@ QDF_STATUS p2p_event_flush_callback(struct scheduler_msg *msg)
 	return QDF_STATUS_SUCCESS;
 }
 
-const uint8_t *p2p_parse_assoc_ie_for_device_info(const uint8_t *assoc_ie,
-						  uint32_t assoc_ie_len)
+bool p2p_check_oui_and_force_1x1(uint8_t *assoc_ie, uint32_t assoc_ie_len)
 {
 	const uint8_t *vendor_ie, *p2p_ie, *pos;
-	uint8_t attr_id;
-	uint32_t rem_len, attr_len;
+	uint8_t rem_len, attr;
+	uint16_t attr_len;
 
-	vendor_ie = (uint8_t *)wlan_get_vendor_ie_ptr_from_oui(P2P_OUI,
-							       P2P_OUI_SIZE,
-							       assoc_ie,
-							       assoc_ie_len);
+	vendor_ie = (uint8_t *)p2p_get_p2pie_ptr(assoc_ie, assoc_ie_len);
 	if (!vendor_ie) {
-		p2p_err("P2P IE not found");
-		return NULL;
+		p2p_debug("P2P IE not found");
+		return false;
 	}
 
-	if (!is_p2p_oui(vendor_ie)) {
-		p2p_err("P2P OUI not found");
-		return NULL;
+	rem_len = vendor_ie[1];
+	if (rem_len < (2 + OUI_SIZE_P2P) || rem_len > WLAN_MAX_IE_LEN) {
+		p2p_err("Invalid IE len %d", rem_len);
+		return false;
 	}
 
 	p2p_ie = vendor_ie + HEADER_LEN_P2P_IE;
-	rem_len = vendor_ie[1];
-	if (rem_len < (2 + P2P_OUI_SIZE) || rem_len > WLAN_MAX_IE_LEN) {
-		p2p_err("Invalid IE len %d", rem_len);
-		return NULL;
-	}
-
-	rem_len -= P2P_OUI_SIZE;
+	rem_len -= OUI_SIZE_P2P;
 
 	while (rem_len) {
-		attr_id = p2p_ie[0];
+		attr = p2p_ie[0];
 		attr_len = LE_READ_2(&p2p_ie[1]);
 		if (attr_len > rem_len)  {
-			p2p_err("Invalid len %d for elem:%d", attr_len,
-				attr_id);
-			return NULL;
+			p2p_err("Invalid len %d for elem:%d", attr_len, attr);
+			return false;
 		}
 
-		switch (attr_id) {
+		switch (attr) {
 		case P2P_ATTR_CAPABILITY:
 		case P2P_ATTR_DEVICE_ID:
 		case P2P_ATTR_GROUP_OWNER_INTENT:
@@ -1195,6 +1136,7 @@ const uint8_t *p2p_parse_assoc_ie_for_device_info(const uint8_t *assoc_ie,
 		case P2P_ATTR_MANAGEABILITY:
 		case P2P_ATTR_CHANNEL_LIST:
 			break;
+
 		case P2P_ATTR_DEVICE_INFO:
 			if (attr_len < (QDF_MAC_ADDR_SIZE +
 					MAX_CONFIG_METHODS_LEN + 8 +
@@ -1206,369 +1148,33 @@ const uint8_t *p2p_parse_assoc_ie_for_device_info(const uint8_t *assoc_ie,
 
 			/* move by attr id and 2 bytes of attr len */
 			pos = p2p_ie + 3;
-			return pos;
+
+			/*
+			 * the P2P Device info is of format:
+			 * attr_id - 1 byte
+			 * attr_len - 2 bytes
+			 * device mac addr - 6 bytes
+			 * config methods - 2 bytes
+			 * primary device type - 8bytes
+			 *  -primary device type category - 1 byte
+			 *  -primary device type oui - 4bytes
+			 * number of secondary device type - 2 bytes
+			 */
+			pos += ETH_ALEN + MAX_CONFIG_METHODS_LEN +
+			       DEVICE_CATEGORY_MAX_LEN;
+
+			if (!qdf_mem_cmp(pos, P2P_1X1_WAR_OUI,
+					 P2P_1X1_OUI_LEN))
+				return true;
+
+			break;
 		default:
-			p2p_err("Unknown attribute in P2P IE %d", attr_id);
+			p2p_err("Invalid P2P attribute");
 			break;
 		}
-
 		p2p_ie += (3 + attr_len);
 		rem_len -= (3 + attr_len);
 	}
-
-	return NULL;
-}
-
-static void
-p2p_parse_p2p2_ext_cap_attr(const uint8_t *p2p2_ie, uint16_t rem_len,
-			    struct p2p_ap_assist_dfs_group_info *dfs_info)
-{
-	uint8_t min_attr_len = 3;
-	const uint8_t *attr_data;
-	uint16_t attr_len;
-
-	attr_len = LE_READ_2(&p2p2_ie[1]);
-	if (!attr_len)
-		return;
-
-	dfs_info->extn_cap_attr_found = true;
-
-	attr_data = p2p2_ie + min_attr_len;
-	dfs_info->is_dfs_owner = QDF_GET_BITS(attr_data[0], 6, 1);
-	dfs_info->is_client_csa = QDF_GET_BITS(attr_data[0], 7, 1);
-}
-
-static void
-p2p_parse_p2p2_wlan_ap_info_attr(const uint8_t *p2p2_ie, uint16_t rem_len,
-				 bool only_connected,
-				 struct p2p_ap_assist_dfs_group_info *dfs_info)
-{
-	uint8_t per_ap_len = 12, min_attr_len = 3;
-	uint16_t attr_len;
-	const uint8_t *attr_data;
-	uint8_t i, num_ap_infos, list_idx;
-
-	attr_len = LE_READ_2(&p2p2_ie[1]);
-	if (!attr_len)
-		return;
-
-	num_ap_infos = QDF_MIN(attr_len / per_ap_len,
-			       WLAN_P2P_MAX_WLAN_AP_INFO);
-
-	if (!num_ap_infos || (num_ap_infos * per_ap_len) > rem_len)
-		return;
-
-	dfs_info->wlan_ap_info_attr_found = true;
-
-	attr_data =  p2p2_ie + min_attr_len;
-
-	/*
-	 * If @only_connected is %true then WLAN APs with connected bit set
-	 * are only filtered, if not all the APs info is saved within the
-	 * size of @num_ap_infos. This only extracts the contents of the
-	 * attribute.
-	 */
-	list_idx = 0;
-	for (i = 0; i < num_ap_infos; i++) {
-		if (!QDF_GET_BITS(attr_data[0], 0, 1) && only_connected) {
-			attr_data += per_ap_len;
-			continue;
-		}
-
-		dfs_info->ap_info[list_idx].is_connected =
-					QDF_GET_BITS(attr_data[0], 0, 1);
-
-		attr_data++;
-		qdf_copy_macaddr(&dfs_info->ap_info[list_idx].ap_bssid,
-				 (struct qdf_mac_addr *)attr_data);
-		attr_data += ETH_ALEN;
-		attr_data += REG_ALPHA2_LEN + 1;
-		dfs_info->ap_info[list_idx].op_class = *attr_data;
-		attr_data++;
-
-		dfs_info->ap_info[list_idx].chan = *attr_data;
-		list_idx++;
-		break;
-	}
-
-	dfs_info->num_ap_info = list_idx;
-}
-
-static uint8_t
-p2p_validate_ap_assist_params(struct wlan_objmgr_pdev *pdev,
-			      struct p2p_ap_assist_dfs_group_info *dfs_info,
-			      qdf_freq_t req_freq)
-{
-	qdf_freq_t freq;
-	uint8_t idx, valid_idx, valid_cnt;
-	struct p2p_ap_assist_dfs_ap_info *ap_info;
-
-	if (!pdev)
-		return 0;
-
-	if (!dfs_info->extn_cap_attr_found ||
-	    !dfs_info->wlan_ap_info_attr_found || !dfs_info->num_ap_info)
-		return 0;
-
-	if (dfs_info->is_dfs_owner || !wlan_reg_is_dfs_for_freq(pdev, req_freq))
-		goto clear_ap_info;
-
-	/*
-	 * Filter out APs info which are in the same DFS frequency and has
-	 * valid BSSID from the extracted list.
-	 */
-	for (idx = 0, valid_cnt = 0; idx < dfs_info->num_ap_info; idx++) {
-		ap_info = &dfs_info->ap_info[idx];
-		if (wlan_reg_is_6ghz_op_class(pdev, ap_info->op_class))
-			continue;
-
-		freq = wlan_reg_legacy_chan_to_freq(pdev, ap_info->chan);
-		if (freq != req_freq)
-			continue;
-
-		if (qdf_is_macaddr_zero(&ap_info->ap_bssid) ||
-		    qdf_is_macaddr_broadcast(&ap_info->ap_bssid) ||
-		    QDF_NET_IS_MAC_MULTICAST(&ap_info->ap_bssid.bytes[0]))
-			continue;
-
-		ap_info->is_valid = true;
-		valid_cnt++;
-	}
-
-	if (!valid_cnt)
-		goto clear_ap_info;
-
-	for (idx = 0, valid_idx = 0; idx < dfs_info->num_ap_info; idx++) {
-		if (!dfs_info->ap_info[idx].is_valid)
-			continue;
-
-		if (valid_idx != idx) {
-			qdf_mem_copy(&dfs_info->ap_info[valid_idx],
-				     &dfs_info->ap_info[idx], sizeof(*ap_info));
-		}
-		valid_idx++;
-	}
-
-	qdf_mem_zero(&dfs_info->ap_info[valid_idx],
-		     sizeof(*ap_info) * (dfs_info->num_ap_info - valid_cnt));
-
-	dfs_info->num_ap_info = valid_cnt;
-	dfs_info->is_valid_ap_assist = true;
-
-	return valid_cnt;
-
-clear_ap_info:
-	qdf_mem_zero(&dfs_info->ap_info[0],
-		     sizeof(*ap_info) * dfs_info->num_ap_info);
-
-	return 0;
-}
-
-static QDF_STATUS
-p2p_parse_p2p2_ie(const uint8_t *ie, uint16_t ie_len, bool is_connected,
-		  struct p2p_ap_assist_dfs_group_info *dfs_info)
-{
-	const uint8_t *vendor_ie, *p2p2_ie;
-	uint16_t attr, rem_len, attr_len;
-	uint8_t min_attr_len = 3;
-
-	if (!dfs_info)
-		return QDF_STATUS_E_INVAL;
-
-	qdf_mem_zero(dfs_info, sizeof(*dfs_info));
-
-	vendor_ie = p2p_get_p2p2_ie_ptr(ie, ie_len);
-	if (!vendor_ie)
-		return QDF_STATUS_SUCCESS;
-
-	rem_len = vendor_ie[TAG_LEN_POS];
-	if (rem_len < (MIN_IE_LEN + P2P2_OUI_SIZE)) {
-		p2p_err("Invalid IE len %d", rem_len);
-		return QDF_STATUS_E_INVAL;
-	}
-
-	p2p2_ie = vendor_ie + HEADER_LEN_P2P_IE;
-	rem_len -= P2P2_OUI_SIZE;
-
-	while (rem_len >= min_attr_len) {
-		attr = p2p2_ie[0];
-		attr_len = LE_READ_2(&p2p2_ie[1]);
-
-		if (!attr_len)
-			goto next_attr;
-
-		switch (attr) {
-		case P2P_ATTR_EXT_CAPABILITY:
-			p2p_parse_p2p2_ext_cap_attr(p2p2_ie, rem_len, dfs_info);
-			break;
-		case P2P_ATTR_WLAN_AP_INFO:
-			p2p_parse_p2p2_wlan_ap_info_attr(p2p2_ie, rem_len,
-							 is_connected,
-							 dfs_info);
-			break;
-		default:
-			break;
-		}
-next_attr:
-		p2p2_ie += (min_attr_len + attr_len);
-		rem_len -= (min_attr_len + attr_len);
-	}
-
-	return QDF_STATUS_SUCCESS;
-}
-
-static QDF_STATUS
-p2p_validate_peer_ap_assist_dfs_params(struct p2p_vdev_priv_obj *p2p_vdev_obj,
-				       struct p2p_ap_assist_dfs_group_info *peer_dfs_info)
-{
-	uint8_t idx;
-	struct p2p_ap_assist_dfs_ap_info *self_ap_info, *peer_ap_info;
-
-	if (!peer_dfs_info->is_valid_ap_assist)
-		return QDF_STATUS_E_FAILURE;
-
-	self_ap_info = &p2p_vdev_obj->ap_assist_dfs.ap_info[0];
-	for (idx = 0; idx < peer_dfs_info->num_ap_info; idx++) {
-		peer_ap_info = &peer_dfs_info->ap_info[idx];
-		if (peer_dfs_info->ap_info[idx].is_connected ||
-		    qdf_is_macaddr_equal(&peer_ap_info->ap_bssid,
-					 &self_ap_info->ap_bssid)) {
-			return QDF_STATUS_SUCCESS;
-		}
-	}
-
-	return QDF_STATUS_E_FAILURE;
-}
-
-QDF_STATUS p2p_extract_ap_assist_dfs_params(struct wlan_objmgr_vdev *vdev,
-					    const uint8_t *ie, uint16_t ie_len,
-					    bool is_connected, qdf_freq_t freq,
-					    bool is_self)
-{
-	QDF_STATUS status;
-	struct wlan_objmgr_pdev *pdev;
-	struct p2p_vdev_priv_obj *p2p_vdev_obj;
-	struct p2p_ap_assist_dfs_group_info *dfs_info, peer_info;
-
-	p2p_vdev_obj =
-		wlan_objmgr_vdev_get_comp_private_obj(vdev, WLAN_UMAC_COMP_P2P);
-	if (!p2p_vdev_obj)
-		return QDF_STATUS_E_INVAL;
-
-	pdev = wlan_vdev_get_pdev(vdev);
-	if (!pdev)
-		return QDF_STATUS_E_INVAL;
-
-	/*
-	 * If @is_self is %true then the extracted P2P2 IE info is saved in the
-	 * p2p_vdev_obj of that VDEV. For GO this will be needed to save the
-	 * AP details of the connected BSS and for CLI it needs to get the
-	 * AP details of the GO's STA BSS to later configure to FW the
-	 * BSSID to monitor.
-	 *
-	 * If @is_self is %false then the extracted P2P2 IE is of the peer
-	 * entity (assoc req coming to GO from CLI) and GO need to validate
-	 * that CLI's STA is either connected to AP in same frequency or it
-	 * connected to same AP or can either listen beacon from GO's STA
-	 * BSS AP.
-	 */
-	if (is_self) {
-		dfs_info = &p2p_vdev_obj->ap_assist_dfs;
-		is_connected = true;
-		status = p2p_parse_p2p2_ie(ie, ie_len, is_connected, dfs_info);
-		p2p_validate_ap_assist_params(pdev, dfs_info, freq);
-	} else {
-		dfs_info = &peer_info;
-		status = p2p_parse_p2p2_ie(ie, ie_len, is_connected, dfs_info);
-		p2p_validate_ap_assist_params(pdev, dfs_info, freq);
-		status = p2p_validate_peer_ap_assist_dfs_params(p2p_vdev_obj,
-								&peer_info);
-	}
-
-	return status;
-}
-
-QDF_STATUS p2p_get_ap_assist_dfs_params(struct wlan_objmgr_vdev *vdev,
-					bool *is_dfs_owner,
-					bool *is_valid_ap_assist,
-					bool *is_usr_restrict_csa,
-					struct qdf_mac_addr *ap_bssid,
-					uint8_t *opclass, uint8_t *chan)
-{
-	struct p2p_vdev_priv_obj *p2p_vdev_obj;
-	struct p2p_ap_assist_dfs_group_info *dfs_info;
-
-	p2p_vdev_obj =
-		wlan_objmgr_vdev_get_comp_private_obj(vdev, WLAN_UMAC_COMP_P2P);
-	if (!p2p_vdev_obj)
-		return QDF_STATUS_E_INVAL;
-
-	dfs_info = &p2p_vdev_obj->ap_assist_dfs;
-	if (is_dfs_owner)
-		*is_dfs_owner = dfs_info->is_dfs_owner;
-
-	if (is_valid_ap_assist)
-		*is_valid_ap_assist = dfs_info->is_valid_ap_assist;
-
-	if (is_usr_restrict_csa)
-		*is_usr_restrict_csa = dfs_info->is_user_restrict_csa;
-
-	if (ap_bssid)
-		qdf_copy_macaddr(ap_bssid, &dfs_info->ap_info[0].ap_bssid);
-
-	if (opclass)
-		*opclass = dfs_info->ap_info[0].op_class;
-
-	if (chan)
-		*chan = dfs_info->ap_info[0].chan;
-
-	return QDF_STATUS_SUCCESS;
-}
-
-QDF_STATUS
-p2p_force_restrict_dfs_go_csa(struct wlan_objmgr_vdev *vdev, bool val)
-{
-	struct p2p_vdev_priv_obj *p2p_vdev_obj;
-
-	if (wlan_vdev_mlme_get_opmode(vdev) != QDF_P2P_GO_MODE)
-		return QDF_STATUS_E_INVAL;
-
-	p2p_vdev_obj =
-		wlan_objmgr_vdev_get_comp_private_obj(vdev, WLAN_UMAC_COMP_P2P);
-	if (!p2p_vdev_obj)
-		return QDF_STATUS_E_INVAL;
-
-	p2p_vdev_obj->ap_assist_dfs.is_user_restrict_csa = val;
-	p2p_debug("P2P force restrict %d", val);
-
-	return QDF_STATUS_SUCCESS;
-}
-
-bool p2p_check_oui_and_force_1x1(uint8_t *assoc_ie, uint32_t assoc_ie_len)
-{
-	const uint8_t *pos;
-
-	pos = p2p_parse_assoc_ie_for_device_info(assoc_ie, assoc_ie_len);
-
-	if (!pos)
-		return false;
-
-	/*
-	 * the P2P Device info is of format:
-	 * attr_id - 1 byte
-	 * attr_len - 2 bytes
-	 * device mac addr - 6 bytes
-	 * config methods - 2 bytes
-	 * primary device type - 8bytes
-	 *  -primary device type category - 1 byte
-	 *  -primary device type oui - 4bytes
-	 * number of secondary device type - 2 bytes
-	 */
-
-	pos += ETH_ALEN + MAX_CONFIG_METHODS_LEN + DEVICE_CATEGORY_MAX_LEN;
-
-	if (!qdf_mem_cmp(pos, P2P_1X1_WAR_OUI, P2P_1X1_OUI_LEN))
-		return true;
 
 	return false;
 }
@@ -1694,8 +1300,10 @@ void p2p_peer_authorized(struct wlan_objmgr_vdev *vdev, uint8_t *mac_addr)
 	}
 	pdev_id = wlan_objmgr_pdev_get_pdev_id(wlan_vdev_get_pdev(vdev));
 	peer = wlan_objmgr_get_peer(psoc, pdev_id,  mac_addr, WLAN_P2P_ID);
-	if (!peer)
+	if (!peer) {
+		p2p_debug("peer info not found");
 		return;
+	}
 	status = process_peer_for_noa(vdev, psoc, peer);
 	wlan_objmgr_peer_release_ref(peer, WLAN_P2P_ID);
 

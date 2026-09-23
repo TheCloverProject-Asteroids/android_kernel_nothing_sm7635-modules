@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2019, 2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_SENSOR_DEV_H_
@@ -35,7 +35,6 @@
 enum cam_sensor_state_t {
 	CAM_SENSOR_INIT,
 	CAM_SENSOR_ACQUIRE,
-	CAM_SENSOR_STANDBY,
 	CAM_SENSOR_CONFIG,
 	CAM_SENSOR_START,
 };
@@ -108,7 +107,6 @@ struct cam_sensor_dev_res_info {
  * @last_flush_req: Last request to flush
  * @pipeline_delay: Sensor pipeline delay
  * @modeswitch_delay: Mode switch delay
- * @probe_sensor_slave_addr: Slave address used for probe if not zero
  * @sensor_name: Sensor name
  * @aon_camera_id: AON Camera ID associated with this sensor
  * @last_applied_req: Last updated request id
@@ -116,7 +114,6 @@ struct cam_sensor_dev_res_info {
  * @num_batched_frames: Number batched frames
  * @is_stopped_by_user: Indicate if sensor has been stopped by userland
  * @stream_off_after_eof: Indicates if sensor needs to stream off after eof
- * @stream_off_on_flush: Streaming off sensor on flush all call
  * @is_res_info_updated: Indicate if resolution info is updated
  * @hw_no_ops: To determine whether HW operations need to be disabled
  */
@@ -149,14 +146,12 @@ struct cam_sensor_ctrl_t {
 	uint16_t                       pipeline_delay;
 	uint16_t                       modeswitch_delay;
 	char                           sensor_name[CAM_SENSOR_NAME_MAX_SIZE];
-	uint32_t                       probe_sensor_slave_addr;
 	uint32_t                       aon_camera_id;
 	int64_t                        last_updated_req;
 	int64_t                        last_applied_req;
 	uint32_t                       num_batched_frames;
 	bool                           is_stopped_by_user;
 	bool                           stream_off_after_eof;
-	bool                           stream_off_on_flush;
 	bool                           is_res_info_updated;
 	bool                           hw_no_ops;
 };

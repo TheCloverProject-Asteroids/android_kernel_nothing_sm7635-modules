@@ -22,7 +22,6 @@
  */
 
 #include "osif_sync.h"
-#include "wlan_dlm_api.h"
 #include "wlan_hdd_main.h"
 #include "wlan_dp_ucfg_api.h"
 #include "wlan_dlm_ucfg_api.h"
@@ -55,9 +54,8 @@ hdd_handle_nud_fail_sta(struct hdd_context *hdd_ctx,
 	ap_info.reject_ap_type = DRIVER_AVOID_TYPE;
 	ap_info.reject_reason = REASON_NUD_FAILURE;
 	ap_info.source = ADDED_BY_DRIVER;
-	wlan_update_mlo_reject_ap_info(hdd_ctx->pdev,
-				       adapter->deflink->vdev_id, &ap_info);
 	ucfg_dlm_add_bssid_to_reject_list(hdd_ctx->pdev, &ap_info);
+
 	if (roaming_offload_enabled(hdd_ctx)) {
 		qdf_zero_macaddr(&bssid);
 		ucfg_wlan_cm_roam_invoke(hdd_ctx->pdev,

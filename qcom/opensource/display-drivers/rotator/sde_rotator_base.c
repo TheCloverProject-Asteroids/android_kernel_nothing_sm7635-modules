@@ -16,7 +16,6 @@
 #include <linux/io.h>
 #include <linux/iopoll.h>
 #include <linux/regulator/consumer.h>
-#include <linux/of_platform.h>
 
 #define CREATE_TRACE_POINTS
 #include "sde_rotator_base.h"
@@ -447,7 +446,7 @@ struct reg_bus_client *sde_reg_bus_vote_client_create(char *client_name)
 		return ERR_PTR(-ENOMEM);
 
 	mutex_lock(&sde_res->reg_bus_lock);
-	strscpy(client->name, client_name, MAX_CLIENT_NAME_LEN);
+	strlcpy(client->name, client_name, MAX_CLIENT_NAME_LEN);
 	client->usecase_ndx = VOTE_INDEX_DISABLE;
 	client->id = id;
 	SDEROT_DBG("bus vote client %s created:%pK id :%d\n", client_name,

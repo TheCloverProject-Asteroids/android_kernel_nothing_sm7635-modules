@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -76,8 +75,7 @@ QDF_STATUS hif_ut_apps_suspend(struct hif_opaque_softc *opaque_scn,
 	if (!callback)
 		return QDF_STATUS_E_INVAL;
 
-	if (qdf_atomic_test_and_set_bit(UT_SUSPENDED_BIT,
-					&scn->ut_suspend_ctx.state))
+	if (test_and_set_bit(UT_SUSPENDED_BIT, &scn->ut_suspend_ctx.state))
 		return QDF_STATUS_E_INVAL;
 
 	scn->ut_suspend_ctx.resume_callback = callback;
@@ -93,8 +91,7 @@ QDF_STATUS hif_ut_apps_resume(struct hif_opaque_softc *opaque_scn)
 	if (!scn)
 		return QDF_STATUS_E_INVAL;
 
-	if (!qdf_atomic_test_and_clear_bit(UT_SUSPENDED_BIT,
-				    &scn->ut_suspend_ctx.state))
+	if (!test_and_clear_bit(UT_SUSPENDED_BIT, &scn->ut_suspend_ctx.state))
 		return QDF_STATUS_E_INVAL;
 
 	scn->ut_suspend_ctx.resume_callback = NULL;
@@ -108,8 +105,7 @@ QDF_STATUS hif_ut_fw_resume(struct hif_softc *scn)
 	if (!scn)
 		return QDF_STATUS_E_INVAL;
 
-	if (!qdf_atomic_test_and_clear_bit(UT_SUSPENDED_BIT,
-				    &scn->ut_suspend_ctx.state))
+	if (!test_and_clear_bit(UT_SUSPENDED_BIT, &scn->ut_suspend_ctx.state))
 		return QDF_STATUS_E_INVAL;
 
 	schedule_work(&scn->ut_suspend_ctx.resume_work);

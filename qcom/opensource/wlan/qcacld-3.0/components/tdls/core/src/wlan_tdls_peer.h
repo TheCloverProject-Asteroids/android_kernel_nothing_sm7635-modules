@@ -49,16 +49,6 @@ struct tdls_search_progress_param {
 };
 
 /**
- * tdls_add_peer() - add TDLS peer in TDLS vdev object
- * @vdev_obj: TDLS vdev object
- * @macaddr: MAC address of peer
- *
- * Return: Pointer to tdls_peer
- */
-struct tdls_peer *tdls_add_peer(struct tdls_vdev_priv_obj *vdev_obj,
-				const uint8_t *macaddr);
-
-/**
  * tdls_get_peer() -  find or add an TDLS peer in TDLS vdev object
  * @vdev_obj: TDLS vdev object
  * @macaddr: MAC address of peer

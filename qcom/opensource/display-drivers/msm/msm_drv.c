@@ -39,7 +39,6 @@
  */
 
 #include <linux/of_address.h>
-#include <linux/of_platform.h>
 #include <linux/kthread.h>
 #include <uapi/linux/sched/types.h>
 #include <drm/drm_of.h>
@@ -49,7 +48,6 @@
 #include <drm/drm_auth.h>
 #include <drm/drm_probe_helper.h>
 #include <linux/version.h>
-#include <linux/pm_wakeup.h>
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 #include <drm/drm_irq.h>
 #endif
@@ -77,10 +75,6 @@
 #define MSM_VERSION_PATCHLEVEL	0
 
 #define LASTCLOSE_TIMEOUT_MS	500
-
-#if (KERNEL_VERSION(6, 8, 0) <= LINUX_VERSION_CODE)
-#define DRM_UNLOCKED 0
-#endif
 
 #define msm_wait_event_timeout(waitq, cond, timeout_ms, ret)		\
 	do {								\
@@ -555,7 +549,9 @@ static int msm_drm_uninit(struct device *dev)
 
 	msm_mdss_destroy(ddev);
 
+	ddev->dev_private = NULL;
 	destroy_workqueue(priv->wq);
+	kfree(priv);
 
 	drm_dev_put(ddev);
 
@@ -883,16 +879,6 @@ static int msm_drm_device_init(struct platform_device *pdev,
 			SDE_POWER_HANDLE_CONT_SPLASH_BUS_AB_QUOTA,
 			SDE_POWER_HANDLE_CONT_SPLASH_BUS_IB_QUOTA);
 
-	if (of_property_read_bool(dev->of_node, "wake_up_capable")) {
-		device_set_wakeup_capable(dev, true);
-		ret = device_set_wakeup_enable(dev, true);
-		if (ret < 0) {
-			DISP_DEV_ERR(dev, "failed to enable wakeup on device  %d\n", ret);
-			device_set_wakeup_capable(dev, false);
-			ret = 0;
-		}
-	}
-
 	return ret;
 
 pm_runtime_error:
@@ -902,6 +888,7 @@ dbg_init_fail:
 power_init_fail:
 priv_alloc_fail:
 	drm_dev_put(ddev);
+	kfree(priv);
 	return ret;
 }
 
@@ -925,7 +912,6 @@ static int msm_drm_component_init(struct device *dev)
 	INIT_LIST_HEAD(&priv->inactive_list);
 	INIT_LIST_HEAD(&priv->vm_client_list);
 	INIT_LIST_HEAD(&priv->fence_error_client_list);
-	BLOCKING_INIT_NOTIFIER_HEAD(&priv->component_notifier_list);
 	mutex_init(&priv->mm_lock);
 
 	mutex_init(&priv->vm_client_lock);
@@ -953,7 +939,6 @@ static int msm_drm_component_init(struct device *dev)
 		goto fail;
 	}
 
-	msm_drm_notify_components(ddev, MSM_COMP_OBJECT_CREATED);
 	/* Register rotator platform driver only after genpd init */
 	sde_rotator_register();
 	sde_rotator_smmu_driver_register();
@@ -985,7 +970,6 @@ static int msm_drm_component_init(struct device *dev)
 #else
 		ret = drm_irq_install(ddev, platform_get_irq(pdev, 0));
 #endif
-		msm_sde_qtimer_install(dev);
 		pm_runtime_put_sync(dev);
 		if (ret < 0) {
 			DISP_DEV_ERR(dev, "failed to install IRQ handler\n");
@@ -995,6 +979,11 @@ static int msm_drm_component_init(struct device *dev)
 
 	drm_mode_config_reset(ddev);
 
+	ret = drm_dev_register(ddev, 0);
+	if (ret)
+		goto fail;
+	priv->registered = true;
+
 	if (kms && kms->funcs && kms->funcs->cont_splash_config) {
 		ret = kms->funcs->cont_splash_config(kms, NULL);
 		if (ret) {
@@ -1002,11 +991,6 @@ static int msm_drm_component_init(struct device *dev)
 			goto fail;
 		}
 	}
-
-	ret = drm_dev_register(ddev, 0);
-	if (ret)
-		goto fail;
-	priv->registered = true;
 
 #if IS_ENABLED(CONFIG_DRM_FBDEV_EMULATION)
 	if (fbdev)
@@ -1053,6 +1037,7 @@ mdss_init_fail:
 	sde_dbg_destroy();
 	sde_power_resource_deinit(pdev, &priv->phandle);
 	drm_dev_put(ddev);
+	kfree(priv);
 
 	return ret;
 }
@@ -1112,16 +1097,6 @@ static int msm_open(struct drm_device *dev, struct drm_file *file)
 static void context_close(struct msm_file_private *ctx)
 {
 	kfree(ctx);
-}
-
-static void msm_drm_release(struct drm_device *dev)
-{
-	struct msm_drm_private *priv = dev->dev_private;
-	struct platform_device *pdev = to_platform_device(dev->dev);
-
-	dev->dev_private = NULL;
-	kfree(priv);
-	platform_set_drvdata(pdev, NULL);
 }
 
 static void msm_preclose(struct drm_device *dev, struct drm_file *file)
@@ -1574,42 +1549,6 @@ void msm_mode_object_event_notify(struct drm_mode_object *obj,
 	spin_unlock_irqrestore(&dev->event_lock, flags);
 }
 
-int msm_drm_register_component(struct drm_device *dev, struct notifier_block *nb)
-{
-	struct msm_drm_private *priv;
-
-	if (!dev || !dev->dev_private)
-		return -EINVAL;
-
-	priv = dev->dev_private;
-
-	return blocking_notifier_chain_register(&priv->component_notifier_list, nb);
-}
-
-int msm_drm_unregister_component(struct drm_device *dev, struct notifier_block *nb)
-{
-	struct msm_drm_private *priv;
-
-	if (!dev || !dev->dev_private)
-		return -EINVAL;
-
-	priv = dev->dev_private;
-
-	return blocking_notifier_chain_unregister(&priv->component_notifier_list, nb);
-}
-
-int msm_drm_notify_components(struct drm_device *dev, enum msm_component_event event)
-{
-	struct msm_drm_private *priv;
-
-	if (!dev || !dev->dev_private)
-		return -EINVAL;
-
-	priv = dev->dev_private;
-
-	return blocking_notifier_call_chain(&priv->component_notifier_list, event, NULL);
-}
-
 static int msm_release(struct inode *inode, struct file *filp)
 {
 	struct drm_file *file_priv;
@@ -1731,7 +1670,7 @@ int msm_ioctl_rmfb2(struct drm_device *dev, void *data,
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(msm_ioctl_rmfb2);
+EXPORT_SYMBOL(msm_ioctl_rmfb2);
 
 /**
  * msm_ioctl_power_ctrl - enable/disable power vote on MDSS Hw
@@ -1845,39 +1784,6 @@ int msm_ioctl_display_hint_ops(struct drm_device *dev, void *data,
 	return 0;
 }
 
-/**
- * msm_ioctl_display_early_ept - early wakeup display.
- * @dev: drm device for the ioctl
- * @data: data pointer for the ioctl
- * @file_priv: drm file for the ioctl call
- *
- */
-int msm_ioctl_display_early_ept(struct drm_device *dev, void *data,
-			struct drm_file *file_priv)
-{
-	struct drm_msm_display_early_ept *early_ept = data;
-	struct msm_drm_private *priv;
-	struct msm_kms *kms;
-
-
-	priv = dev->dev_private;
-	kms = priv->kms;
-
-	if (unlikely(!early_ept)) {
-		DRM_ERROR("invalid early ept ioctl data\n");
-		return -EINVAL;
-	}
-
-	SDE_EVT32(early_ept->connector_id, early_ept->frame_interval,
-		early_ept->ept_ns >> 32, early_ept->ept_ns);
-
-	if (kms && kms->funcs && kms->funcs->display_early_ept_hint)
-		kms->funcs->display_early_ept_hint(dev, early_ept->connector_id,
-			early_ept->frame_interval, early_ept->ept_ns);
-
-	return 0;
-}
-
 static const struct drm_ioctl_desc msm_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(MSM_GEM_NEW,      msm_ioctl_gem_new,      DRM_AUTH|DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(MSM_GEM_CPU_PREP, msm_ioctl_gem_cpu_prep, DRM_AUTH|DRM_RENDER_ALLOW),
@@ -1892,8 +1798,6 @@ static const struct drm_ioctl_desc msm_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(MSM_POWER_CTRL, msm_ioctl_power_ctrl,
 			DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(MSM_DISPLAY_HINT, msm_ioctl_display_hint_ops,
-			DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(MSM_EARLY_EPT, msm_ioctl_display_early_ept,
 			DRM_UNLOCKED),
 };
 
@@ -1917,7 +1821,6 @@ static struct drm_driver msm_driver = {
 	.open               = msm_open,
 	.postclose          = msm_postclose,
 	.lastclose          = msm_lastclose,
-	.release	    = msm_drm_release,
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 	.irq_handler        = msm_irq,
 	.irq_preinstall     = msm_irq_preinstall,
@@ -2070,7 +1973,7 @@ static int msm_runtime_suspend(struct device *dev)
 	if (priv->mdss)
 		msm_mdss_disable(priv->mdss);
 	else
-		sde_power_resource_enable(&priv->phandle, false, DPUID(ddev));
+		sde_power_resource_enable(&priv->phandle, false);
 
 	return 0;
 }
@@ -2086,7 +1989,7 @@ static int msm_runtime_resume(struct device *dev)
 	if (priv->mdss)
 		ret = msm_mdss_enable(priv->mdss);
 	else
-		ret = sde_power_resource_enable(&priv->phandle, true, DPUID(ddev));
+		ret = sde_power_resource_enable(&priv->phandle, true);
 
 	return ret;
 }
@@ -2270,7 +2173,7 @@ void *msm_register_fence_error_event(struct drm_device *ddev, struct msm_fence_e
 
 	return (void *)client_entry;
 }
-EXPORT_SYMBOL_GPL(msm_register_fence_error_event);
+EXPORT_SYMBOL(msm_register_fence_error_event);
 
 int msm_unregister_fence_error_event(struct drm_device *ddev,
 		struct msm_fence_error_client_entry *client_entry_handle)
@@ -2296,7 +2199,7 @@ int msm_unregister_fence_error_event(struct drm_device *ddev,
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(msm_unregister_fence_error_event);
+EXPORT_SYMBOL(msm_unregister_fence_error_event);
 
 struct msm_gem_address_space *
 msm_gem_smmu_address_space_get(struct drm_device *dev,
@@ -2409,14 +2312,14 @@ static int msm_drm_component_dependency_check(struct device *dev)
 		if (!node)
 			break;
 
-		if ((of_node_name_eq(node, "qcom,sde_rscc")
-			|| of_node_name_eq(node, "qcom,sde_cesta"))
-				&& of_device_is_available(node)
-				&& of_node_check_flag(node, OF_POPULATED)) {
-			struct platform_device *pdev = of_find_device_by_node(node);
-
+		if (of_node_name_eq(node,"qcom,sde_rscc") &&
+				of_device_is_available(node) &&
+				of_node_check_flag(node, OF_POPULATED)) {
+			struct platform_device *pdev =
+					of_find_device_by_node(node);
 			if (!platform_get_drvdata(pdev)) {
-				DISP_DEV_ERR(dev, "qcom,sde_rscc/qcom,sde_cesta not probed yet\n");
+				DISP_DEV_ERR(dev,
+					"qcom,sde_rscc not probed yet\n");
 				return -EPROBE_DEFER;
 			} else {
 				return 0;
@@ -2472,8 +2375,8 @@ static void msm_pdev_shutdown(struct platform_device *pdev)
 	}
 
 	priv = ddev->dev_private;
-	if (!priv || !priv->registered) {
-		DRM_ERROR("invalid msm drm private node or drm dev not registered\n");
+	if (!priv) {
+		DRM_ERROR("invalid msm drm private node\n");
 		return;
 	}
 
@@ -2511,38 +2414,32 @@ static int __init msm_drm_register(void)
 	DBG("init");
 	sde_rsc_rpmh_register();
 	sde_rsc_register();
-	sde_cesta_register();
 	msm_smmu_driver_init();
 	sde_wb_register();
 	platform_driver_register(&msm_platform_driver);
 	dsi_display_register();
 	msm_hdcp_register();
 	dp_display_register();
-	hdmi_display_register();
 	msm_dsi_register();
 	msm_edp_register();
-	sde_shd_register();
-	msm_lease_drm_register();
+	msm_hdmi_register();
 	return 0;
 }
 
 static void __exit msm_drm_unregister(void)
 {
 	DBG("fini");
-	msm_lease_drm_unregister();
 	sde_wb_unregister();
+	msm_hdmi_unregister();
 	msm_edp_unregister();
 	msm_dsi_unregister();
 	sde_rotator_smmu_driver_unregister();
 	sde_rotator_unregister();
 	msm_smmu_driver_cleanup();
 	msm_hdcp_unregister();
-	hdmi_display_unregister();
 	dp_display_unregister();
 	dsi_display_unregister();
-	sde_cesta_unregister();
 	sde_rsc_unregister();
-	sde_shd_unregister();
 	platform_driver_unregister(&msm_platform_driver);
 }
 

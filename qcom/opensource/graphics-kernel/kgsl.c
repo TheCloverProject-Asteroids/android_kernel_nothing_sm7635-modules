@@ -21,6 +21,7 @@
 #include <linux/of.h>
 #include <linux/of_fdt.h>
 #include <linux/pm_runtime.h>
+#include <linux/qcom_dma_heap.h>
 #include <linux/security.h>
 #include <linux/sort.h>
 #include <linux/string_helpers.h>
@@ -37,7 +38,6 @@
 #include "kgsl_sync.h"
 #include "kgsl_sysfs.h"
 #include "kgsl_trace.h"
-#include "kgsl_util.h"
 /* Instantiate tracepoints */
 #define CREATE_TRACE_POINTS
 #include "kgsl_power_trace.h"
@@ -442,24 +442,6 @@ void kgsl_mem_entry_destroy_deferred(struct kref *kref)
 	queue_work(kgsl_driver.lockless_workqueue, &entry->work);
 }
 
-/* Scheduled by kgsl_context_destroy_deferred() */
-static void _deferred_context_destroy(struct work_struct *work)
-{
-	struct kgsl_context *context =
-		container_of(work, struct kgsl_context, deferred_destroy_ws);
-
-	kgsl_context_destroy(&context->refcount);
-}
-
-void kgsl_context_destroy_deferred(struct kref *kref)
-{
-	struct kgsl_context *context =
-		container_of(kref, struct kgsl_context, refcount);
-
-	INIT_WORK(&context->deferred_destroy_ws, _deferred_context_destroy);
-	queue_work(kgsl_driver.lockless_workqueue, &context->deferred_destroy_ws);
-}
-
 /* Commit the entry to the process so it can be accessed by other operations */
 static void kgsl_mem_entry_commit_process(struct kgsl_mem_entry *entry)
 {
@@ -571,7 +553,7 @@ static void kgsl_mem_entry_detach_process(struct kgsl_mem_entry *entry)
 
 	kgsl_sharedmem_put_gpuaddr(&entry->memdesc);
 
-	if (TEST_FLAG(KGSL_MEMDESC_RECLAIMED, &entry->memdesc.priv))
+	if (entry->memdesc.priv & KGSL_MEMDESC_RECLAIMED)
 		atomic_sub(entry->memdesc.page_count,
 					&entry->priv->unpinned_page_count);
 
@@ -686,7 +668,7 @@ int kgsl_context_init(struct kgsl_device_private *dev_priv,
 {
 	struct kgsl_device *device = dev_priv->device;
 	int ret = 0, id;
-	struct kgsl_process_private *proc_priv = dev_priv->process_priv;
+	struct kgsl_process_private  *proc_priv = dev_priv->process_priv;
 
 	/*
 	 * Read and increment the context count under lock to make sure
@@ -696,7 +678,7 @@ int kgsl_context_init(struct kgsl_device_private *dev_priv,
 	if (atomic_read(&proc_priv->ctxt_count) > KGSL_MAX_CONTEXTS_PER_PROC) {
 		dev_err(device->dev,
 			     "Per process context limit reached for pid %u\n",
-			     pid_nr(proc_priv->pid));
+			     pid_nr(dev_priv->process_priv->pid));
 		spin_unlock(&proc_priv->ctxt_count_lock);
 		kgsl_context_debug_info(device);
 		return -ENOSPC;
@@ -738,19 +720,18 @@ int kgsl_context_init(struct kgsl_device_private *dev_priv,
 	 * the context is destroyed. This will also prevent the pagetable
 	 * from being destroyed
 	 */
-	if (!kgsl_process_private_get(proc_priv)) {
+	if (!kgsl_process_private_get(dev_priv->process_priv)) {
 		ret = -EBADF;
 		goto out;
 	}
-
-	context->device = device;
+	context->device = dev_priv->device;
 	context->dev_priv = dev_priv;
-	context->proc_priv = proc_priv;
+	context->proc_priv = dev_priv->process_priv;
 	context->tid = task_pid_nr(current);
 
 	ret = kgsl_sync_timeline_create(context);
 	if (ret) {
-		kgsl_process_private_put(proc_priv);
+		kgsl_process_private_put(dev_priv->process_priv);
 		goto out;
 	}
 
@@ -761,7 +742,7 @@ out:
 	if (ret) {
 		atomic_dec(&proc_priv->ctxt_count);
 		write_lock(&device->context_lock);
-		idr_remove(&device->context_idr, id);
+		idr_remove(&dev_priv->device->context_idr, id);
 		write_unlock(&device->context_lock);
 	}
 
@@ -1114,7 +1095,7 @@ static void _log_gpu_work_events(struct work_struct *work)
 
 static void kgsl_work_period_timer(struct timer_list *t)
 {
-	struct kgsl_device *device = kgsl_timer_container_of(device, t, work_period_timer);
+	struct kgsl_device *device = from_timer(device, t, work_period_timer);
 
 	queue_work(kgsl_driver.lockless_workqueue, &device->work_period_ws);
 }
@@ -1367,12 +1348,9 @@ static int kgsl_close_device(struct kgsl_device *device)
 {
 	int result = 0;
 
-	mutex_lock(&device->file_mutex);
-	if (device->open_count == 1) {
-		mutex_lock(&device->mutex);
+	mutex_lock(&device->mutex);
+	if (device->open_count == 1)
 		result = device->ftbl->last_close(device);
-		mutex_unlock(&device->mutex);
-	}
 
 	/*
 	 * We must decrement the open_count after last_close() has finished.
@@ -1385,7 +1363,7 @@ static int kgsl_close_device(struct kgsl_device *device)
 	 * last_close().
 	 */
 	device->open_count--;
-	mutex_unlock(&device->file_mutex);
+	mutex_unlock(&device->mutex);
 	return result;
 
 }
@@ -1450,18 +1428,15 @@ static int kgsl_open_device(struct kgsl_device *device)
 {
 	int result = 0;
 
-	mutex_lock(&device->file_mutex);
+	mutex_lock(&device->mutex);
 	if (device->open_count == 0) {
-		mutex_lock(&device->mutex);
 		result = device->ftbl->first_open(device);
-		mutex_unlock(&device->mutex);
-
 		if (result)
 			goto out;
 	}
 	device->open_count++;
 out:
-	mutex_unlock(&device->file_mutex);
+	mutex_unlock(&device->mutex);
 	return result;
 }
 
@@ -2097,7 +2072,7 @@ long kgsl_ioctl_rb_issueibcmds(struct kgsl_device_private *dev_priv,
 		result = kgsl_reclaim_to_pinned_state(dev_priv->process_priv);
 
 	if (result == 0)
-		result = device->ftbl->queue_cmds(dev_priv, context,
+		result = dev_priv->device->ftbl->queue_cmds(dev_priv, context,
 				&drawobj, 1, &param->timestamp);
 
 	/*
@@ -2589,6 +2564,7 @@ long kgsl_ioctl_cmdstream_readtimestamp_ctxtid(struct kgsl_device_private
 	struct kgsl_context *context;
 	long result = -EINVAL;
 
+	mutex_lock(&device->mutex);
 	context = kgsl_context_get_owner(dev_priv, param->context_id);
 
 	if (context) {
@@ -2600,6 +2576,7 @@ long kgsl_ioctl_cmdstream_readtimestamp_ctxtid(struct kgsl_device_private
 	}
 
 	kgsl_context_put(context);
+	mutex_unlock(&device->mutex);
 	return result;
 }
 
@@ -2616,7 +2593,7 @@ long kgsl_ioctl_drawctxt_create(struct kgsl_device_private *dev_priv,
 		result = PTR_ERR(context);
 		goto done;
 	}
-	trace_kgsl_context_create(device, context, param->flags);
+	trace_kgsl_context_create(dev_priv->device, context, param->flags);
 
 	/* Commit the pointer to the context in context_idr */
 	write_lock(&device->context_lock);
@@ -3028,15 +3005,16 @@ static int kgsl_setup_anon_useraddr(struct kgsl_device *device, struct kgsl_page
 	entry->memdesc.ops = &kgsl_usermem_ops;
 
 	if (kgsl_memdesc_use_cpu_map(&entry->memdesc)) {
+
 		/* Register the address in the database */
 		ret = kgsl_mmu_set_svm_region(pagetable,
-			&entry->memdesc, (uint64_t) hostptr, (uint64_t) size);
+			(uint64_t) hostptr, (uint64_t) size);
 
 		/* if OOM, retry once after flushing lockless_workqueue */
 		if (ret == -ENOMEM) {
 			flush_workqueue(kgsl_driver.lockless_workqueue);
 			ret = kgsl_mmu_set_svm_region(pagetable,
-				&entry->memdesc, (uint64_t) hostptr, (uint64_t) size);
+				(uint64_t) hostptr, (uint64_t) size);
 		}
 
 		if (ret)
@@ -3140,7 +3118,7 @@ static long _gpuobj_map_dma_buf(struct kgsl_device *device,
 		if (!check_and_warn_secured(device))
 			return -ENOTSUPP;
 
-		SET_FLAG(KGSL_MEMDESC_SECURE, &entry->memdesc.priv);
+		entry->memdesc.priv |= KGSL_MEMDESC_SECURE;
 	}
 
 	if (copy_struct_from_user(&buf, sizeof(buf),
@@ -3317,7 +3295,7 @@ static int _map_usermem_dma_buf(struct kgsl_device *device,
 		if (!check_and_warn_secured(device))
 			return -EOPNOTSUPP;
 
-		SET_FLAG(KGSL_MEMDESC_SECURE, &entry->memdesc.priv);
+		entry->memdesc.priv |= KGSL_MEMDESC_SECURE;
 	}
 
 	dmabuf = dma_buf_get(fd);
@@ -3344,7 +3322,7 @@ static int _map_usermem_dma_buf(struct kgsl_device *device,
 static int verify_secure_access(struct kgsl_device *device,
 	struct kgsl_mem_entry *entry, struct dma_buf *dmabuf)
 {
-	bool secure = TEST_FLAG(KGSL_MEMDESC_SECURE, &entry->memdesc.priv);
+	bool secure = entry->memdesc.priv & KGSL_MEMDESC_SECURE;
 	uint32_t *vmid_list = NULL, *perms_list = NULL;
 	uint32_t nelems = 0;
 	int i;
@@ -3486,7 +3464,6 @@ void kgsl_get_egl_counts(struct kgsl_mem_entry *entry,
 
 		switch (kgsl_memdesc_get_memtype(&scan_mem_entry->memdesc)) {
 		case KGSL_MEMTYPE_EGL_SURFACE:
-		case KGSL_MEMTYPE_SURFACE:
 			(*egl_surface_count)++;
 			break;
 		case KGSL_MEMTYPE_EGL_IMAGE:
@@ -4192,7 +4169,7 @@ gpumem_alloc_vbo_entry(struct kgsl_device_private *dev_priv,
 	}
 
 	if (flags & KGSL_MEMFLAGS_SECURE)
-		SET_FLAG(KGSL_MEMDESC_SECURE, &entry->memdesc.priv);
+		entry->memdesc.priv |= KGSL_MEMDESC_SECURE;
 
 	ret = kgsl_mem_entry_attach_to_process(device, private, entry);
 	if (ret)
@@ -4286,7 +4263,7 @@ struct kgsl_mem_entry *gpumem_alloc_entry(
 			(!(flags & KGSL_MEMFLAGS_IOCOHERENT) &&
 			 !(cachemode == KGSL_CACHEMODE_WRITEBACK) &&
 			!(cachemode == KGSL_CACHEMODE_WRITETHROUGH))))
-		SET_FLAG(KGSL_MEMDESC_CAN_RECLAIM, &entry->memdesc.priv);
+		entry->memdesc.priv |= KGSL_MEMDESC_CAN_RECLAIM;
 
 	kgsl_process_add_stats(private,
 			kgsl_memdesc_usermem_type(&entry->memdesc),
@@ -4701,11 +4678,29 @@ static unsigned long _gpu_set_svm_region(struct kgsl_process_private *private,
 {
 	int ret;
 
-	ret = kgsl_mmu_set_svm_region(private->pagetable,  &entry->memdesc,
-		(uint64_t) addr, (uint64_t) size);
+	/*
+	 * Protect access to the gpuaddr here to prevent multiple vmas from
+	 * trying to map a SVM region at the same time
+	 */
+	spin_lock(&entry->memdesc.lock);
 
-	if (ret != 0)
+	if (entry->memdesc.gpuaddr) {
+		spin_unlock(&entry->memdesc.lock);
+		return (unsigned long) -EBUSY;
+	}
+
+	ret = kgsl_mmu_set_svm_region(private->pagetable, (uint64_t) addr,
+		(uint64_t) size);
+
+	if (ret != 0) {
+		spin_unlock(&entry->memdesc.lock);
 		return (unsigned long) ret;
+	}
+
+	entry->memdesc.gpuaddr = (uint64_t) addr;
+	spin_unlock(&entry->memdesc.lock);
+
+	entry->memdesc.pagetable = private->pagetable;
 
 	ret = kgsl_mmu_map(private->pagetable, &entry->memdesc);
 	if (ret) {
@@ -4719,9 +4714,9 @@ static unsigned long _gpu_set_svm_region(struct kgsl_process_private *private,
 	return addr;
 }
 
-unsigned long kgsl_get_align(struct kgsl_memdesc *memdesc)
+static unsigned long get_align(struct kgsl_mem_entry *entry)
 {
-	u32 bit = kgsl_memdesc_get_align(memdesc);
+	int bit = kgsl_memdesc_get_align(&entry->memdesc);
 
 	if (bit >= ilog2(SZ_2M))
 		return SZ_2M;
@@ -4730,7 +4725,7 @@ unsigned long kgsl_get_align(struct kgsl_memdesc *memdesc)
 	else if (bit >= ilog2(SZ_64K))
 		return SZ_64K;
 
-	return PAGE_SIZE;
+	return SZ_4K;
 }
 
 static unsigned long set_svm_area(struct file *file,
@@ -4763,7 +4758,7 @@ static unsigned long get_svm_unmapped_area(struct file *file,
 {
 	struct kgsl_device_private *dev_priv = file->private_data;
 	struct kgsl_process_private *private = dev_priv->process_priv;
-	unsigned long align = kgsl_get_align(&entry->memdesc);
+	unsigned long align = get_align(entry);
 	unsigned long ret, iova;
 	u64 start = 0, end = 0;
 	struct vm_area_struct *vma;
@@ -5231,7 +5226,6 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 
 	/* Initialize common sysfs entries */
 	kgsl_pwrctrl_init_sysfs(device);
-	kgsl_mmu_sysfs_init(&device->mmu);
 
 	timer_setup(&device->work_period_timer, kgsl_work_period_timer, 0);
 	spin_lock_init(&device->work_period_lock);
@@ -5317,8 +5311,6 @@ void kgsl_core_exit(void)
 
 int __init kgsl_core_init(void)
 {
-	static u64 dma_mask = (u64)DMA_BIT_MASK(64);
-	static struct device_dma_parameters dma_parms;
 	int result = 0;
 
 	KGSL_BOOT_MARKER("KGSL Init");
@@ -5368,13 +5360,6 @@ int __init kgsl_core_init(void)
 		pr_err("kgsl: driver_register failed\n");
 		goto err;
 	}
-
-	kgsl_driver.virtdev.dma_mask = &dma_mask;
-	kgsl_driver.virtdev.dma_parms = &dma_parms;
-
-	dma_set_max_seg_size(&kgsl_driver.virtdev, (u32)DMA_BIT_MASK(32));
-
-	set_dma_ops(&kgsl_driver.virtdev, NULL);
 
 	/* Make kobjects in the virtual device for storing statistics */
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/slab.h>
@@ -13,8 +13,6 @@
 #include "cam_debug_util.h"
 #include "cam_sfe_soc.h"
 #include "cam_sfe_core.h"
-#include "cam_vmrm_interface.h"
-#include "cam_mem_mgr_api.h"
 
 struct cam_sfe_core_cfg {
 	uint32_t   mode_sel;
@@ -364,7 +362,7 @@ static void cam_sfe_top_print_debug_reg_info(
 	soc_info = common_data->soc_info;
 	num_reg = common_data->common_reg->num_debug_registers;
 	mem_base = soc_info->reg_map[SFE_CORE_BASE_IDX].mem_base;
-	reg_val    = CAM_MEM_ZALLOC_ARRAY(num_reg, sizeof(uint32_t), GFP_KERNEL);
+	reg_val    = kcalloc(num_reg, sizeof(uint32_t), GFP_KERNEL);
 	if (!reg_val)
 		return;
 
@@ -385,7 +383,7 @@ static void cam_sfe_top_print_debug_reg_info(
 		top_priv->cc_testbus_sel_cfg)
 		cam_sfe_top_print_cc_test_bus(top_priv);
 
-	CAM_MEM_FREE(reg_val);
+	kfree(reg_val);
 
 	cam_sfe_top_dump_perf_counters("ERROR", "", top_priv);
 }
@@ -1466,22 +1464,13 @@ int cam_sfe_top_process_cmd(void *priv, uint32_t cmd_type,
 		break;
 	case CAM_ISP_HW_CMD_QUERY_CAP: {
 		struct cam_isp_hw_cap *sfe_cap;
-		struct cam_sfe_fcg_module_info *fcg_module_info;
 
 		sfe_cap = (struct cam_isp_hw_cap *) cmd_args;
 		sfe_cap->num_perf_counters =
 			top_priv->common_data.common_reg->num_perf_counters;
-		if (top_priv->hw_info->modules_hw_info->fcg_supported) {
-			fcg_module_info =
-				top_priv->hw_info->modules_hw_info->fcg_module_info;
-			sfe_cap->fcg_supported = true;
-			sfe_cap->max_fcg_ch_ctx =
-				fcg_module_info->max_fcg_ch_ctx;
-			sfe_cap->max_fcg_predictions =
-				fcg_module_info->max_fcg_predictions;
-		}
+		rc = 0;
 	}
-		break;
+	break;
 	default:
 		CAM_ERR(CAM_SFE, "Invalid cmd type: %d", cmd_type);
 		rc = -EINVAL;
@@ -1531,17 +1520,6 @@ int cam_sfe_top_reserve(void *device_priv,
 				top_priv->in_rsrc[i].hw_intf->hw_idx,
 				acquire_args->res_id);
 
-			/* Acquire ownership */
-			if (top_priv->reserve_cnt == 0) {
-				rc = cam_vmrm_soc_acquire_resources(CAM_HW_ID_SFE0 +
-					top_priv->in_rsrc[i].hw_intf->hw_idx);
-				if (rc) {
-					CAM_ERR(CAM_SFE, "SFE[%u] acquire ownership failed",
-						top_priv->in_rsrc[i].hw_intf->hw_idx);
-					return rc;
-				}
-			}
-
 			top_priv->in_rsrc[i].cdm_ops = acquire_args->cdm_ops;
 			top_priv->in_rsrc[i].tasklet_info = args->tasklet;
 			top_priv->in_rsrc[i].res_state =
@@ -1567,7 +1545,6 @@ int cam_sfe_top_release(void *device_priv,
 {
 	struct cam_sfe_top_priv            *top_priv;
 	struct cam_isp_resource_node       *in_res;
-	int rc = 0;
 
 	if (!device_priv || !release_args) {
 		CAM_ERR(CAM_SFE, "Invalid input arguments");
@@ -1596,14 +1573,9 @@ int cam_sfe_top_release(void *device_priv,
 	if (!top_priv->reserve_cnt) {
 		top_priv->priv_per_stream = NULL;
 		top_priv->event_cb = NULL;
-		rc = cam_vmrm_soc_release_resources(CAM_HW_ID_SFE0 + in_res->hw_intf->hw_idx);
-		if (rc) {
-			CAM_ERR(CAM_SFE, "SFE[%u] vmrm soc release resources failed",
-				in_res->hw_intf->hw_idx);
-		}
 	}
 
-	return rc;
+	return 0;
 }
 
 static int cam_sfe_top_get_evt_payload(
@@ -1645,9 +1617,9 @@ static int cam_sfe_top_put_evt_payload(
 		return -EINVAL;
 	}
 
-	CAM_COMMON_SANITIZE_LIST_ENTRY((*evt_payload), struct cam_sfe_top_irq_evt_payload);
 	spin_lock_irqsave(&top_priv->spin_lock, flags);
-	list_add_tail(&(*evt_payload)->list, &top_priv->common_data.free_payload_list);
+	list_add_tail(&(*evt_payload)->list,
+		&top_priv->common_data.free_payload_list);
 	*evt_payload = NULL;
 	spin_unlock_irqrestore(&top_priv->spin_lock, flags);
 
@@ -1791,6 +1763,9 @@ static void cam_sfe_top_print_ipp_violation_info(
 	struct cam_hw_soc_info         *soc_info = common_data->soc_info;
 	uint32_t val = violation_status;
 
+	CAM_INFO(CAM_SFE, "SFE[%u] IPP Violation status 0x%x",
+	     soc_info->index, val);
+
 	if (top_priv->hw_info->ipp_module_desc)
 		CAM_ERR(CAM_SFE, "SFE[%u] IPP Violation Module id: [%u %s]",
 			soc_info->index,
@@ -1801,23 +1776,17 @@ static void cam_sfe_top_print_ipp_violation_info(
 
 static void cam_sfe_top_print_top_irq_error(
 	struct cam_sfe_top_priv *top_priv,
-	struct cam_sfe_top_irq_evt_payload *payload,
 	uint32_t irq_status,
 	uint32_t violation_status)
 {
 	uint32_t i = 0;
 
 	for (i = 0; i < top_priv->hw_info->num_top_errors; i++) {
-		if (top_priv->hw_info->top_err_desc[i].bitmask & irq_status) {
-			CAM_ERR(CAM_SFE, "SFE[%u] %s occurred at [%llu: %09llu]",
-				top_priv->common_data.soc_info->index,
+		if (top_priv->hw_info->top_err_desc[i].bitmask &
+			irq_status) {
+			CAM_ERR(CAM_SFE, "%s %s",
 				top_priv->hw_info->top_err_desc[i].err_name,
-				payload->ts.mono_time.tv_sec,
-				payload->ts.mono_time.tv_nsec);
-			CAM_ERR(CAM_SFE, "%s", top_priv->hw_info->top_err_desc[i].desc);
-			if (top_priv->hw_info->top_err_desc[i].debug)
-				CAM_ERR(CAM_SFE, "Debug: %s",
-					top_priv->hw_info->top_err_desc[i].debug);
+				top_priv->hw_info->top_err_desc[i].desc);
 		}
 	}
 
@@ -1845,12 +1814,14 @@ static int cam_sfe_top_handle_err_irq_bottom_half(
 	evt_info.res_type = CAM_ISP_RESOURCE_SFE_IN;
 	evt_info.reg_val = 0;
 
-	if (irq_status[0] & top_priv->common_data.common_reg_data->error_irq_mask) {
+	if (irq_status[0] &
+		top_priv->common_data.common_reg_data->error_irq_mask) {
 		struct cam_isp_hw_error_event_info err_evt_info;
 
 		viol_sts = payload->violation_status;
-		CAM_INFO(CAM_SFE, "Violation status 0x%x", viol_sts);
-		cam_sfe_top_print_top_irq_error(top_priv, payload,
+		CAM_INFO(CAM_SFE, "Violation status 0x%x",
+			viol_sts);
+		cam_sfe_top_print_top_irq_error(top_priv,
 			irq_status[0], viol_sts);
 		err_evt_info.err_type = CAM_SFE_IRQ_STATUS_VIOLATION;
 		evt_info.event_data = (void *)&err_evt_info;
@@ -1871,7 +1842,7 @@ static int cam_sfe_top_handle_irq_bottom_half(
 	void *handler_priv, void *evt_payload_priv)
 {
 	int i;
-	uint32_t val0, val1, frame_cnt = 0, offset0, offset1;
+	uint32_t val0, val1, frame_cnt, offset0, offset1;
 	uint32_t irq_status[CAM_SFE_IRQ_REGISTERS_MAX] = {0};
 	enum cam_sfe_hw_irq_status          ret = CAM_SFE_IRQ_STATUS_MAX;
 	struct cam_isp_resource_node       *res = handler_priv;
@@ -2250,14 +2221,14 @@ int cam_sfe_top_init(
 	struct cam_sfe_top_hw_info        *sfe_top_hw_info =
 		(struct cam_sfe_top_hw_info *)top_hw_info;
 
-	sfe_top = CAM_MEM_ZALLOC(sizeof(struct cam_sfe_top), GFP_KERNEL);
+	sfe_top = kzalloc(sizeof(struct cam_sfe_top), GFP_KERNEL);
 	if (!sfe_top) {
 		CAM_DBG(CAM_SFE, "Error, Failed to alloc for sfe_top");
 		rc = -ENOMEM;
 		goto end;
 	}
 
-	top_priv = CAM_MEM_ZALLOC(sizeof(struct cam_sfe_top_priv),
+	top_priv = kzalloc(sizeof(struct cam_sfe_top_priv),
 		GFP_KERNEL);
 	if (!top_priv) {
 		rc = -ENOMEM;
@@ -2294,7 +2265,7 @@ int cam_sfe_top_init(
 			top_priv->in_rsrc[i].res_id =
 				CAM_ISP_HW_SFE_IN_PIX;
 
-			path_data = CAM_MEM_ZALLOC(sizeof(struct cam_sfe_path_data),
+			path_data = kzalloc(sizeof(struct cam_sfe_path_data),
 				GFP_KERNEL);
 			if (!path_data) {
 				CAM_DBG(CAM_SFE,
@@ -2322,7 +2293,7 @@ int cam_sfe_top_init(
 			top_priv->in_rsrc[i].res_id =
 				CAM_ISP_HW_SFE_IN_RDI0 + j;
 
-			path_data = CAM_MEM_ZALLOC(sizeof(struct cam_sfe_path_data),
+			path_data = kzalloc(sizeof(struct cam_sfe_path_data),
 					GFP_KERNEL);
 			if (!path_data) {
 				CAM_DBG(CAM_SFE,
@@ -2397,16 +2368,16 @@ deinit_resources:
 		if (!top_priv->in_rsrc[i].res_priv)
 			continue;
 
-		CAM_MEM_FREE(top_priv->in_rsrc[i].res_priv);
+		kfree(top_priv->in_rsrc[i].res_priv);
 		top_priv->in_rsrc[i].res_priv = NULL;
 		top_priv->in_rsrc[i].res_state =
 			CAM_ISP_RESOURCE_STATE_UNAVAILABLE;
 	}
 free_top_priv:
-	CAM_MEM_FREE(sfe_top->top_priv);
+	kfree(sfe_top->top_priv);
 	sfe_top->top_priv = NULL;
 free_sfe_top:
-	CAM_MEM_FREE(sfe_top);
+	kfree(sfe_top);
 end:
 	*sfe_top_ptr = NULL;
 	return rc;
@@ -2466,14 +2437,14 @@ int cam_sfe_top_deinit(
 			continue;
 		}
 
-		CAM_MEM_FREE(top_priv->in_rsrc[i].res_priv);
+		kfree(top_priv->in_rsrc[i].res_priv);
 		top_priv->in_rsrc[i].res_priv = NULL;
 	}
 
-	CAM_MEM_FREE(sfe_top->top_priv);
+	kfree(sfe_top->top_priv);
 
 free_sfe_top:
-	CAM_MEM_FREE(sfe_top);
+	kfree(sfe_top);
 	*sfe_top_ptr = NULL;
 
 	return rc;

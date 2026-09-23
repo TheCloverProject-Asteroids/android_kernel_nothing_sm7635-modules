@@ -5,7 +5,6 @@
 
 #include "cam_sync_dma_fence.h"
 #include "cam_sync_util.h"
-#include "cam_mem_mgr_api.h"
 
 extern unsigned long cam_sync_monitor_mask;
 
@@ -57,8 +56,8 @@ void __cam_dma_fence_free(struct dma_fence *fence)
 	CAM_DBG(CAM_DMA_FENCE,
 		"Free memory for dma fence context: %llu seqno: %llu",
 		fence->context, fence->seqno);
-	CAM_MEM_FREE(fence->lock);
-	CAM_MEM_FREE(fence);
+	kfree(fence->lock);
+	kfree(fence);
 }
 
 static struct dma_fence_ops cam_sync_dma_fence_ops = {
@@ -98,17 +97,9 @@ static void __cam_dma_fence_print_table(void)
 	struct cam_dma_fence_row *row;
 	struct dma_fence *fence;
 
-	/* Index zero is marked as an invalid slot */
-	for (i = 1; i < CAM_DMA_FENCE_MAX_FENCES; i++) {
+	for (i = 0; i < CAM_DMA_FENCE_MAX_FENCES; i++) {
 		spin_lock_bh(&g_cam_dma_fence_dev->row_spinlocks[i]);
 		row = &g_cam_dma_fence_dev->rows[i];
-
-		/* free slots starting this index */
-		if (row->state == CAM_DMA_FENCE_STATE_INVALID) {
-			spin_unlock_bh(&g_cam_dma_fence_dev->row_spinlocks[i]);
-			return;
-		}
-
 		fence = row->fence;
 		CAM_INFO(CAM_DMA_FENCE,
 			"Idx: %d seqno: %llu name: %s state: %d",
@@ -374,9 +365,9 @@ struct dma_fence *cam_dma_fence_get_fence_from_fd(
 int cam_dma_fence_register_cb(int32_t *sync_obj, int32_t *dma_fence_idx,
 	cam_sync_callback_for_dma_fence sync_cb)
 {
-	int                       rc = 0, dma_fence_row_idx;
-	struct cam_dma_fence_row *row;
-	struct dma_fence         *dma_fence;
+	int rc = 0, dma_fence_row_idx;
+	struct cam_dma_fence_row *row = NULL;
+	struct dma_fence *dma_fence = NULL;
 
 	if (!sync_obj || !dma_fence_idx || !sync_cb) {
 		CAM_ERR(CAM_DMA_FENCE,
@@ -589,13 +580,13 @@ static int __cam_dma_fence_get_fd(int32_t *row_idx,
 	if (__cam_dma_fence_find_free_idx(&idx))
 		goto end;
 
-	dma_fence_lock = CAM_MEM_ZALLOC(sizeof(spinlock_t), GFP_KERNEL);
+	dma_fence_lock = kzalloc(sizeof(spinlock_t), GFP_KERNEL);
 	if (!dma_fence_lock)
 		goto free_idx;
 
-	dma_fence = CAM_MEM_ZALLOC(sizeof(struct dma_fence), GFP_KERNEL);
+	dma_fence = kzalloc(sizeof(struct dma_fence), GFP_KERNEL);
 	if (!dma_fence) {
-		CAM_MEM_FREE(dma_fence_lock);
+		kfree(dma_fence_lock);
 		goto free_idx;
 	}
 
@@ -680,9 +671,9 @@ void __cam_dma_fence_save_previous_monitor_data(int dma_row_idx)
 
 static int __cam_dma_fence_release(int32_t dma_row_idx)
 {
-	struct dma_fence         *dma_fence;
-	struct cam_dma_fence_row *row;
-	int                       rc;
+	struct dma_fence *dma_fence = NULL;
+	struct cam_dma_fence_row *row = NULL;
+	int rc;
 
 	spin_lock_bh(&g_cam_dma_fence_dev->row_spinlocks[dma_row_idx]);
 	row = &g_cam_dma_fence_dev->rows[dma_row_idx];
@@ -828,11 +819,11 @@ void cam_dma_fence_close(void)
 
 	if (g_cam_dma_fence_dev->monitor_data) {
 		for (i = 0; i < CAM_DMA_FENCE_TABLE_SZ; i++) {
-			CAM_MEM_FREE(g_cam_dma_fence_dev->monitor_data[i]);
+			kfree(g_cam_dma_fence_dev->monitor_data[i]);
 			g_cam_dma_fence_dev->monitor_data[i] = NULL;
 		}
 	}
-	CAM_MEM_FREE(g_cam_dma_fence_dev->monitor_data);
+	kfree(g_cam_dma_fence_dev->monitor_data);
 	g_cam_dma_fence_dev->monitor_data = NULL;
 
 	mutex_unlock(&g_cam_dma_fence_dev->dev_lock);
@@ -844,7 +835,7 @@ void cam_dma_fence_open(void)
 	mutex_lock(&g_cam_dma_fence_dev->dev_lock);
 
 	if (test_bit(CAM_GENERIC_FENCE_TYPE_DMA_FENCE, &cam_sync_monitor_mask)) {
-		g_cam_dma_fence_dev->monitor_data = CAM_MEM_ZALLOC(
+		g_cam_dma_fence_dev->monitor_data = kzalloc(
 			sizeof(struct cam_generic_fence_monitor_data *) *
 			CAM_DMA_FENCE_TABLE_SZ, GFP_KERNEL);
 		if (!g_cam_dma_fence_dev->monitor_data) {
@@ -864,7 +855,7 @@ int cam_dma_fence_driver_init(void)
 {
 	int i;
 
-	g_cam_dma_fence_dev = CAM_MEM_ZALLOC(sizeof(struct cam_dma_fence_device), GFP_KERNEL);
+	g_cam_dma_fence_dev = kzalloc(sizeof(struct cam_dma_fence_device), GFP_KERNEL);
 	if (!g_cam_dma_fence_dev)
 		return -ENOMEM;
 
@@ -885,7 +876,7 @@ int cam_dma_fence_driver_init(void)
 
 void cam_dma_fence_driver_deinit(void)
 {
-	CAM_MEM_FREE(g_cam_dma_fence_dev);
+	kfree(g_cam_dma_fence_dev);
 	g_cam_dma_fence_dev = NULL;
 	CAM_DBG(CAM_DMA_FENCE, "Camera DMA fence driver deinitialized");
 }

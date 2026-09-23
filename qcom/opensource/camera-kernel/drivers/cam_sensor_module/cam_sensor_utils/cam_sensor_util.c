@@ -7,10 +7,8 @@
 #include <linux/kernel.h>
 #include <clocksource/arm_arch_timer.h>
 #include "cam_sensor_util.h"
-#include "cam_packet_util.h"
 #include "cam_mem_mgr.h"
 #include "cam_res_mgr_api.h"
-#include "cam_mem_mgr_api.h"
 
 #define CAM_SENSOR_PINCTRL_STATE_SLEEP "cam_suspend"
 #define CAM_SENSOR_PINCTRL_STATE_DEFAULT "cam_default"
@@ -121,7 +119,7 @@ static struct i2c_settings_list*
 {
 	struct i2c_settings_list *tmp;
 
-	tmp = CAM_MEM_ZALLOC(sizeof(struct i2c_settings_list), GFP_KERNEL);
+	tmp = kzalloc(sizeof(struct i2c_settings_list), GFP_KERNEL);
 
 	if (tmp != NULL)
 		list_add_tail(&(tmp->list),
@@ -133,7 +131,7 @@ static struct i2c_settings_list*
 		vzalloc(size * sizeof(struct cam_sensor_i2c_reg_array));
 	if (tmp->i2c_settings.reg_setting == NULL) {
 		list_del(&(tmp->list));
-		CAM_MEM_FREE(tmp);
+		kfree(tmp);
 		return NULL;
 	}
 	tmp->i2c_settings.size = size;
@@ -178,7 +176,7 @@ int32_t delete_request(struct i2c_settings_array *i2c_array)
 		&(i2c_array->list_head), list) {
 		vfree(i2c_list->i2c_settings.reg_setting);
 		list_del(&(i2c_list->list));
-		CAM_MEM_FREE(i2c_list);
+		kfree(i2c_list);
 	}
 	INIT_LIST_HEAD(&(i2c_array->list_head));
 	i2c_array->is_settings_valid = 0;
@@ -570,7 +568,7 @@ static int cam_sensor_handle_slave_info(
 		break;
 
 	case I2C_MASTER:
-		io_master->qup_client->i2c_client->addr = i2c_info->slave_addr;
+		io_master->client->addr = i2c_info->slave_addr;
 		break;
 
 	case SPI_MASTER:
@@ -628,12 +626,6 @@ int cam_sensor_i2c_command_parser(
 		 */
 		CAM_DBG(CAM_SENSOR_UTIL, "Total cmd Buf in Bytes: %d",
 			cmd_desc[i].length);
-
-		rc = cam_packet_util_validate_cmd_desc(&cmd_desc[i]);
-		if (rc) {
-			CAM_ERR(CAM_SENSOR_UTIL, "Invalid cmd[%d] buf, rc: %d", i, rc);
-			return rc;
-		}
 
 		if (!cmd_desc[i].length)
 			continue;
@@ -1104,13 +1096,8 @@ int32_t msm_camera_fill_vreg_params(
 	num_vreg = soc_info->num_rgltr;
 
 	if ((num_vreg <= 0) || (num_vreg > CAM_SOC_MAX_REGULATOR)) {
-		if (debug_bypass_drivers & CAM_BYPASS_RGLTR)
-			CAM_DBG(CAM_SENSOR_UTIL, "Bypass parameter check num_vreg %d",
-				num_vreg);
-		else {
-			CAM_ERR(CAM_SENSOR_UTIL, "failed: num_vreg %d", num_vreg);
-			return -EINVAL;
-		}
+		CAM_ERR(CAM_SENSOR_UTIL, "failed: num_vreg %d", num_vreg);
+		return -EINVAL;
 	}
 
 	for (i = 0; i < power_setting_size; i++) {
@@ -1335,18 +1322,12 @@ int cam_sensor_util_request_gpio_table(
 				 */
 				CAM_ERR(CAM_SENSOR_UTIL, "gpio %d:%s request fails",
 					gpio_tbl[i].gpio, gpio_tbl[i].label);
-				goto request_fail;
 			}
 		}
 	} else {
 		cam_res_mgr_gpio_free_arry(soc_info->dev, gpio_tbl, size);
 	}
 
-	return rc;
-
-request_fail:
-	if (gpio_en && (i > 0))
-		cam_res_mgr_gpio_free_arry(soc_info->dev, gpio_tbl, i);
 	return rc;
 }
 
@@ -1440,11 +1421,9 @@ int32_t cam_sensor_update_power_settings(void *cmd_buf,
 		goto free_power_command;
 	}
 
-	memcpy(pwr_cmd, cmd_buf, sizeof(struct cam_cmd_power));
-
 	power_info->power_setting_size = 0;
 	power_info->power_setting =
-		CAM_MEM_ZALLOC(sizeof(struct cam_sensor_power_setting) *
+		kzalloc(sizeof(struct cam_sensor_power_setting) *
 			MAX_POWER_CONFIG, GFP_KERNEL);
 	if (!power_info->power_setting) {
 		rc = -ENOMEM;
@@ -1453,11 +1432,10 @@ int32_t cam_sensor_update_power_settings(void *cmd_buf,
 
 	power_info->power_down_setting_size = 0;
 	power_info->power_down_setting =
-		CAM_MEM_ZALLOC(sizeof(struct cam_sensor_power_setting) *
+		kzalloc(sizeof(struct cam_sensor_power_setting) *
 			MAX_POWER_CONFIG, GFP_KERNEL);
-
 	if (!power_info->power_down_setting) {
-		CAM_MEM_FREE(power_info->power_setting);
+		kfree(power_info->power_setting);
 		power_info->power_setting = NULL;
 		power_info->power_setting_size = 0;
 		rc = -ENOMEM;
@@ -1469,7 +1447,6 @@ int32_t cam_sensor_update_power_settings(void *cmd_buf,
 			rc = -EINVAL;
 			goto free_power_settings;
 		}
-
 		if (cmm_hdr->cmd_type ==
 			CAMERA_SENSOR_CMD_TYPE_PWR_UP) {
 			struct cam_cmd_power *pwr_up_cmd =
@@ -1492,7 +1469,6 @@ int32_t cam_sensor_update_power_settings(void *cmd_buf,
 				rc = -EINVAL;
 				goto free_power_settings;
 			}
-
 			scr = ptr + sizeof(struct cam_cmd_power);
 			tot_size = tot_size + sizeof(struct cam_cmd_power);
 
@@ -1505,7 +1481,6 @@ int32_t cam_sensor_update_power_settings(void *cmd_buf,
 				power_info->power_setting[pwr_up].config_val =
 				pwr_up_cmd->power_settings_flex[i].config_val_low;
 				power_info->power_setting[pwr_up].delay = 0;
-
 				if (i) {
 					scr = scr +
 						sizeof(
@@ -1514,14 +1489,12 @@ int32_t cam_sensor_update_power_settings(void *cmd_buf,
 						sizeof(
 						struct cam_power_settings);
 				}
-
 				if (tot_size > cmd_length) {
 					CAM_ERR(CAM_SENSOR_UTIL,
 						"Error: Cmd Buffer is wrong");
 					rc = -EINVAL;
 					goto free_power_settings;
 				}
-
 				CAM_DBG(CAM_SENSOR_UTIL,
 				"Seq Type[%d]: %d Config_val: %ld", pwr_up,
 				power_info->power_setting[pwr_up].seq_type,
@@ -1537,7 +1510,6 @@ int32_t cam_sensor_update_power_settings(void *cmd_buf,
 				CAMERA_SENSOR_WAIT_OP_SW_UCND) &&
 				(last_cmd_type ==
 				CAMERA_SENSOR_CMD_TYPE_PWR_UP)) {
-
 				if (pwr_up > 0) {
 					pwr_settings =
 					&power_info->power_setting[pwr_up - 1];
@@ -1551,7 +1523,6 @@ int32_t cam_sensor_update_power_settings(void *cmd_buf,
 				CAMERA_SENSOR_WAIT_OP_SW_UCND) &&
 				(last_cmd_type ==
 				CAMERA_SENSOR_CMD_TYPE_PWR_DOWN)) {
-
 				if (pwr_down > 0) {
 					pwr_settings =
 					&power_info->power_down_setting[
@@ -1569,12 +1540,10 @@ int32_t cam_sensor_update_power_settings(void *cmd_buf,
 
 			tot_size = tot_size +
 				sizeof(struct cam_cmd_unconditional_wait);
-
 			if (tot_size > cmd_length) {
 				CAM_ERR(CAM_SENSOR_UTIL, "Command Buffer is wrong");
 				return -EINVAL;
 			}
-
 			scr = (void *) (wait_cmd);
 			ptr = (void *)
 				(scr +
@@ -1591,7 +1560,6 @@ int32_t cam_sensor_update_power_settings(void *cmd_buf,
 
 			scr = ptr + sizeof(struct cam_cmd_power);
 			tot_size = tot_size + sizeof(struct cam_cmd_power);
-
 			if ((U16_MAX - power_info->power_down_setting_size) <
 				pwr_dwn_cmd->count) {
 				CAM_ERR(CAM_SENSOR_UTIL, "ERR: Overflow");
@@ -1632,7 +1600,6 @@ int32_t cam_sensor_update_power_settings(void *cmd_buf,
 						sizeof(
 						struct cam_power_settings);
 				}
-
 				if (tot_size > cmd_length) {
 					CAM_ERR(CAM_SENSOR_UTIL,
 						"Command Buffer is wrong");
@@ -1658,8 +1625,8 @@ int32_t cam_sensor_update_power_settings(void *cmd_buf,
 
 	goto free_power_command;
 free_power_settings:
-	CAM_MEM_FREE(power_info->power_down_setting);
-	CAM_MEM_FREE(power_info->power_setting);
+	kfree(power_info->power_down_setting);
+	kfree(power_info->power_setting);
 	power_info->power_down_setting = NULL;
 	power_info->power_setting = NULL;
 	power_info->power_down_setting_size = 0;
@@ -1685,13 +1652,14 @@ int cam_get_dt_power_setting_data(struct device_node *of_node,
 		return -EINVAL;
 
 	count = of_property_count_strings(of_node, "qcom,cam-power-seq-type");
+	power_info->power_setting_size = count;
+
+	CAM_DBG(CAM_SENSOR_UTIL, "qcom,cam-power-seq-type count %d", count);
+
 	if (count <= 0)
 		return 0;
 
-	CAM_DBG(CAM_SENSOR_UTIL, "qcom,cam-power-seq-type count %d", count);
-	power_info->power_setting_size = count;
-
-	ps = CAM_MEM_ZALLOC_ARRAY(count, sizeof(*ps), GFP_KERNEL);
+	ps = kcalloc(count, sizeof(*ps), GFP_KERNEL);
 	if (!ps)
 		return -ENOMEM;
 	power_info->power_setting = ps;
@@ -1721,7 +1689,7 @@ int cam_get_dt_power_setting_data(struct device_node *of_node,
 		CAM_DBG(CAM_SENSOR_UTIL, "seq_type[%d] %d", i, ps[i].seq_type);
 	}
 
-	array = CAM_MEM_ZALLOC_ARRAY(count, sizeof(uint32_t), GFP_KERNEL);
+	array = kcalloc(count, sizeof(uint32_t), GFP_KERNEL);
 	if (!array) {
 		rc = -ENOMEM;
 		goto ERROR1;
@@ -1751,10 +1719,10 @@ int cam_get_dt_power_setting_data(struct device_node *of_node,
 		CAM_DBG(CAM_SENSOR_UTIL, "power_setting[%d].delay = %d", i,
 			ps[i].delay);
 	}
-	CAM_MEM_FREE(array);
+	kfree(array);
 
 	power_info->power_down_setting =
-		CAM_MEM_ZALLOC_ARRAY(count, sizeof(*ps), GFP_KERNEL);
+		kcalloc(count, sizeof(*ps), GFP_KERNEL);
 
 	if (!power_info->power_down_setting) {
 		CAM_ERR(CAM_SENSOR_UTIL, "failed");
@@ -1772,9 +1740,9 @@ int cam_get_dt_power_setting_data(struct device_node *of_node,
 	}
 	return rc;
 ERROR2:
-	CAM_MEM_FREE(array);
+	kfree(array);
 ERROR1:
-	CAM_MEM_FREE(ps);
+	kfree(ps);
 	return rc;
 }
 
@@ -1813,7 +1781,7 @@ int cam_sensor_util_init_gpio_pin_tbl(
 		return -EINVAL;
 	}
 
-	*pgpio_num_info = CAM_MEM_ZALLOC(sizeof(struct msm_camera_gpio_num_info),
+	*pgpio_num_info = kzalloc(sizeof(struct msm_camera_gpio_num_info),
 		GFP_KERNEL);
 	if (!*pgpio_num_info)
 		return -ENOMEM;
@@ -2007,7 +1975,7 @@ int cam_sensor_util_init_gpio_pin_tbl(
 	return rc;
 
 free_gpio_info:
-	CAM_MEM_FREE(gpio_num_info);
+	kfree(gpio_num_info);
 	gpio_num_info = NULL;
 	return rc;
 }
@@ -2050,7 +2018,7 @@ int cam_sensor_bob_pwm_mode_switch(struct cam_hw_soc_info *soc_info,
 
 	if (soc_info->rgltr[bob_reg_idx] != NULL) {
 		rc = cam_wrapper_regulator_set_load(soc_info->rgltr[bob_reg_idx],
-			op_current, soc_info->rgltr_name[bob_reg_idx]);
+			op_current);
 		if (rc)
 			CAM_WARN(CAM_SENSOR_UTIL,
 				"BoB PWM SetLoad failed rc: %d", rc);
@@ -2135,7 +2103,7 @@ static int cam_config_mclk_reg(struct cam_sensor_power_ctrl_t *ctrl,
 int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 		struct cam_hw_soc_info *soc_info, struct completion *i3c_probe_status)
 {
-	int rc = 0, index = 0, ret = 0, num_vreg, j = 0, i = 0;
+	int rc = 0, index = 0, no_gpio = 0, ret = 0, num_vreg, j = 0, i = 0;
 	int32_t vreg_idx = -1;
 	struct cam_sensor_power_setting *power_setting = NULL;
 	struct msm_camera_gpio_num_info *gpio_num_info = NULL;
@@ -2153,13 +2121,8 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 	num_vreg = soc_info->num_rgltr;
 
 	if ((num_vreg <= 0) || (num_vreg > CAM_SOC_MAX_REGULATOR)) {
-		if (debug_bypass_drivers & CAM_BYPASS_RGLTR)
-			CAM_DBG(CAM_SENSOR_UTIL, "Bypass parameter check num_vreg %d",
-				num_vreg);
-		else {
-			CAM_ERR(CAM_SENSOR_UTIL, "failed: num_vreg %d", num_vreg);
-			return -EINVAL;
-		}
+		CAM_ERR(CAM_SENSOR_UTIL, "failed: num_vreg %d", num_vreg);
+		return -EINVAL;
 	}
 
 	ret = msm_camera_pinctrl_init(&(ctrl->pinctrl_info), ctrl->dev);
@@ -2173,8 +2136,7 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 
 	rc = cam_sensor_util_request_gpio_table(soc_info, 1);
 	if (rc < 0) {
-		CAM_ERR(CAM_SENSOR_UTIL, "request gpio table failed");
-		return -EINVAL;
+		no_gpio = rc;
 	}
 
 	if (ctrl->cam_pinctrl_status) {
@@ -2201,11 +2163,6 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 
 		switch (power_setting->seq_type) {
 		case SENSOR_MCLK:
-			if (debug_bypass_drivers & CAM_BYPASS_CLKS) {
-				CAM_DBG(CAM_SENSOR_UTIL, "Bypass mclk enable");
-				continue;
-			}
-
 			if (power_setting->seq_val >= soc_info->num_clk) {
 				CAM_ERR(CAM_SENSOR_UTIL, "clk index %d >= max %u",
 					power_setting->seq_val,
@@ -2269,6 +2226,10 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 		case SENSOR_STANDBY:
 		case SENSOR_CUSTOM_GPIO1:
 		case SENSOR_CUSTOM_GPIO2:
+			if (no_gpio) {
+				CAM_ERR(CAM_SENSOR_UTIL, "request gpio failed");
+				goto power_up_failed;
+			}
 			if (!gpio_num_info) {
 				CAM_ERR(CAM_SENSOR_UTIL, "Invalid gpio_num_info");
 				goto power_up_failed;
@@ -2295,12 +2256,6 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 		case SENSOR_VAF_PWDM:
 		case SENSOR_CUSTOM_REG1:
 		case SENSOR_CUSTOM_REG2:
-			if (debug_bypass_drivers & CAM_BYPASS_RGLTR) {
-				CAM_DBG(CAM_SENSOR_UTIL, "Bypass regulator enable seq_type %d",
-					power_setting->seq_type);
-				continue;
-			}
-
 			if (power_setting->seq_val == INVALID_VREG)
 				break;
 
@@ -2396,11 +2351,6 @@ power_up_failed:
 			power_setting->seq_type);
 		switch (power_setting->seq_type) {
 		case SENSOR_MCLK:
-			if (debug_bypass_drivers & CAM_BYPASS_CLKS) {
-				CAM_DBG(CAM_SENSOR_UTIL, "Bypass mclk disable");
-				continue;
-			}
-
 			for (i = soc_info->num_clk - 1; i >= 0; i--) {
 				cam_soc_util_clk_disable(soc_info, CAM_CLK_SW_CLIENT_IDX, false, i);
 			}
@@ -2432,12 +2382,6 @@ power_up_failed:
 		case SENSOR_VAF_PWDM:
 		case SENSOR_CUSTOM_REG1:
 		case SENSOR_CUSTOM_REG2:
-			if (debug_bypass_drivers & CAM_BYPASS_RGLTR) {
-				CAM_DBG(CAM_SENSOR_UTIL, "Bypass regulator disable seq_type %d",
-					power_setting->seq_type);
-				continue;
-			}
-
 			if (power_setting->seq_val < num_vreg) {
 				CAM_DBG(CAM_SENSOR_UTIL, "Disable Regulator");
 				vreg_idx = power_setting->seq_val;
@@ -2540,13 +2484,8 @@ int cam_sensor_util_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 	num_vreg = soc_info->num_rgltr;
 
 	if ((num_vreg <= 0) || (num_vreg > CAM_SOC_MAX_REGULATOR)) {
-		if (debug_bypass_drivers & CAM_BYPASS_RGLTR)
-			CAM_DBG(CAM_SENSOR_UTIL, "Bypass parameter check num_vreg %d",
-				num_vreg);
-		else {
-			CAM_ERR(CAM_SENSOR_UTIL, "failed: num_vreg %d", num_vreg);
-			return -EINVAL;
-		}
+		CAM_ERR(CAM_SENSOR_UTIL, "failed: num_vreg %d", num_vreg);
+		return -EINVAL;
 	}
 
 	if (ctrl->power_down_setting_size > MAX_POWER_CONFIG) {
@@ -2568,11 +2507,6 @@ int cam_sensor_util_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 		CAM_DBG(CAM_SENSOR_UTIL, "seq_type %d",  pd->seq_type);
 		switch (pd->seq_type) {
 		case SENSOR_MCLK:
-			if (debug_bypass_drivers & CAM_BYPASS_CLKS) {
-				CAM_DBG(CAM_SENSOR_UTIL, "Bypass mclk disable");
-				continue;
-			}
-
 			for (i = soc_info->num_clk - 1; i >= 0; i--) {
 				cam_soc_util_clk_disable(soc_info, CAM_CLK_SW_CLIENT_IDX, false, i);
 			}
@@ -2606,12 +2540,6 @@ int cam_sensor_util_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 		case SENSOR_VAF_PWDM:
 		case SENSOR_CUSTOM_REG1:
 		case SENSOR_CUSTOM_REG2:
-			if (debug_bypass_drivers & CAM_BYPASS_RGLTR) {
-				CAM_DBG(CAM_SENSOR_UTIL, "Bypass regulator disable seq_type %d",
-					pd->seq_type);
-				continue;
-			}
-
 			if (pd->seq_val == INVALID_VREG)
 				break;
 
@@ -2685,47 +2613,4 @@ int cam_sensor_util_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 	ctrl->cam_pinctrl_status = 0;
 
 	return 0;
-}
-
-void cam_sensor_utils_parse_pm_ctrl_flag(struct device_node *of_node,
-	struct camera_io_master *io_master_info)
-{
-	struct device_node *of_parent = of_get_next_parent(of_node);
-
-	if ((of_parent != NULL) &&
-		(io_master_info != NULL) &&
-		(io_master_info->qup_client != NULL)) {
-		io_master_info->qup_client->pm_ctrl_client_enable =
-			of_property_read_bool(of_parent, "qcom,pm-ctrl-client");
-	}
-}
-
-int cam_sensor_util_add_read_buf_to_list(struct list_head *read_buf_list,
-	int32_t read_buffer_handle)
-{
-	struct cam_sensor_read_buf_list *tmp_buf;
-
-	tmp_buf = CAM_MEM_ZALLOC(sizeof(struct cam_sensor_read_buf_list), GFP_KERNEL);
-	if (!tmp_buf)
-		return -ENOMEM;
-
-	tmp_buf->read_buf_handle = read_buffer_handle;
-	list_add_tail(&(tmp_buf->list), read_buf_list);
-
-	return 0;
-}
-
-void cam_sensor_util_release_read_buf(struct list_head *read_buf_list)
-{
-	struct cam_sensor_read_buf_list *buf_list = NULL, *buf_next = NULL;
-
-	list_for_each_entry_safe(buf_list, buf_next,
-		read_buf_list, list) {
-		if (buf_list->read_buf_handle) {
-			cam_mem_put_cpu_buf(buf_list->read_buf_handle);
-		}
-
-		list_del(&(buf_list->list));
-		CAM_MEM_FREE(buf_list);
-	}
 }

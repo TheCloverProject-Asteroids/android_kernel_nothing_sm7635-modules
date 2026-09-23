@@ -43,13 +43,6 @@
 #endif
 #include <wlan_vdev_mgr_utils_api.h>
 #include <wlan_vdev_mgr_api.h>
-#ifdef WLAN_FEATURE_LL_LT_SAP
-#include "wlan_ll_sap_api.h"
-#endif
-#ifdef WLAN_POLICY_MGR_ENABLE
-#include "wlan_policy_mgr_api.h"
-#endif
-#include "wlan_mlme_vdev_mgr_interface.h"
 
 #ifdef QCA_VDEV_STATS_HW_OFFLOAD_SUPPORT
 /**
@@ -137,27 +130,6 @@ vdev_mgr_param_mld_mac_addr_copy(struct wlan_objmgr_vdev *vdev,
 }
 #endif /* WLAN_FEATURE_11BE_MLO */
 
-#ifdef FEATURE_WLAN_SUPPORT_USD
-/**
- * vdev_mgr_update_wfd_mode() - update WFD mode in VDEV parameters
- * @vdev: pointer to VDEV object
- * @param: pointer to VDEV create parameter
- *
- * Return: none
- */
-static void vdev_mgr_update_wfd_mode(struct wlan_objmgr_vdev *vdev,
-				     struct vdev_create_params *param)
-{
-	param->wfd_mode = vdev->vdev_mlme.wfd_mode;
-}
-#else
-static inline void
-vdev_mgr_update_wfd_mode(struct wlan_objmgr_vdev *vdev,
-			 struct vdev_create_params *param)
-{
-}
-#endif
-
 static QDF_STATUS vdev_mgr_create_param_update(
 					struct vdev_mlme_obj *mlme_obj,
 					struct vdev_create_params *param)
@@ -193,7 +165,6 @@ static QDF_STATUS vdev_mgr_create_param_update(
 	param->vdev_stats_id_valid =
 	((param->vdev_stats_id != CDP_INVALID_VDEV_STATS_ID) ? true : false);
 	vdev_mgr_param_mld_mac_addr_copy(vdev, param);
-	vdev_mgr_update_wfd_mode(vdev, param);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -331,8 +302,6 @@ mlo_ap_append_bridge_vdevs(struct wlan_objmgr_vdev *vdev,
 			wlan_vdev_get_id(bridge_vdev_list[i]);
 		mlo_ptr->partner_info[p_idx].hw_mld_link_id =
 			wlan_mlo_get_pdev_hw_link_id(pdev);
-		mlo_ptr->partner_info[p_idx].is_bridge_vdev =
-			wlan_vdev_mlme_is_mlo_bridge_vdev(bridge_vdev_list[i]);
 		qdf_mem_copy(mlo_ptr->partner_info[p_idx].mac_addr,
 			     wlan_vdev_mlme_get_macaddr(bridge_vdev_list[i]),
 			     QDF_MAC_ADDR_SIZE);
@@ -438,9 +407,7 @@ vdev_mgr_start_param_update_mlo(struct vdev_mlme_obj *mlme_obj,
 		if (wlan_vdev_mlme_op_flags_get(
 			vdev, WLAN_VDEV_OP_MLO_LINK_ADD))
 			param->mlo_flags.mlo_link_add  = 1;
-		/* Update the bridge vdev bit */
-		param->mlo_flags.is_bridge_vdev =
-			wlan_vdev_mlme_is_mlo_bridge_vdev(vdev);
+
 		vdev_mgr_start_param_update_mlo_mcast(vdev, param);
 		vdev_mgr_start_param_update_mlo_partner(vdev, param);
 	}
@@ -605,60 +572,6 @@ static QDF_STATUS vdev_mgr_start_param_update(
 	return QDF_STATUS_SUCCESS;
 }
 
-#ifdef WLAN_FEATURE_LL_LT_SAP
-#define TSF_UPPER_MASK 0xFFFFFFFF00000000
-#define TSF_LOWER_MASK 0xFFFFFFFF
-
-/**
- * vdev_mgr_get_target_tsf() - Get target_tsf for given vdev
- * @param: pointer to vdev_start_params
- * @vdev: vdev pointer
- *
- * Return: None
- */
-static
-void vdev_mgr_get_target_tsf(struct vdev_start_params *param,
-			     struct wlan_objmgr_vdev *vdev)
-{
-	uint64_t target_tsf = 0;
-
-	param->target_tsf_us_lo = 0;
-	param->target_tsf_us_hi = 0;
-	target_tsf = wlan_ll_sap_get_target_tsf_for_vdev_restart(vdev);
-	if (target_tsf) {
-		param->target_tsf_us_lo = (target_tsf & TSF_LOWER_MASK);
-		param->target_tsf_us_hi = (target_tsf & TSF_UPPER_MASK) >> 32;
-	}
-}
-#else
-static inline
-void vdev_mgr_get_target_tsf(struct vdev_start_params *param,
-			     struct wlan_objmgr_vdev *vdev)
-{
-	param->target_tsf_us_lo = 0;
-	param->target_tsf_us_hi = 0;
-}
-#endif
-
-#ifdef WLAN_POLICY_MGR_ENABLE
-static void vdev_update_dfs_master_state(struct wlan_objmgr_vdev *vdev)
-{
-	enum QDF_OPMODE op_mode;
-
-	op_mode = wlan_vdev_mlme_get_opmode(vdev);
-	if (op_mode == QDF_SAP_MODE || op_mode == QDF_P2P_GO_MODE)
-		policy_mgr_update_dfs_master_dynamic_enabled(
-				wlan_vdev_get_psoc(vdev),
-				true,
-				vdev->vdev_mlme.des_chan);
-}
-#else
-static inline void
-vdev_update_dfs_master_state(struct wlan_objmgr_vdev *vdev)
-{
-}
-#endif
-
 QDF_STATUS vdev_mgr_start_send(
 			struct vdev_mlme_obj *mlme_obj,
 			bool restart)
@@ -678,11 +591,6 @@ QDF_STATUS vdev_mgr_start_send(
 	}
 
 	param.is_restart = restart;
-	if (param.is_restart)
-		vdev_mgr_get_target_tsf(&param, mlme_obj->vdev);
-
-	vdev_update_dfs_master_state(mlme_obj->vdev);
-
 	status = tgt_vdev_mgr_start_send(mlme_obj, &param);
 
 	return status;
@@ -1110,7 +1018,6 @@ QDF_STATUS vdev_mgr_peer_delete_all_send(struct vdev_mlme_obj *mlme_obj)
 {
 	QDF_STATUS status;
 	struct peer_delete_all_params param = {0};
-	struct wlan_objmgr_vdev *vdev;
 
 	if (!mlme_obj) {
 		mlme_err("Invalid input");
@@ -1123,9 +1030,7 @@ QDF_STATUS vdev_mgr_peer_delete_all_send(struct vdev_mlme_obj *mlme_obj)
 		return status;
 	}
 
-	vdev = mlme_obj->vdev;
-
-	status = tgt_vdev_mgr_peer_delete_all_send(vdev, &param);
+	status = tgt_vdev_mgr_peer_delete_all_send(mlme_obj, &param);
 
 	return status;
 }

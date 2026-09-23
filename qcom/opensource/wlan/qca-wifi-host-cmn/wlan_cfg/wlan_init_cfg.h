@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -46,8 +46,7 @@
 /* PPDU Stats Configuration - Configure bitmask for enabling tx ppdu tlv's */
 #define DP_PPDU_TXLITE_STATS_BITMASK_CFG 0x3FFF
 
-#if defined(QCA_WIFI_QCA6750) || defined(QCA_WIFI_WCN6450) || \
-    defined(QCA_WIFI_WCN7750) || defined(QCA_WIFI_QCC2072)
+#if defined(QCA_WIFI_QCA6750) || defined(QCA_WIFI_WCN6450)
 #define NUM_RXDMA_STATUS_RINGS_PER_PDEV 1
 #else
 #define NUM_RXDMA_STATUS_RINGS_PER_PDEV 2
@@ -84,11 +83,4 @@
 #define MAX_RX_MAC_RINGS 2
 
 #define WBM2SW_TXCOMP_RING4_NUM 4
-
-/* Num of tx desc pools */
-#define WLAN_CFG_NUM_POOL 4
-
-/* Num of DP Rings */
-#define WLAN_CFG_NUM_RING 4
-
 #endif /* __WLAN_INIT_CFG_H */

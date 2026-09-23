@@ -19,8 +19,6 @@
 #include "cam_compat.h"
 #include "camera_main.h"
 #include "cam_req_mgr_workq.h"
-#include "cam_mem_mgr_api.h"
-#include "cam_req_mgr_dev.h"
 
 struct sync_device *sync_dev;
 
@@ -162,7 +160,7 @@ int cam_sync_register_callback(sync_callback cb_func,
 		goto monitor_dump;
 	}
 
-	sync_cb = CAM_MEM_ZALLOC(sizeof(*sync_cb), GFP_ATOMIC);
+	sync_cb = kzalloc(sizeof(*sync_cb), GFP_ATOMIC);
 	if (!sync_cb) {
 		rc = -ENOMEM;
 		goto monitor_dump;
@@ -183,7 +181,7 @@ int cam_sync_register_callback(sync_callback cb_func,
 				row->name,
 				sync_obj);
 			status = row->state;
-			CAM_MEM_FREE(sync_cb);
+			kfree(sync_cb);
 			spin_unlock_bh(&sync_dev->row_spinlocks[sync_obj]);
 			cb_func(sync_obj, status, userdata);
 		} else {
@@ -254,7 +252,7 @@ int cam_sync_deregister_callback(sync_callback cb_func,
 		if ((sync_cb->callback_func == cb_func) &&
 			(sync_cb->cb_data == userdata)) {
 			list_del_init(&sync_cb->list);
-			CAM_MEM_FREE(sync_cb);
+			kfree(sync_cb);
 			found = true;
 		}
 	}
@@ -336,7 +334,7 @@ static void cam_sync_signal_parent_util(int32_t status,
 				parent_row->state);
 			spin_unlock_bh(
 				&sync_dev->row_spinlocks[parent_info->sync_id]);
-			CAM_MEM_FREE(parent_info);
+			kfree(parent_info);
 			continue;
 		}
 
@@ -353,7 +351,7 @@ static void cam_sync_signal_parent_util(int32_t status,
 
 		spin_unlock_bh(&sync_dev->row_spinlocks[parent_info->sync_id]);
 		list_del_init(&parent_info->list);
-		CAM_MEM_FREE(parent_info);
+		kfree(parent_info);
 	}
 }
 
@@ -759,7 +757,7 @@ static int cam_sync_handle_merge(struct cam_private_ioctl_arg *k_ioctl)
 		return -EINVAL;
 
 	size = sizeof(uint32_t) * sync_merge.num_objs;
-	sync_objs = CAM_MEM_ZALLOC(size, GFP_ATOMIC);
+	sync_objs = kzalloc(size, GFP_ATOMIC);
 
 	if (!sync_objs)
 		return -ENOMEM;
@@ -767,7 +765,7 @@ static int cam_sync_handle_merge(struct cam_private_ioctl_arg *k_ioctl)
 	if (copy_from_user(sync_objs,
 		u64_to_user_ptr(sync_merge.sync_objs),
 		sizeof(uint32_t) * sync_merge.num_objs)) {
-		CAM_MEM_FREE(sync_objs);
+		kfree(sync_objs);
 		return -EFAULT;
 	}
 
@@ -780,11 +778,11 @@ static int cam_sync_handle_merge(struct cam_private_ioctl_arg *k_ioctl)
 		if (copy_to_user(
 			u64_to_user_ptr(k_ioctl->ioctl_ptr),
 			&sync_merge, k_ioctl->size)) {
-			CAM_MEM_FREE(sync_objs);
+			kfree(sync_objs);
 			return -EFAULT;
 	}
 
-	CAM_MEM_FREE(sync_objs);
+	kfree(sync_objs);
 
 	return result;
 }
@@ -851,7 +849,7 @@ static int cam_sync_handle_register_user_payload(
 	if ((sync_obj >= CAM_SYNC_MAX_OBJS) || (sync_obj <= 0))
 		return -EINVAL;
 
-	user_payload_kernel = CAM_MEM_ZALLOC(sizeof(*user_payload_kernel), GFP_KERNEL);
+	user_payload_kernel = kzalloc(sizeof(*user_payload_kernel), GFP_KERNEL);
 	if (!user_payload_kernel)
 		return -ENOMEM;
 
@@ -867,7 +865,7 @@ static int cam_sync_handle_register_user_payload(
 			"Error: accessing an uninitialized sync obj = %s[%d]",
 			row->name, sync_obj);
 		spin_unlock_bh(&sync_dev->row_spinlocks[sync_obj]);
-		CAM_MEM_FREE(user_payload_kernel);
+		kfree(user_payload_kernel);
 		return -EINVAL;
 	}
 
@@ -887,7 +885,7 @@ static int cam_sync_handle_register_user_payload(
 			CAM_SYNC_COMMON_REG_PAYLOAD_EVENT);
 
 		spin_unlock_bh(&sync_dev->row_spinlocks[sync_obj]);
-		CAM_MEM_FREE(user_payload_kernel);
+		kfree(user_payload_kernel);
 		return 0;
 	}
 
@@ -905,7 +903,7 @@ static int cam_sync_handle_register_user_payload(
 					CAM_FENCE_OP_ALREADY_REGISTERED_CB);
 
 			spin_unlock_bh(&sync_dev->row_spinlocks[sync_obj]);
-			CAM_MEM_FREE(user_payload_kernel);
+			kfree(user_payload_kernel);
 			return -EALREADY;
 		}
 	}
@@ -966,7 +964,7 @@ static int cam_sync_handle_deregister_user_payload(
 				user_payload_kernel->payload_data[1] ==
 				userpayload_info.payload[1]) {
 			list_del_init(&user_payload_kernel->list);
-			CAM_MEM_FREE(user_payload_kernel);
+			kfree(user_payload_kernel);
 
 			if (test_bit(CAM_GENERIC_FENCE_TYPE_SYNC_OBJ,
 				&cam_sync_monitor_mask))
@@ -984,9 +982,10 @@ static int cam_sync_dma_fence_cb(
 	int32_t sync_obj,
 	struct cam_dma_fence_signal_sync_obj *signal_sync_obj)
 {
-	int32_t                rc, status = CAM_SYNC_STATE_SIGNALED_SUCCESS;
-	struct sync_table_row *row;
-	struct list_head       parents_list;
+	int32_t rc;
+	int32_t status = CAM_SYNC_STATE_SIGNALED_SUCCESS;
+	struct sync_table_row *row = NULL;
+	struct list_head parents_list;
 
 	if (!signal_sync_obj) {
 		CAM_ERR(CAM_SYNC, "Invalid signal info args");
@@ -1065,9 +1064,9 @@ end:
 static int cam_sync_synx_obj_cb(int32_t sync_obj,
 	struct cam_synx_obj_signal_sync_obj *signal_sync_obj)
 {
-	int32_t                rc;
-	struct sync_table_row *row;
-	struct list_head       parents_list;
+	int32_t rc;
+	struct sync_table_row *row = NULL;
+	struct list_head parents_list;
 
 	if (!signal_sync_obj) {
 		CAM_ERR(CAM_SYNC, "Invalid signal info args");
@@ -1192,7 +1191,7 @@ static int cam_generic_fence_alloc_validate_input_info_util(
 	return rc;
 
 free_mem:
-	CAM_MEM_FREE(fence_input);
+	kfree(fence_input);
 	return rc;
 }
 
@@ -1201,7 +1200,7 @@ static void cam_generic_fence_free_input_info_util(
 {
 	struct cam_generic_fence_input_info *fence_input = *fence_input_info;
 
-	CAM_MEM_FREE(fence_input);
+	kfree(fence_input);
 	*fence_input_info = NULL;
 }
 
@@ -1347,7 +1346,7 @@ static int cam_generic_fence_handle_dma_import(
 
 		dma_sync_create.dma_fence_row_idx = dma_fence_row_idx;
 		dma_sync_create.fd = fence_cfg->dma_fence_fd;
-		dma_sync_create.sync_created_with_dma = true;
+		dma_sync_create.sync_created_with_dma = false;
 
 		/* Create new sync object and associate dma fence */
 		rc = cam_sync_create_util(&fence_cfg->sync_obj, fence_cfg->name,
@@ -1536,7 +1535,7 @@ static int cam_generic_fence_validate_signal_input_info_util(
 	return rc;
 
 free_mem:
-	CAM_MEM_FREE(signal_info);
+	kfree(signal_info);
 	return rc;
 }
 
@@ -1547,8 +1546,8 @@ static void cam_generic_fence_free_signal_input_info_util(
 	void *signal_data = *fence_signal_data;
 	struct cam_generic_fence_signal_info *fence_input = *fence_signal_info;
 
-	CAM_MEM_FREE(signal_data);
-	CAM_MEM_FREE(fence_input);
+	kfree(signal_data);
+	kfree(fence_input);
 
 	*fence_signal_info = NULL;
 	*fence_signal_data = NULL;
@@ -1711,8 +1710,8 @@ static int cam_generic_fence_handle_synx_release(
 static int cam_sync_synx_associate_obj(int32_t sync_obj, uint32_t synx_obj,
 	int32_t synx_obj_row_idx, bool *is_sync_obj_signaled)
 {
-	int                        rc;
-	struct sync_table_row     *row;
+	int rc;
+	struct sync_table_row *row = NULL;
 	struct cam_synx_obj_signal signal_synx_obj;
 
 	rc = cam_sync_check_valid(sync_obj);
@@ -1721,21 +1720,14 @@ static int cam_sync_synx_associate_obj(int32_t sync_obj, uint32_t synx_obj,
 
 	row = sync_dev->sync_table + sync_obj;
 	spin_lock(&sync_dev->row_spinlocks[sync_obj]);
-
-	/* Validate if sync object already has an association */
-	if (unlikely(test_bit(CAM_GENERIC_FENCE_TYPE_SYNX_OBJ, &row->ext_fence_mask))) {
-		CAM_ERR(CAM_SYNC,
-			"sync_obj: %s[%d] has already been associated with a synx_hdl: 0x%x",
-			row->name, sync_obj, row->synx_obj_info.synx_obj);
-		rc = -EINVAL;
-	} else if (row->state != CAM_SYNC_STATE_ACTIVE) {
+	if (row->state != CAM_SYNC_STATE_ACTIVE) {
 		signal_synx_obj.status = row->state;
 		signal_synx_obj.synx_obj = synx_obj;
 		*is_sync_obj_signaled = true;
 		goto signal_synx;
 	} else {
 		row->synx_obj_info.synx_obj_row_idx = synx_obj_row_idx;
-		row->synx_obj_info.sync_created_with_synx = true;
+		row->synx_obj_info.sync_created_with_synx = false;
 		row->synx_obj_info.synx_obj = synx_obj;
 		set_bit(CAM_GENERIC_FENCE_TYPE_SYNX_OBJ, &row->ext_fence_mask);
 		CAM_DBG(CAM_SYNX, "sync_obj: %s[%d] associated with synx_obj: %d",
@@ -1792,7 +1784,7 @@ static int cam_generic_fence_handle_synx_import(
 				&is_sync_obj_signaled);
 		} else {
 			/* Create new sync object and associate synx object */
-			synx_sync_create.sync_created_with_synx = true;
+			synx_sync_create.sync_created_with_synx = false;
 			synx_sync_create.synx_obj = fence_cfg->synx_obj;
 			synx_sync_create.synx_obj_row_idx = synx_obj_row_idx;
 
@@ -2007,6 +1999,13 @@ static int cam_generic_fence_handle_sync_create(
 					release_params.u.dma_row_idx = dma_fence_row_idx;
 
 					cam_dma_fence_release(&release_params);
+				}
+				/* Release synx obj */
+				if (synx_obj_created) {
+					synx_release_params.use_row_idx = true;
+					synx_release_params.u.synx_row_idx = synx_obj_row_idx;
+
+					cam_synx_obj_release(&synx_release_params);
 				}
 				goto out_copy;
 			}
@@ -2382,22 +2381,21 @@ static long cam_sync_dev_ioctl(struct file *filep, void *fh,
 	return rc;
 }
 
-static __poll_t cam_sync_poll(struct file *f,
+static unsigned int cam_sync_poll(struct file *f,
 	struct poll_table_struct *pll_table)
 {
-	__poll_t        masks = 0;
+	int rc = 0;
 	struct v4l2_fh *eventq = f->private_data;
 
-	if (!eventq) {
-		CAM_ERR(CAM_SYNC, "v4l2_fh_poll with unexpected input eventq");
-		return masks;
-	}
+	if (!eventq)
+		return -EINVAL;
 
 	poll_wait(f, &eventq->wait, pll_table);
-	if (v4l2_event_pending(eventq))
-		masks |= POLLPRI;
 
-	return masks;
+	if (v4l2_event_pending(eventq))
+		rc = POLLPRI;
+
+	return rc;
 }
 
 static int cam_sync_open(struct file *filep)
@@ -2431,7 +2429,7 @@ static int cam_sync_open(struct file *filep)
 	}
 
 	if (test_bit(CAM_GENERIC_FENCE_TYPE_SYNC_OBJ, &cam_sync_monitor_mask)) {
-		sync_dev->mon_data = CAM_MEM_ZALLOC(
+		sync_dev->mon_data = kzalloc(
 			sizeof(struct cam_generic_fence_monitor_data *) *
 			CAM_SYNC_MONITOR_TABLE_SIZE, GFP_KERNEL);
 		if (!sync_dev->mon_data) {
@@ -2503,11 +2501,11 @@ static int cam_sync_close(struct file *filep)
 
 		if (sync_dev->mon_data) {
 			for (i = 0; i < CAM_SYNC_MONITOR_TABLE_SIZE; i++) {
-				CAM_MEM_FREE(sync_dev->mon_data[i]);
+				kfree(sync_dev->mon_data[i]);
 				sync_dev->mon_data[i] = NULL;
 			}
 		}
-		CAM_MEM_FREE(sync_dev->mon_data);
+		kfree(sync_dev->mon_data);
 		sync_dev->mon_data = NULL;
 	}
 
@@ -2604,13 +2602,13 @@ static int cam_sync_media_controller_init(struct sync_device *sync_dev,
 {
 	int rc;
 
-	sync_dev->v4l2_dev.mdev = CAM_MEM_ZALLOC(sizeof(struct media_device),
+	sync_dev->v4l2_dev.mdev = kzalloc(sizeof(struct media_device),
 		GFP_KERNEL);
 	if (!sync_dev->v4l2_dev.mdev)
 		return -ENOMEM;
 
 	media_device_init(sync_dev->v4l2_dev.mdev);
-	strscpy(sync_dev->v4l2_dev.mdev->model, CAM_SYNC_DEVICE_NAME,
+	strlcpy(sync_dev->v4l2_dev.mdev->model, CAM_SYNC_DEVICE_NAME,
 			sizeof(sync_dev->v4l2_dev.mdev->model));
 	sync_dev->v4l2_dev.mdev->dev = &(pdev->dev);
 
@@ -2636,7 +2634,7 @@ static void cam_sync_media_controller_cleanup(struct sync_device *sync_dev)
 	media_entity_cleanup(&sync_dev->vdev->entity);
 	media_device_unregister(sync_dev->v4l2_dev.mdev);
 	media_device_cleanup(sync_dev->v4l2_dev.mdev);
-	CAM_MEM_FREE(sync_dev->v4l2_dev.mdev);
+	kfree(sync_dev->v4l2_dev.mdev);
 }
 
 static void cam_sync_init_entity(struct sync_device *sync_dev)
@@ -2774,18 +2772,15 @@ static int cam_sync_component_bind(struct device *dev,
 {
 	int rc, idx;
 	struct platform_device *pdev = to_platform_device(dev);
-	struct timespec64 ts_start, ts_end;
-	long microsec = 0;
 
-	CAM_GET_TIMESTAMP(ts_start);
-	sync_dev = CAM_MEM_ZALLOC(sizeof(*sync_dev), GFP_KERNEL);
+	sync_dev = kzalloc(sizeof(*sync_dev), GFP_KERNEL);
 	if (!sync_dev)
 		return -ENOMEM;
 
 	sync_dev->sync_table = vzalloc(sizeof(struct sync_table_row) * CAM_SYNC_MAX_OBJS);
 	if (!sync_dev->sync_table) {
 		CAM_ERR(CAM_SYNC, "Mem Allocation failed for sync table");
-		CAM_MEM_FREE(sync_dev);
+		kfree(sync_dev);
 		return -ENOMEM;
 	}
 
@@ -2811,7 +2806,7 @@ static int cam_sync_component_bind(struct device *dev,
 	if (rc < 0)
 		goto register_fail;
 
-	strscpy(sync_dev->vdev->name, CAM_SYNC_NAME,
+	strlcpy(sync_dev->vdev->name, CAM_SYNC_NAME,
 				sizeof(sync_dev->vdev->name));
 	sync_dev->vdev->release  = video_device_release_empty;
 	sync_dev->vdev->fops     = &cam_sync_v4l2_fops;
@@ -2874,10 +2869,6 @@ static int cam_sync_component_bind(struct device *dev,
 		goto dma_driver_deinit;
 #endif
 	CAM_DBG(CAM_SYNC, "Component bound successfully");
-	CAM_GET_TIMESTAMP(ts_end);
-	CAM_GET_TIMESTAMP_DIFF_IN_MICRO(ts_start, ts_end, microsec);
-	cam_record_bind_latency(pdev->name, microsec);
-
 	return rc;
 
 #if IS_REACHABLE(CONFIG_MSM_GLOBAL_SYNX) || IS_ENABLED(CONFIG_TARGET_SYNX_ENABLE)
@@ -2896,7 +2887,7 @@ mcinit_fail:
 vdev_fail:
 	vfree(sync_dev->sync_table);
 	mutex_destroy(&sync_dev->table_lock);
-	CAM_MEM_FREE(sync_dev);
+	kfree(sync_dev);
 	return rc;
 }
 
@@ -2921,7 +2912,7 @@ static void cam_sync_component_unbind(struct device *dev,
 		spin_lock_init(&sync_dev->row_spinlocks[i]);
 
 	vfree(sync_dev->sync_table);
-	CAM_MEM_FREE(sync_dev);
+	kfree(sync_dev);
 	sync_dev = NULL;
 }
 

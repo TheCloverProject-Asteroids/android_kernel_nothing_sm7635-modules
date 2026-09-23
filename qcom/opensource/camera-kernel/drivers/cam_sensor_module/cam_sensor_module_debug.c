@@ -20,10 +20,10 @@
 #define NUM_OF_READ_PARAMS      5
 #define NUM_OF_WRITE_PARAMS     7
 #define USAGE_STRING   "Read format: r/R, reg_addr(hex), addr_type, "\
-					"data_type, device_type, instance_id (ID pair)\n"\
-					"Write format: w/W, reg_addr(hex), reg_value(hex), "\
-					"delay, addr_type, data_type, device_type, "\
-					"instance_id (ID pair)\n"
+			       "data_type, device_type, instance_id (ID pair)\n"\
+			       "Write format: w/W, reg_addr(hex), addr_type, "\
+			       "reg_value(hex), delay, addr_type, data_type, device_type, "\
+				   "instance_id (ID pair)\n"
 
 struct cam_sensor_i2c_devices {
 	struct cam_actuator_ctrl_t *actuator[MAX_CAMERAS];
@@ -39,9 +39,8 @@ struct cam_sensor_i2c_devices {
 };
 
 static struct dentry *debugfs_root;
+static char in_buffer[RW_BUFFER_SIZE], out_buffer[RW_BUFFER_SIZE];
 static struct cam_sensor_i2c_devices devices = {0};
-
-static char *display_buf;
 
 struct camera_io_master *cam_sensor_module_get_io_master(
 	int device_type, int instance_number, bool *is_on)
@@ -137,12 +136,7 @@ static int cam_sensor_module_parse_line(const char *p_line,
 static void cam_sensor_get_device_status(int offset)
 {
 	int i;
-	char line_buffer[LINE_BUFFER_SIZE], *start;
-
-	if (display_buf)
-		start = display_buf + offset;
-	else
-		return;
+	char line_buffer[LINE_BUFFER_SIZE], *start = out_buffer + offset;
 
 	for (i = 0; i < devices.num_actuator; i++) {
 		snprintf(line_buffer, LINE_BUFFER_SIZE,
@@ -189,13 +183,11 @@ static void cam_sensor_get_device_status(int offset)
 static ssize_t i2c_read(struct file *t_file, char __user *t_char,
 	size_t t_size_t, loff_t *t_loff_t)
 {
-	ssize_t count = 0;
+	ssize_t count;
 
-	if (display_buf) {
-		count = simple_read_from_buffer(t_char, t_size_t,
-			t_loff_t, display_buf, RW_BUFFER_SIZE);
-		memset(display_buf, '\0', RW_BUFFER_SIZE);
-	}
+	count = simple_read_from_buffer(t_char, t_size_t,
+		t_loff_t, out_buffer, RW_BUFFER_SIZE);
+	memset(out_buffer, '\0', RW_BUFFER_SIZE);
 
 	return count;
 }
@@ -207,32 +199,20 @@ static ssize_t i2c_write(struct file *t_file, const char __user *t_char,
 	struct cam_sensor_i2c_reg_setting read_write;
 	struct cam_sensor_i2c_reg_array   reg_array;
 	struct camera_io_master *io_master = NULL;
-	char *line_buffer = NULL;
-	char *input_buf = NULL;
+	char line_buffer[LINE_BUFFER_SIZE];
 	bool is_read, power_state;
 
-	if (!display_buf)
-		return -EINVAL;
-
-	line_buffer = CAM_MEM_ZALLOC(sizeof(char) * LINE_BUFFER_SIZE, GFP_KERNEL);
-	if (!line_buffer)
-		return -ENOMEM;
-	input_buf = CAM_MEM_ZALLOC(sizeof(char) * RW_BUFFER_SIZE, GFP_KERNEL);
-	if (!input_buf) {
-		CAM_MEM_FREE(line_buffer);
-		return -ENOMEM;
-	}
-
-	memset(display_buf, '\0', RW_BUFFER_SIZE);
+	memset(out_buffer, '\0', RW_BUFFER_SIZE);
+	memset(line_buffer, '\0', LINE_BUFFER_SIZE);
 	read_write.reg_setting = &reg_array;
 
-	bytes_written = simple_write_to_buffer(input_buf, RW_BUFFER_SIZE - 1,
+	bytes_written = simple_write_to_buffer(in_buffer, RW_BUFFER_SIZE - 1,
 		t_loff_t, t_char, t_size_t);
 
 	/* Turn it into a C string */
-	input_buf[bytes_written + 1] = '\0';
+	in_buffer[bytes_written + 1] = '\0';
 
-	rc = cam_sensor_module_parse_line(input_buf, &read_write,
+	rc = cam_sensor_module_parse_line(in_buffer, &read_write,
 		&io_master, &is_read, &power_state);
 
 	if (!rc) {
@@ -248,7 +228,7 @@ static ssize_t i2c_write(struct file *t_file, const char __user *t_char,
 					"Error: 0x%X, 0x%X, rc: %zu\n",
 					read_write.reg_setting->reg_addr,
 					read_write.reg_setting->reg_data, rc);
-				strlcat(display_buf, line_buffer, RW_BUFFER_SIZE);
+				strlcat(out_buffer, line_buffer, RW_BUFFER_SIZE);
 			}
 		} else {
 			rc = camera_io_dev_read(io_master,
@@ -263,13 +243,11 @@ static ssize_t i2c_write(struct file *t_file, const char __user *t_char,
 			strlcat(out_buffer, line_buffer, RW_BUFFER_SIZE);
 		}
 	} else {
-		strscpy(display_buf, USAGE_STRING, RW_BUFFER_SIZE);
+		strscpy(out_buffer, USAGE_STRING, RW_BUFFER_SIZE);
 		cam_sensor_get_device_status(strlen(USAGE_STRING));
 	}
 
 end:
-	CAM_MEM_FREE(line_buffer);
-	CAM_MEM_FREE(input_buf);
 	return bytes_written;
 }
 
@@ -318,8 +296,6 @@ int cam_sensor_module_debug_register(void)
 	int rc = 0;
 	struct dentry *dbgfileptr = NULL;
 
-	display_buf = NULL;
-
 	if (!cam_debugfs_available())
 		return 0;
 
@@ -334,8 +310,6 @@ int cam_sensor_module_debug_register(void)
 	debugfs_create_file("i2c-rw", 0644, debugfs_root,
 		NULL, &i2c_operations);
 
-	display_buf = CAM_MEM_ZALLOC(sizeof(char) * RW_BUFFER_SIZE, GFP_KERNEL);
-
 end:
 	return rc;
 }
@@ -343,6 +317,4 @@ end:
 void cam_sensor_module_debug_deregister(void)
 {
 	debugfs_root = NULL;
-	if (display_buf)
-		CAM_MEM_FREE(display_buf);
 }

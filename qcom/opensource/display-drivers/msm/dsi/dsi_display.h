@@ -17,7 +17,6 @@
 #include <drm/drm_bridge.h>
 
 #include "msm_drv.h"
-#include "sde_cesta.h"
 #include "dsi_defs.h"
 #include "dsi_ctrl.h"
 #include "dsi_phy.h"
@@ -167,7 +166,6 @@ struct dsi_display_ext_bridge {
  *		      index into the ctrl[MAX_DSI_CTRLS_PER_DISPLAY] array.
  * @cmd_master_idx:   The master controller for sending DSI commands to panel.
  * @video_master_idx: The master controller for enabling video engine.
- * @is_master:        Indicates whether this display is master in sync mode.
  * @dyn_bit_clk:      The DSI bit clock rate dynamically set by user mode client.
  * @dyn_bit_clk_pending: Flag indicating the pending DSI dynamic bit clock rate change.
  * @cached_clk_rate:  The cached DSI clock rate set dynamically by sysfs.
@@ -182,7 +180,6 @@ struct dsi_display_ext_bridge {
  * @ulps_enabled:     ulps state.
  * @clamp_enabled:    clamp state.
  * @phy_idle_power_off:   PHY power state.
- * @twm_enabled:      Boolean to indicate twm enabled.
  * @host:             DRM MIPI DSI Host.
  * @bridge:           Pointer to DRM bridge object.
  * @cmd_engine_refcount:  Reference count enforcing single instance of cmd eng
@@ -244,8 +241,6 @@ struct dsi_display {
 	u32 cmd_master_idx;
 	u32 video_master_idx;
 
-	bool is_master;
-
 	/* dynamic DSI clock info*/
 	u32 dyn_bit_clk;
 	bool dyn_bit_clk_pending;
@@ -262,7 +257,6 @@ struct dsi_display {
 	bool ulps_enabled;
 	bool clamp_enabled;
 	bool phy_idle_power_off;
-	bool twm_enabled;
 	struct drm_gem_object *tx_cmd_buf;
 	u32 cmd_buffer_size;
 	u64 cmd_buffer_iova;
@@ -325,19 +319,18 @@ int dsi_display_dev_remove(struct platform_device *pdev);
 /**
  * dsi_display_get_num_of_displays() - returns number of display devices
  *				       supported.
- * @dev: Pointer to DRM device
+ *
  * Return: number of displays.
  */
-int dsi_display_get_num_of_displays(struct drm_device *dev);
+int dsi_display_get_num_of_displays(void);
 
 /**
  * dsi_display_get_active_displays - returns pointers for active display devices
- * @dev: Pointer to DRM device
  * @display_array: Pointer to display array to be filled
  * @max_display_count: Size of display_array
  * @Returns: Number of display entries filled
  */
-int dsi_display_get_active_displays(struct drm_device *dev, void **display_array,
+int dsi_display_get_active_displays(void **display_array,
 		u32 max_display_count);
 
 /**
@@ -360,12 +353,11 @@ void dsi_display_set_active_state(struct dsi_display *display, bool is_active);
  * @display:            Handle to the display.
  * @encoder:            Pointer to the encoder object which is connected to the
  *			display.
- * @cesta_client:	Pointer to the display cesta client.
  *
  * Return: error code.
  */
 int dsi_display_drm_bridge_init(struct dsi_display *display,
-		struct drm_encoder *enc, struct sde_cesta_client *cesta_client);
+		struct drm_encoder *enc);
 
 /**
  * dsi_display_drm_bridge_deinit() - destroys DRM bridge for the display
@@ -649,18 +641,7 @@ int dsi_display_set_tpg_state(struct dsi_display *display, bool enable,
 		u32 init_val,
 		enum dsi_ctrl_tpg_pattern pattern);
 
-/**
- * dsi_display_set_lp2_load() - Add or remove LP2 load on DSI display supplies.
- * @display:		Handle to display.
- * @enable:		Boolean to control whether to add or remove
- * the LP2 load.
- *
- * Return: error code.
- */
-int dsi_display_set_lp2_load(struct dsi_display *display, bool enable);
-
 int dsi_display_clock_gate(struct dsi_display *display, bool enable);
-
 int dsi_dispaly_static_frame(struct dsi_display *display, bool enable);
 
 /**
@@ -715,15 +696,14 @@ int dsi_display_check_status(struct drm_connector *connector, void *display,
 
 /**
  * dsi_display_cmd_transfer() - transfer command to the panel
- * @connector:           Pointer to drm connector structure
- * @display:             Handle to display.
- * @cmd_buf:             Command buffer
- * @cmd_buf_len:         Command buffer length in bytes
- * @do_peripheral_flush: Flag for sending this command with peripheral flush
+ * @connector:          Pointer to drm connector structure
+ * @display:            Handle to display.
+ * @cmd_buf:            Command buffer
+ * @cmd_buf_len:        Command buffer length in bytes
  */
 int dsi_display_cmd_transfer(struct drm_connector *connector,
 		void *display, const char *cmd_buffer,
-		u32 cmd_buf_len, bool do_peripheral_flush);
+		u32 cmd_buf_len);
 
 /**
  * dsi_display_cmd_receive() - receive response from the panel
@@ -769,14 +749,6 @@ int dsi_display_set_power(struct drm_connector *connector,
 		int power_mode, void *display);
 
 /*
- * dsi_display_dcs_cmd_tx - send arbitrary DCS command to panel
- * @display: Pointer to private display structure
- * @cmd: Enum identifying the command
- * Returns: Zero on success
- */
-int dsi_display_dcs_cmd_tx(struct dsi_display *display, enum dsi_cmd_set_type cmd);
-
-/*
  * dsi_display_pre_kickoff - program kickoff-time features
  * @connector: Pointer to drm connector structure
  * @display: Pointer to private display structure
@@ -794,16 +766,6 @@ int dsi_display_pre_kickoff(struct drm_connector *connector,
  * Returns: Zero on success
  */
 int dsi_display_pre_commit(void *display,
-		struct msm_display_conn_params *params);
-
-/*
- * dsi_display_process_dcs_cmd_bitmask - process a bit mask to send multiple
- *                                       DCS command sets in a batch
- * @display: Pointer to private display structure
- * @params: Parameters for DCS command bit mask and peripheral flush
- * Returns: Zero on success
- */
-int dsi_display_process_dcs_cmd_bitmask(void *display,
 		struct msm_display_conn_params *params);
 
 /**
@@ -884,15 +846,6 @@ bool dsi_display_mode_match(const struct dsi_display_mode *mode1,
  * Return: error code
  */
 int dsi_display_update_transfer_time(void *display, u32 transfer_time);
-
-/**
- * dsi_display_avoid_cmd_transfer() - Avoid DSI command transfer
- * @display:     handle to display
- * @avoid_transfer: true to avoid transfer, false to allow transfer
- *
- * Return: error code
- */
-int dsi_display_avoid_cmd_transfer(void *display, bool avoid_transfer);
 
 /**
  * dsi_display_get_panel_scan_line() - get panel scan line

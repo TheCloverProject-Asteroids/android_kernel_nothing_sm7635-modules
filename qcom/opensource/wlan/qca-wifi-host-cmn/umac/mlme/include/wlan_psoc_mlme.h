@@ -151,7 +151,6 @@ struct wlan_peer_tbl_trans_entry {
  * @psoc:                  PSoC object
  * @ext_psoc_ptr:          PSoC legacy pointer
  * @psoc_vdev_rt:          PSoC Vdev response timer
- * @vdev_rsp_timer_mutex:  vdev rsp timer mutex to avoid race condition issue
  * @psoc_mlme_wakelock:    Wakelock to prevent system going to suspend
  * @rnr_6ghz_cache:        Cache of 6Ghz vap in RNR ie format
  * @rnr_6ghz_cache_legacy: Legacy (13TBTT) cache of 6Ghz vap in RNR ie format
@@ -162,7 +161,6 @@ struct psoc_mlme_obj {
 	struct wlan_objmgr_psoc *psoc;
 	mlme_psoc_ext_t *ext_psoc_ptr;
 	struct vdev_response_timer psoc_vdev_rt[WLAN_UMAC_PSOC_MAX_VDEVS];
-	qdf_mutex_t vdev_rsp_timer_mutex;
 #ifdef FEATURE_VDEV_OPS_WAKELOCK
 	struct psoc_mlme_wakelock psoc_mlme_wakelock;
 #endif

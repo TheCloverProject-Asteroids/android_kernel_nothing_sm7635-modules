@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_IFE_CSID_780_H_
@@ -1248,8 +1248,8 @@ static struct cam_ife_csid_ver2_csi2_rx_reg_info
 		.short_pkt_strobe_rst_shift      = 1,
 		.cphy_pkt_strobe_rst_shift       = 2,
 		.unmapped_pkt_strobe_rst_shift   = 3,
-		.fatal_err_mask                  = {0x197A800,},
-		.part_fatal_err_mask             = {0x0081000,},
+		.fatal_err_mask                  = {0x19FA800,},
+		.part_fatal_err_mask             = {0x0001000,},
 		.non_fatal_err_mask              = {0x0200000,},
 		.top_irq_mask                    = {0x4,},
 };
@@ -1345,7 +1345,7 @@ static struct cam_ife_csid_ver2_common_reg_info
 	.rst_mode_shift_val                      = 0,
 	.epoch_factor                            = 50,
 	.global_reset                            = 1,
-	.aup_rup_supported                       = 1,
+	.rup_supported                           = 1,
 	.only_master_rup                         = 1,
 	.format_measure_height_mask_val          = 0xFFFF,
 	.format_measure_height_shift_val         = 0x10,
@@ -1405,76 +1405,6 @@ static struct cam_ife_csid_ver2_top_reg_info
 	.io_path_cfg_rst_val            = 1,
 	.dual_cfg_rst_val               = 0,
 	.sfe_pipeline_bypassed          = true,
-};
-
-static struct cam_ife_csid_rx_debug_mask cam_ife_csid_780_rx_debug_mask = {
-
-	.evt_bitmap = {
-		BIT_ULL(CAM_IFE_CSID_RX_DL0_EOT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL1_EOT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL2_EOT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL3_EOT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL0_SOT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL1_SOT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL2_SOT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL3_SOT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_LONG_PKT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_SHORT_PKT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_CPHY_PKT_HDR_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_CPHY_EOT_RECEPTION) |
-			BIT_ULL(CAM_IFE_CSID_RX_CPHY_SOT_RECEPTION) |
-			BIT_ULL(CAM_IFE_CSID_RX_ERROR_CPHY_PH_CRC) |
-			BIT_ULL(CAM_IFE_CSID_RX_WARNING_ECC) |
-			BIT_ULL(CAM_IFE_CSID_RX_LANE0_FIFO_OVERFLOW) |
-			BIT_ULL(CAM_IFE_CSID_RX_LANE1_FIFO_OVERFLOW) |
-			BIT_ULL(CAM_IFE_CSID_RX_LANE2_FIFO_OVERFLOW) |
-			BIT_ULL(CAM_IFE_CSID_RX_LANE3_FIFO_OVERFLOW) |
-			BIT_ULL(CAM_IFE_CSID_RX_ERROR_CRC) |
-			BIT_ULL(CAM_IFE_CSID_RX_ERROR_ECC) |
-			BIT_ULL(CAM_IFE_CSID_RX_MMAPPED_VC_DT) |
-			BIT_ULL(CAM_IFE_CSID_RX_UNMAPPED_VC_DT) |
-			BIT_ULL(CAM_IFE_CSID_RX_STREAM_UNDERFLOW) |
-			BIT_ULL(CAM_IFE_CSID_RX_UNBOUNDED_FRAME),
-	},
-
-	.bit_pos[CAM_IFE_CSID_RX_DL0_EOT_CAPTURED] = 0,
-	.bit_pos[CAM_IFE_CSID_RX_DL1_EOT_CAPTURED] = 1,
-	.bit_pos[CAM_IFE_CSID_RX_DL2_EOT_CAPTURED] = 2,
-	.bit_pos[CAM_IFE_CSID_RX_DL3_EOT_CAPTURED] = 3,
-	.bit_pos[CAM_IFE_CSID_RX_DL0_SOT_CAPTURED] = 4,
-	.bit_pos[CAM_IFE_CSID_RX_DL1_SOT_CAPTURED] = 5,
-	.bit_pos[CAM_IFE_CSID_RX_DL2_SOT_CAPTURED] = 6,
-	.bit_pos[CAM_IFE_CSID_RX_DL3_SOT_CAPTURED] = 7,
-	.bit_pos[CAM_IFE_CSID_RX_LONG_PKT_CAPTURED] = 8,
-	.bit_pos[CAM_IFE_CSID_RX_SHORT_PKT_CAPTURED] = 9,
-	.bit_pos[CAM_IFE_CSID_RX_CPHY_PKT_HDR_CAPTURED] = 10,
-	.bit_pos[CAM_IFE_CSID_RX_CPHY_EOT_RECEPTION] = 11,
-	.bit_pos[CAM_IFE_CSID_RX_CPHY_SOT_RECEPTION] = 12,
-	.bit_pos[CAM_IFE_CSID_RX_ERROR_CPHY_PH_CRC] = 13,
-	.bit_pos[CAM_IFE_CSID_RX_WARNING_ECC] = 14,
-	.bit_pos[CAM_IFE_CSID_RX_LANE0_FIFO_OVERFLOW] = 15,
-	.bit_pos[CAM_IFE_CSID_RX_LANE1_FIFO_OVERFLOW] = 16,
-	.bit_pos[CAM_IFE_CSID_RX_LANE2_FIFO_OVERFLOW] = 17,
-	.bit_pos[CAM_IFE_CSID_RX_LANE3_FIFO_OVERFLOW] = 18,
-	.bit_pos[CAM_IFE_CSID_RX_ERROR_CRC] = 19,
-	.bit_pos[CAM_IFE_CSID_RX_ERROR_ECC] = 20,
-	.bit_pos[CAM_IFE_CSID_RX_MMAPPED_VC_DT] = 21,
-	.bit_pos[CAM_IFE_CSID_RX_UNMAPPED_VC_DT] = 22,
-	.bit_pos[CAM_IFE_CSID_RX_STREAM_UNDERFLOW] = 23,
-	.bit_pos[CAM_IFE_CSID_RX_UNBOUNDED_FRAME] = 24,
-};
-
-static struct cam_ife_csid_top_debug_mask cam_ife_csid_780_top_debug_mask = {
-
-	.evt_bitmap = {
-		BIT_ULL(CAM_IFE_CSID_TOP_INFO_VOTE_UP) |
-			BIT_ULL(CAM_IFE_CSID_TOP_INFO_VOTE_DN) |
-			BIT_ULL(CAM_IFE_CSID_TOP_ERR_NO_VOTE_DN),
-	},
-
-	.bit_pos[CAM_IFE_CSID_TOP_INFO_VOTE_UP] = 16,
-	.bit_pos[CAM_IFE_CSID_TOP_INFO_VOTE_DN] = 17,
-	.bit_pos[CAM_IFE_CSID_TOP_ERR_NO_VOTE_DN] = 18,
 };
 
 static struct cam_ife_csid_ver2_reg_info cam_ife_csid_780_reg_info = {
@@ -1537,8 +1467,6 @@ static struct cam_ife_csid_ver2_reg_info cam_ife_csid_780_reg_info = {
 	.num_top_err_irqs   = cam_ife_csid_780_num_top_irq_desc,
 	.num_rx_err_irqs    = cam_ife_csid_780_num_rx_irq_desc,
 	.num_path_err_irqs  = ARRAY_SIZE(cam_ife_csid_780_path_irq_desc),
-	.top_debug_mask     = &cam_ife_csid_780_top_debug_mask,
-	.rx_debug_mask      = &cam_ife_csid_780_rx_debug_mask,
 	.num_top_regs       = 1,
 	.num_rx_regs       = 1,
 };

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/of.h>
@@ -54,7 +54,6 @@ int cam_ofe_init_hw(void *device_priv,
 	struct cam_hw_soc_info *soc_info = NULL;
 	struct cam_ofe_device_core_info *core_info = NULL;
 	struct cam_icp_cpas_vote cpas_vote;
-	unsigned long flags;
 	int rc = 0;
 
 	if (!device_priv) {
@@ -69,21 +68,6 @@ int cam_ofe_init_hw(void *device_priv,
 		CAM_ERR(CAM_ICP, "soc_info = %pK core_info = %pK",
 			soc_info, core_info);
 		return -EINVAL;
-	}
-
-	spin_lock_irqsave(&ofe_dev->hw_lock, flags);
-	if (ofe_dev->hw_state == CAM_HW_STATE_POWER_UP) {
-		core_info->power_on_cnt++;
-		spin_unlock_irqrestore(&ofe_dev->hw_lock, flags);
-		return 0;
-	}
-	spin_unlock_irqrestore(&ofe_dev->hw_lock, flags);
-
-	rc = cam_vmrm_soc_acquire_resources(CAM_HW_ID_OFE + core_info->ofe_hw_info->hw_idx);
-	if (rc) {
-		CAM_ERR(CAM_ICP, "OFE hw id %x acquire ownership failed",
-			CAM_HW_ID_OFE + core_info->ofe_hw_info->hw_idx);
-		return rc;
 	}
 
 	cpas_vote.ahb_vote.type = CAM_VOTE_ABSOLUTE;
@@ -119,12 +103,6 @@ int cam_ofe_init_hw(void *device_priv,
 		core_info->clk_enable = true;
 	}
 
-	spin_lock_irqsave(&ofe_dev->hw_lock, flags);
-	ofe_dev->hw_state = CAM_HW_STATE_POWER_UP;
-	core_info->power_on_cnt++;
-	spin_unlock_irqrestore(&ofe_dev->hw_lock, flags);
-
-	CAM_DBG(CAM_ICP, "OFE%u powered on", soc_info->index);
 	return rc;
 }
 
@@ -134,7 +112,6 @@ int cam_ofe_deinit_hw(void *device_priv,
 	struct cam_hw_info *ofe_dev = device_priv;
 	struct cam_hw_soc_info *soc_info = NULL;
 	struct cam_ofe_device_core_info *core_info = NULL;
-	unsigned long flags;
 	int rc = 0;
 
 	if (!device_priv) {
@@ -150,21 +127,6 @@ int cam_ofe_deinit_hw(void *device_priv,
 		return -EINVAL;
 	}
 
-	spin_lock_irqsave(&ofe_dev->hw_lock, flags);
-	if (ofe_dev->hw_state == CAM_HW_STATE_POWER_DOWN) {
-		spin_unlock_irqrestore(&ofe_dev->hw_lock, flags);
-		return 0;
-	}
-
-	core_info->power_on_cnt--;
-	if (core_info->power_on_cnt) {
-		spin_unlock_irqrestore(&ofe_dev->hw_lock, flags);
-		CAM_DBG(CAM_ICP, "OFE%u power on reference still held %u",
-			soc_info->index, core_info->power_on_cnt);
-		return 0;
-	}
-	spin_unlock_irqrestore(&ofe_dev->hw_lock, flags);
-
 	rc = cam_ofe_disable_soc_resources(soc_info, core_info->clk_enable);
 	if (rc)
 		CAM_ERR(CAM_ICP, "soc disable failed: %d", rc);
@@ -176,19 +138,6 @@ int cam_ofe_deinit_hw(void *device_priv,
 			CAM_ERR(CAM_ICP, "cpas stop failed");
 		else
 			core_info->cpas_start = false;
-	}
-
-	spin_lock_irqsave(&ofe_dev->hw_lock, flags);
-	ofe_dev->hw_state = CAM_HW_STATE_POWER_DOWN;
-	spin_unlock_irqrestore(&ofe_dev->hw_lock, flags);
-
-	CAM_DBG(CAM_ICP, "OFE%u powered off", soc_info->index);
-
-	rc = cam_vmrm_soc_release_resources(CAM_HW_ID_OFE + core_info->ofe_hw_info->hw_idx);
-	if (rc) {
-		CAM_ERR(CAM_ICP, "OFE hw id %x release ownership failed",
-			CAM_HW_ID_OFE + core_info->ofe_hw_info->hw_idx);
-		return rc;
 	}
 
 	return rc;
@@ -321,6 +270,87 @@ static int cam_ofe_handle_resume(struct cam_hw_info *ofe_dev)
 	return rc;
 }
 
+static int cam_ofe_cmd_reset(struct cam_hw_soc_info *soc_info,
+	struct cam_ofe_device_core_info *core_info)
+{
+	uint32_t retry_cnt = 0, status = 0;
+	int pwr_ctrl, pwr_status, rc = 0;
+	bool reset_ofe_cdm_fail = false, reset_ofe_top_fail = false;
+	struct cam_ofe_device_hw_info *hw_info = NULL;
+
+	CAM_DBG(CAM_ICP, "CAM_ICP_OFE_CMD_RESET");
+
+	if (!core_info->clk_enable || !core_info->cpas_start) {
+		CAM_DBG(CAM_ICP, "OFE not powered on clk_en %d cpas_start %d",
+			core_info->clk_enable, core_info->cpas_start);
+		return 0;
+	}
+
+	hw_info = core_info->ofe_hw_info;
+
+	/* Reset OFE CDM core*/
+	cam_io_w_mb(hw_info->cdm_rst_val,
+		soc_info->reg_map[0].mem_base + hw_info->cdm_rst_cmd);
+	while (retry_cnt < HFI_MAX_POLL_TRY) {
+		cam_common_read_poll_timeout((soc_info->reg_map[0].mem_base +
+			hw_info->cdm_irq_status),
+			PC_POLL_DELAY_US, PC_POLL_TIMEOUT_US,
+			OFE_RST_DONE_IRQ_STATUS_BIT, OFE_RST_DONE_IRQ_STATUS_BIT,
+			&status);
+
+		CAM_DBG(CAM_ICP, "ofe_cdm_irq_status = %u", status);
+
+		if ((status & OFE_RST_DONE_IRQ_STATUS_BIT) == 0x1)
+			break;
+		retry_cnt++;
+	}
+
+	if (retry_cnt == HFI_MAX_POLL_TRY) {
+		CAM_ERR(CAM_ICP, "OFE CDM rst failed status 0x%x", status);
+		reset_ofe_cdm_fail = true;
+	}
+
+	/* Reset OFE core*/
+	status = 0;
+	retry_cnt = 0;
+	cam_io_w_mb(hw_info->top_rst_val,
+		soc_info->reg_map[0].mem_base + hw_info->top_rst_cmd);
+	while (retry_cnt < HFI_MAX_POLL_TRY) {
+		cam_common_read_poll_timeout((soc_info->reg_map[0].mem_base +
+			hw_info->top_irq_status),
+			PC_POLL_DELAY_US, PC_POLL_TIMEOUT_US,
+			OFE_RST_DONE_IRQ_STATUS_BIT, OFE_RST_DONE_IRQ_STATUS_BIT,
+			&status);
+
+		CAM_DBG(CAM_ICP, "ofe_top_irq_status = %u", status);
+
+		if ((status & OFE_RST_DONE_IRQ_STATUS_BIT) == 0x1)
+			break;
+		retry_cnt++;
+	}
+
+	if (retry_cnt == HFI_MAX_POLL_TRY) {
+		CAM_ERR(CAM_ICP, "OFE top rst failed status 0x%x", status);
+		reset_ofe_top_fail = true;
+	}
+
+	cam_cpas_reg_read(core_info->cpas_handle,
+		CAM_CPAS_REGBASE_CPASTOP, core_info->ofe_hw_info->pwr_ctrl,
+		true, &pwr_ctrl);
+	cam_cpas_reg_read(core_info->cpas_handle,
+		CAM_CPAS_REGBASE_CPASTOP, core_info->ofe_hw_info->pwr_status,
+		true, &pwr_status);
+	CAM_DBG(CAM_ICP, "(After) pwr_ctrl = %x pwr_status = %x",
+		pwr_ctrl, pwr_status);
+
+	if (reset_ofe_cdm_fail || reset_ofe_top_fail)
+		rc = -EAGAIN;
+	else
+		CAM_DBG(CAM_ICP, "OFE cdm and OFE top reset success");
+
+	return rc;
+}
+
 int cam_ofe_process_cmd(void *device_priv, uint32_t cmd_type,
 	void *cmd_args, uint32_t arg_size)
 {
@@ -425,23 +455,9 @@ int cam_ofe_process_cmd(void *device_priv, uint32_t cmd_type,
 			clk_upd_cmd->clk_level = clk_level;
 			ahb_vote.type = CAM_VOTE_ABSOLUTE;
 			ahb_vote.vote.level = clk_level;
-
-			rc = cam_cpas_update_ahb_vote(core_info->cpas_handle, &ahb_vote);
-			if (rc) {
-				CAM_ERR(CAM_PERF, "failed at updating ahb vote level rc: %d",
-					rc);
-				return rc;
-			}
-
-			rc = cam_cpas_update_axi_floor_lvl(core_info->cpas_handle,
-				clk_level);
-			if (rc) {
-				CAM_ERR(CAM_PERF,
-					"failed at updating axi vote level clk_level rc: %d",
-					rc);
-				return rc;
-			}
-
+			cam_cpas_update_ahb_vote(
+				core_info->cpas_handle,
+				&ahb_vote);
 		}
 		break;
 	}
@@ -449,6 +465,9 @@ int cam_ofe_process_cmd(void *device_priv, uint32_t cmd_type,
 		if (core_info->clk_enable)
 			cam_ofe_toggle_clk(soc_info, false);
 		core_info->clk_enable = false;
+		break;
+	case CAM_ICP_DEV_CMD_RESET:
+		rc = cam_ofe_cmd_reset(soc_info, core_info);
 		break;
 	default:
 		CAM_ERR(CAM_ICP, "Invalid Cmd Type:%u", cmd_type);

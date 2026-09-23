@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -422,7 +422,6 @@ bool ucfg_policy_mgr_is_hw_sbs_capable(struct wlan_objmgr_psoc *psoc);
  *					           connection that has same
  *					           channel frequency as new_freq
  * @psoc: psoc object pointer
- * @self_vdev_id: self vdev id of the connection with new_freq
  * @new_freq: channel frequency for the new connection
  * @vdev_id: Output parameter to return vdev id of the first existing connection
  *	     that has same channel frequency as @new_freq
@@ -434,7 +433,6 @@ bool ucfg_policy_mgr_is_hw_sbs_capable(struct wlan_objmgr_psoc *psoc);
  *	   @new_freq exists. Otherwise false.
  */
 bool ucfg_policy_mgr_get_vdev_same_freq_new_conn(struct wlan_objmgr_psoc *psoc,
-						 uint8_t self_vdev_id,
 						 uint32_t new_freq,
 						 uint8_t *vdev_id);
 /*

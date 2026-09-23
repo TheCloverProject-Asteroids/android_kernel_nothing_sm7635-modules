@@ -133,7 +133,6 @@ static int kgsl_memdesc_get_reclaimed_pages(struct kgsl_mem_entry *entry)
 	int i, ret;
 	struct page *page = NULL;
 
-	mutex_lock(&memdesc->lock);
 	for (i = 0; i < memdesc->page_count; i++) {
 		if (memdesc->pages[i])
 			continue;
@@ -148,14 +147,14 @@ static int kgsl_memdesc_get_reclaimed_pages(struct kgsl_mem_entry *entry)
 		 * Update the pages array only if vmfault has not
 		 * updated it meanwhile
 		 */
-		mutex_lock(&memdesc->lock);
+		spin_lock(&memdesc->lock);
 		if (!memdesc->pages[i]) {
 			memdesc->pages[i] = page;
 			atomic_dec(&entry->priv->unpinned_page_count);
 		} else
 			put_page(page);
+		spin_unlock(&memdesc->lock);
 	}
-	mutex_unlock(&memdesc->lock);
 
 	ret = kgsl_mmu_map(memdesc->pagetable, memdesc);
 	if (ret)
@@ -163,7 +162,8 @@ static int kgsl_memdesc_get_reclaimed_pages(struct kgsl_mem_entry *entry)
 
 	trace_kgsl_reclaim_memdesc(entry, false);
 
-	CLEAR_FLAG(KGSL_MEMDESC_RECLAIMED | KGSL_MEMDESC_SKIP_RECLAIM, &memdesc->priv);
+	memdesc->priv &= ~KGSL_MEMDESC_RECLAIMED;
+	memdesc->priv &= ~KGSL_MEMDESC_SKIP_RECLAIM;
 
 	return 0;
 }
@@ -190,7 +190,7 @@ int kgsl_reclaim_to_pinned_state(
 			break;
 		}
 
-		if (TEST_FLAG(KGSL_MEMDESC_RECLAIMED, &entry->memdesc.priv))
+		if (entry->memdesc.priv & KGSL_MEMDESC_RECLAIMED)
 			valid_entry = kgsl_mem_entry_get(entry);
 		spin_unlock(&process->mem_lock);
 
@@ -310,7 +310,7 @@ static u32 kgsl_reclaim_process(struct kgsl_process_private *process,
 {
 	struct kgsl_memdesc *memdesc;
 	struct kgsl_mem_entry *entry, *valid_entry;
-	u32 next = 0, remaining = pages_to_reclaim, priv = 0;
+	u32 next = 0, remaining = pages_to_reclaim;
 
 	/*
 	 * If we do not get the lock here, it means that the buffers are
@@ -343,11 +343,10 @@ static u32 kgsl_reclaim_process(struct kgsl_process_private *process,
 		}
 
 		memdesc = &entry->memdesc;
-		priv = atomic_read(&memdesc->priv);
 		if (!entry->pending_free &&
-				(priv & KGSL_MEMDESC_CAN_RECLAIM) &&
-				!(priv & KGSL_MEMDESC_RECLAIMED) &&
-				!(priv & KGSL_MEMDESC_SKIP_RECLAIM))
+				(memdesc->priv & KGSL_MEMDESC_CAN_RECLAIM) &&
+				!(memdesc->priv & KGSL_MEMDESC_RECLAIMED) &&
+				!(memdesc->priv & KGSL_MEMDESC_SKIP_RECLAIM))
 			valid_entry = kgsl_mem_entry_get(entry);
 		spin_unlock(&process->mem_lock);
 
@@ -381,7 +380,7 @@ static u32 kgsl_reclaim_process(struct kgsl_process_private *process,
 			remaining -= memdesc->page_count;
 			reclaim_shmem_address_space(memdesc->shmem_filp->f_mapping);
 			mapping_set_unevictable(memdesc->shmem_filp->f_mapping);
-			SET_FLAG(KGSL_MEMDESC_RECLAIMED, &memdesc->priv);
+			memdesc->priv |= KGSL_MEMDESC_RECLAIMED;
 			trace_kgsl_reclaim_memdesc(entry, true);
 		}
 
@@ -469,6 +468,14 @@ kgsl_reclaim_shrink_count_objects(struct shrinker *shrinker,
 	return count_reclaimable;
 }
 
+/* Shrinker callback data*/
+static struct shrinker kgsl_reclaim_shrinker = {
+	.count_objects = kgsl_reclaim_shrink_count_objects,
+	.scan_objects = kgsl_reclaim_shrink_scan_objects,
+	.seeks = DEFAULT_SEEKS,
+	.batch = 0,
+};
+
 void kgsl_reclaim_proc_private_init(struct kgsl_process_private *process)
 {
 	mutex_init(&process->reclaim_lock);
@@ -478,74 +485,28 @@ void kgsl_reclaim_proc_private_init(struct kgsl_process_private *process)
 	atomic_set(&process->unpinned_page_count, 0);
 }
 
-#if (KERNEL_VERSION(6, 7, 0) <= LINUX_VERSION_CODE)
-static int kgsl_reclaim_shrinker_init(void)
-{
-	kgsl_driver.reclaim_shrinker = shrinker_alloc(0, "kgsl_reclaim_shrinker");
-
-	if (!kgsl_driver.reclaim_shrinker)
-		return -ENOMEM;
-
-	/* Initialize shrinker */
-	kgsl_driver.reclaim_shrinker->count_objects = kgsl_reclaim_shrink_count_objects;
-	kgsl_driver.reclaim_shrinker->scan_objects = kgsl_reclaim_shrink_scan_objects;
-	kgsl_driver.reclaim_shrinker->seeks = DEFAULT_SEEKS;
-	kgsl_driver.reclaim_shrinker->batch = 0;
-
-	shrinker_register(kgsl_driver.reclaim_shrinker);
-	return 0;
-}
-
-static void kgsl_reclaim_shrinker_close(void)
-{
-	if (kgsl_driver.reclaim_shrinker)
-		shrinker_free(kgsl_driver.reclaim_shrinker);
-
-	kgsl_driver.reclaim_shrinker = NULL;
-}
-#else
-/* Shrinker callback data*/
-static struct shrinker kgsl_reclaim_shrinker = {
-	.count_objects = kgsl_reclaim_shrink_count_objects,
-	.scan_objects = kgsl_reclaim_shrink_scan_objects,
-	.seeks = DEFAULT_SEEKS,
-	.batch = 0,
-};
-
-static int kgsl_reclaim_shrinker_init(void)
+int kgsl_reclaim_start(void)
 {
 	int ret;
 
-	kgsl_driver.reclaim_shrinker = &kgsl_reclaim_shrinker;
-
 	/* Initialize shrinker */
 #if (KERNEL_VERSION(6, 0, 0) <= LINUX_VERSION_CODE)
-	ret = register_shrinker(kgsl_driver.reclaim_shrinker, "kgsl_reclaim_shrinker");
+	ret = register_shrinker(&kgsl_reclaim_shrinker, "kgsl_reclaim_shrinker");
 #else
-	ret = register_shrinker(kgsl_driver.reclaim_shrinker);
+	ret = register_shrinker(&kgsl_reclaim_shrinker);
 #endif
+	if (ret)
+		pr_err("kgsl: reclaim: Failed to register shrinker\n");
+
 	return ret;
-}
-
-static void kgsl_reclaim_shrinker_close(void)
-{
-	unregister_shrinker(kgsl_driver.reclaim_shrinker);
-}
-#endif
-
-int kgsl_reclaim_start(void)
-{
-	return kgsl_reclaim_shrinker_init();
 }
 
 int kgsl_reclaim_init(void)
 {
 	int ret = kgsl_reclaim_start();
 
-	if (ret) {
-		pr_err("kgsl: reclaim: Failed to register shrinker\n");
+	if (ret)
 		return ret;
-	}
 
 	INIT_WORK(&reclaim_work, kgsl_reclaim_background_work);
 
@@ -554,6 +515,8 @@ int kgsl_reclaim_init(void)
 
 void kgsl_reclaim_close(void)
 {
-	kgsl_reclaim_shrinker_close();
+	/* Unregister shrinker */
+	unregister_shrinker(&kgsl_reclaim_shrinker);
+
 	cancel_work_sync(&reclaim_work);
 }

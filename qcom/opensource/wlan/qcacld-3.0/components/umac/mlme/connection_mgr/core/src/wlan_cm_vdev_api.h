@@ -504,16 +504,6 @@ QDF_STATUS
 cm_send_bss_peer_delete_req(struct wlan_objmgr_vdev *vdev);
 
 /**
- * cm_send_force_bss_peer_delete_req() - Connection manager ext bss peer delete
- * request
- * @vdev: VDEV object
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-cm_send_force_bss_peer_delete_req(struct wlan_objmgr_vdev *vdev);
-
-/**
  * cm_disconnect_complete_ind() - Connection manager ext disconnect
  * complete indication
  * @vdev: VDEV object
@@ -568,24 +558,13 @@ QDF_STATUS cm_flush_join_req(struct scheduler_msg *msg);
 
 /**
  * cm_process_join_req() - Process vdev join req
- * @join_req: join request
+ * @msg: scheduler message
  *
  * Process connect request in LIM and copy all join req params.
  *
  * Return: QDF_STATUS
  */
-QDF_STATUS cm_process_join_req(struct cm_vdev_join_req *join_req);
-
-/**
- * cm_remove_force_bss_on_join_fail() - Remove bss on join fail
- * @join_req: join request
- *
- * Remove bss forcely on join fail in LIM.
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-cm_remove_force_bss_on_join_fail(struct cm_vdev_join_req *join_req);
+QDF_STATUS cm_process_join_req(struct scheduler_msg *msg);
 
 #ifdef WLAN_FEATURE_HOST_ROAM
 /**

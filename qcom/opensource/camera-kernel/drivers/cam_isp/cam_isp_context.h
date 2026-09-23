@@ -71,9 +71,6 @@
 /* Congestion count threshold */
 #define CAM_ISP_CONTEXT_CONGESTION_CNT_MAX 3
 
-/* Number of init requests expected post flush to issue resume */
-#define CAM_ISP_CONTEXT_NUM_INIT_REQ_RCVD_POST_FLUSH 2
-
 /* forward declaration */
 struct cam_isp_context;
 
@@ -133,22 +130,21 @@ enum cam_isp_state_change_trigger {
 #define CAM_ISP_CTX_DISABLE_RECOVERY_AEB           BIT(0)
 #define CAM_ISP_CTX_DISABLE_RECOVERY_BUS_OVERFLOW  BIT(1)
 #define CAM_ISP_CTX_DISABLE_RECOVERY_BUBBLE        BIT(2)
-#define CAM_ISP_CTX_DISABLE_RECOVERY_CSID          BIT(3)
 
 /**
  * struct cam_isp_ctx_debug -  Contains debug parameters
  *
  * @dentry:                     Debugfs entry
  * @enable_state_monitor_dump:  Enable isp state monitor dump
- * @disable_internal_recovery:  Disable internal kernel recovery mask
  * @enable_cdm_cmd_buff_dump:   Enable CDM Command buffer dump
+ * @disable_internal_recovery:  Disable internal kernel recovery mask
  *
  */
 struct cam_isp_ctx_debug {
 	struct dentry  *dentry;
 	uint32_t        enable_state_monitor_dump;
-	uint32_t        disable_internal_recovery_mask;
 	uint8_t         enable_cdm_cmd_buff_dump;
+	uint32_t        disable_internal_recovery_mask;
 };
 
 /**
@@ -188,8 +184,7 @@ struct cam_isp_ctx_irq_ops {
  * @event_timestamp:           Timestamp for different stage of request
  * @cdm_reset_before_apply:    For bubble re-apply when buf done not coming set
  *                             to True
- * @is_reg_dump_triggered      check if reg dump is already triggered,in case of
- *                             skip frame
+ *
  */
 struct cam_isp_ctx_req {
 	struct cam_ctx_request               *base;
@@ -209,7 +204,6 @@ struct cam_isp_ctx_req {
 		[CAM_ISP_CTX_EVENT_MAX];
 	bool                                  bubble_detected;
 	bool                                  cdm_reset_before_apply;
-	bool                                  is_reg_dump_triggered;
 };
 
 /**
@@ -382,30 +376,6 @@ struct cam_isp_fcg_prediction_tracker {
  * @state_monitor_head:        Write index to the state monitoring array
  * @req_info                   Request id information about last buf done
  * @dbg_monitors:              Debug monitors for ISP context
- * @apply_in_progress          Whether request apply is in progress
- * @unserved_rup:              Indicate there is unserved rup
- * @last_applied_default:        Indicate last applied setting is default or not
- * @init_timestamp:            Timestamp at which this context is initialized
- * @isp_device_type:           ISP device type
- * @rxd_epoch:                 Indicate whether epoch has been received. Used to
- *                             decide whether to apply request in offline ctx
- * @workq:                     Worker thread for offline ife
- * @trigger_id:                ID provided by CRM for each ctx on the link
- * @last_bufdone_err_apply_req_id:  last bufdone error apply request id
- * @v4l2_event_sub_ids         contains individual bits representing subscribed v4l2 ids
- * @evt_inject_params:         event injection parameters
- * @last_sof_jiffies:          Record the jiffies of last sof
- * @last_applied_jiffies:      Record the jiffiest of last applied req
- * @vfe_bus_comp_grp:          Vfe bus comp group record
- * @sfe_bus_comp_grp:          Sfe bus comp group record
- * @mswitch_default_apply_delay_max_cnt: Max mode switch delay among all devices connected
- *                                       on the same link as this ISP context
- * @mswitch_default_apply_delay_ref_cnt: Ref cnt for this context to decide when to apply
- *                                       mode switch settings
- * @hw_idx:                    Hardware ID
- * @num_inits_post_flush:      Number of INITs received post flush
- * @fcg_tracker:               FCG prediction tracker containing number of previously skipped
- *                             frames and indicates which prediction should be used
  * @rdi_only_context:          Get context type information.
  *                             true, if context is rdi only context
  * @offline_context:           Indicate whether context is for offline IFE
@@ -418,9 +388,26 @@ struct cam_isp_fcg_prediction_tracker {
  * @use_frame_header_ts:       Use frame header for qtimer ts
  * @support_consumed_addr:     Indicate whether HW has last consumed addr reg
  * @sof_dbg_irq_en:            Indicates whether ISP context has enabled debug irqs
+ * @apply_in_progress          Whether request apply is in progress
  * @use_default_apply:         Use default settings in case of frame skip
+ * @init_timestamp:            Timestamp at which this context is initialized
+ * @isp_device_type:           ISP device type
+ * @rxd_epoch:                 Indicate whether epoch has been received. Used to
+ *                             decide whether to apply request in offline ctx
+ * @workq:                     Worker thread for offline ife
+ * @trigger_id:                ID provided by CRM for each ctx on the link
+ * @last_bufdone_err_apply_req_id:  last bufdone error apply request id
+ * @v4l2_event_sub_ids         contains individual bits representing subscribed v4l2 ids
+ * @evt_inject_params:         event injection parameters
  * @aeb_enabled:               Indicate if stream is for AEB
- * @bubble_recover_dis:        Bubble recovery disabled
+ * @last_sof_jiffies:          Record the jiffies of last sof
+ * @last_applied_jiffies:      Record the jiffiest of last applied req
+ * @vfe_bus_comp_grp:          Vfe bus comp group record
+ * @sfe_bus_comp_grp:          Sfe bus comp group record
+ * @mswitch_default_apply_delay_max_cnt: Max mode switch delay among all devices connected
+ *                                       on the same link as this ISP context
+ * @mswitch_default_apply_delay_ref_cnt: Ref cnt for this context to decide when to apply
+ *                                       mode switch settings
  * @handle_mswitch:            Indicates if IFE needs to explicitly handle mode switch
  *                             on frame skip callback from request manager.
  *                             This is decided based on the max mode switch delay published
@@ -463,27 +450,6 @@ struct cam_isp_context {
 	uint32_t                         congestion_cnt;
 	struct cam_isp_context_req_id_info    req_info;
 	struct cam_isp_context_debug_monitors dbg_monitors;
-	atomic_t                              apply_in_progress;
-	atomic_t                              unserved_rup;
-	atomic_t                              last_applied_default;
-	atomic_t                              internal_recovery_set;
-	unsigned int                          init_timestamp;
-	uint32_t                              isp_device_type;
-	atomic_t                              rxd_epoch;
-	struct cam_req_mgr_core_workq        *workq;
-	int32_t                               trigger_id;
-	int64_t                               last_bufdone_err_apply_req_id;
-	uint32_t                              v4l2_event_sub_ids;
-	struct cam_hw_inject_evt_param        evt_inject_params;
-	uint64_t                              last_sof_jiffies;
-	uint64_t                              last_applied_jiffies;
-	struct cam_isp_context_comp_record   *vfe_bus_comp_grp;
-	struct cam_isp_context_comp_record   *sfe_bus_comp_grp;
-	int32_t                               mswitch_default_apply_delay_max_cnt;
-	atomic_t                              mswitch_default_apply_delay_ref_cnt;
-	uint32_t                              hw_idx;
-	uint32_t                              num_inits_post_flush;
-	struct cam_isp_fcg_prediction_tracker fcg_tracker;
 	bool                                  rdi_only_context;
 	bool                                  offline_context;
 	bool                                  vfps_aux_context;
@@ -495,9 +461,24 @@ struct cam_isp_context {
 	bool                                  use_frame_header_ts;
 	bool                                  support_consumed_addr;
 	bool                                  sof_dbg_irq_en;
+	atomic_t                              apply_in_progress;
+	atomic_t                              internal_recovery_set;
 	bool                                  use_default_apply;
+	unsigned int                          init_timestamp;
+	uint32_t                              isp_device_type;
+	atomic_t                              rxd_epoch;
+	struct cam_req_mgr_core_workq        *workq;
+	int32_t                               trigger_id;
+	int64_t                               last_bufdone_err_apply_req_id;
+	uint32_t                              v4l2_event_sub_ids;
+	struct cam_hw_inject_evt_param        evt_inject_params;
 	bool                                  aeb_enabled;
-	bool                                  bubble_recover_dis;
+	uint64_t                              last_sof_jiffies;
+	uint64_t                              last_applied_jiffies;
+	struct cam_isp_context_comp_record   *vfe_bus_comp_grp;
+	struct cam_isp_context_comp_record   *sfe_bus_comp_grp;
+	int32_t                               mswitch_default_apply_delay_max_cnt;
+	atomic_t                              mswitch_default_apply_delay_ref_cnt;
 	bool                                  handle_mswitch;
 	bool                                  mode_switch_en;
 	uint32_t                              hw_idx;

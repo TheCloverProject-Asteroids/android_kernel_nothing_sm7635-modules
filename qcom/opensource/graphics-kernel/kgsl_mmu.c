@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2002,2007-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/component.h>
@@ -312,16 +312,15 @@ uint64_t kgsl_mmu_find_svm_region(struct kgsl_pagetable *pagetable,
 /**
  * kgsl_mmu_set_svm_region() - Check if a region is empty and reserve it if so
  * @pagetable: KGSL pagetable to search
- * @memdesc: Pointer to memory descriptor
  * @gpuaddr: GPU address to check/reserve
  * @size: Size of the region to check/reserve
  */
-int kgsl_mmu_set_svm_region(struct kgsl_pagetable *pagetable,
-	struct kgsl_memdesc *memdesc, uint64_t gpuaddr, uint64_t size)
+int kgsl_mmu_set_svm_region(struct kgsl_pagetable *pagetable, uint64_t gpuaddr,
+		uint64_t size)
 {
 	if (PT_OP_VALID(pagetable, set_svm_region))
-		return pagetable->pt_ops->set_svm_region(pagetable, memdesc,
-			gpuaddr, size);
+		return pagetable->pt_ops->set_svm_region(pagetable, gpuaddr,
+			size);
 	return -ENOMEM;
 }
 
@@ -336,7 +335,7 @@ kgsl_mmu_map(struct kgsl_pagetable *pagetable,
 		return -EINVAL;
 	/* Only global mappings should be mapped multiple times */
 	if (!kgsl_memdesc_is_global(memdesc) &&
-			(TEST_FLAG(KGSL_MEMDESC_MAPPED, &memdesc->priv)))
+			(KGSL_MEMDESC_MAPPED & memdesc->priv))
 		return -EINVAL;
 
 	if (memdesc->flags & KGSL_MEMFLAGS_VBO)
@@ -361,7 +360,7 @@ kgsl_mmu_map(struct kgsl_pagetable *pagetable,
 			kgsl_trace_gpu_mem_total(device, size);
 		}
 
-		SET_FLAG(KGSL_MEMDESC_MAPPED, &memdesc->priv);
+		memdesc->priv |= KGSL_MEMDESC_MAPPED;
 	}
 
 	return 0;
@@ -450,7 +449,7 @@ kgsl_mmu_unmap(struct kgsl_pagetable *pagetable,
 		return -EINVAL;
 
 	/* Only global mappings should be mapped multiple times */
-	if (!(TEST_FLAG(KGSL_MEMDESC_MAPPED, &memdesc->priv)))
+	if (!(KGSL_MEMDESC_MAPPED & memdesc->priv))
 		return -EINVAL;
 
 	if (PT_OP_VALID(pagetable, mmu_unmap)) {
@@ -467,7 +466,7 @@ kgsl_mmu_unmap(struct kgsl_pagetable *pagetable,
 		kgsl_mmu_trace_gpu_mem_pagetable(pagetable);
 
 		if (!kgsl_memdesc_is_global(memdesc)) {
-			CLEAR_FLAG(KGSL_MEMDESC_MAPPED, &memdesc->priv);
+			memdesc->priv &= ~KGSL_MEMDESC_MAPPED;
 			if (!(memdesc->flags & KGSL_MEMFLAGS_USERMEM_ION))
 				kgsl_trace_gpu_mem_total(device, -(size));
 		}

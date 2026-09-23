@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -127,8 +127,6 @@ enum cfrradiotype {
 	CFR_CAPTURE_RADIO_PEACH,
 	CFR_CAPTURE_RADIO_PEBBLE,
 	CFR_CAPTURE_RADIO_EVROS,
-	CFR_CAPTURE_RADIO_ORNE,
-	CFR_CAPTURE_RADIO_COLOGNE,
 	CFR_CAPTURE_RADIO_MAX = 0xFF,
 };
 
@@ -499,7 +497,7 @@ struct cfr_rcc_param {
 	uint8_t num_grp_tlvs;
 
 	struct ta_ra_cfr_cfg curr[MAX_TA_RA_ENTRIES];
-	qdf_bitmap(modified_in_curr_session, MAX_TA_RA_ENTRIES);
+	unsigned long modified_in_curr_session;
 	uint32_t capture_count            :16,
 		 capture_intval_mode_sel  :1,
 		 rsvd2                    :15;
@@ -746,11 +744,11 @@ QDF_STATUS wlan_cfr_pdev_close(struct wlan_objmgr_pdev *pdev);
 
 /**
  * count_set_bits() - function to count set bits in a bitmap
- * @bitmap: input bitmap
+ * @value: input bitmap
  *
  * Return: No. of set bits
  */
-uint8_t count_set_bits(unsigned long *bitmap);
+uint8_t count_set_bits(unsigned long value);
 
 /**
  * wlan_cfr_is_feature_disabled() - Check if cfr feature is disabled

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -61,14 +61,11 @@ QDF_STATUS os_if_dp_set_lpc_configure(struct wlan_objmgr_vdev *vdev,
 
 /**
  * os_if_dp_local_pkt_capture_stop() - Stop local packet capture
- * @psoc: psoc object handle
- * @opmode: OPMODE to check whether it's monitor mode or not
+ * @vdev: vdev
  *
  * Return: 0 for Success and negative value for failure
  */
-QDF_STATUS
-os_if_dp_local_pkt_capture_stop(struct wlan_objmgr_psoc *psoc,
-				enum QDF_OPMODE opmode);
+QDF_STATUS os_if_dp_local_pkt_capture_stop(struct wlan_objmgr_vdev *vdev);
 
 /**
  * os_if_dp_get_lpc_state() - get local packet capture state
@@ -100,9 +97,8 @@ QDF_STATUS os_if_dp_set_lpc_configure(struct wlan_objmgr_vdev *vdev,
 	return QDF_STATUS_SUCCESS;
 }
 
-static inline QDF_STATUS
-os_if_dp_local_pkt_capture_stop(struct wlan_objmgr_psoc *psoc,
-				enum QDF_OPMODE opmode)
+static inline
+QDF_STATUS os_if_dp_local_pkt_capture_stop(struct wlan_objmgr_vdev *vdev)
 {
 	return QDF_STATUS_SUCCESS;
 }

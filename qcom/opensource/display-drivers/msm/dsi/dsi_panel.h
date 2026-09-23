@@ -102,21 +102,12 @@ struct dsi_qsync_capabilities {
 	u32 qsync_min_fps;
 	u32 *qsync_min_fps_list;
 	int qsync_min_fps_list_len;
-	bool hwfence_sw_override_always;
 };
 
 struct dsi_avr_capabilities {
 	u32 avr_step_fps;
 	u32 *avr_step_fps_list;
 	u32 avr_step_fps_list_len;
-};
-
-struct dsi_esync_capabilities {
-	bool esync_support;
-	u32 milli_skew;
-	u32 hsync_milli_pulse_width;
-	u32 emsync_milli_pulse_width;
-	u32 emsync_fps;
 };
 
 struct dsi_dyn_clk_caps {
@@ -128,7 +119,6 @@ struct dsi_dyn_clk_caps {
 struct dsi_pinctrl_info {
 	struct pinctrl *pinctrl;
 	struct pinctrl_state *active;
-	struct pinctrl_state *active_with_esync;
 	struct pinctrl_state *suspend;
 	struct pinctrl_state *pwm_pin;
 };
@@ -151,7 +141,6 @@ struct dsi_backlight_config {
 	u32 bl_level;
 	u32 bl_scale;
 	u32 bl_scale_sv;
-	u32 bl_dcs_subtype;
 	bool bl_inverted_dbv;
 	/* digital dimming backlight LUT */
 	struct drm_msm_dimming_bl_lut *dimming_bl_lut;
@@ -213,7 +202,6 @@ struct drm_panel_esd_config {
 struct dsi_panel_spr_info {
 	bool enable;
 	enum msm_display_spr_pack_type pack_type;
-	enum msm_display_spr_pack_type_mode pack_type_mode;
 };
 
 struct dsi_panel;
@@ -280,16 +268,10 @@ struct dsi_panel {
 	bool calibration_enabled;
 	atomic_t esd_recovery_pending;
 
-	bool skip_panel_off;
 	bool panel_initialized;
 	bool te_using_watchdog_timer;
-	bool disable_cesta_hw_sleep;
 	struct dsi_qsync_capabilities qsync_caps;
 	struct dsi_avr_capabilities avr_caps;
-	struct dsi_esync_capabilities esync_caps;
-	struct msm_vrr_capabilities vrr_caps;
-
-	bool event_notification_disabled;
 
 	char dce_pps_cmd[DSI_CMD_PPS_SIZE];
 	enum dsi_dms_mode dms_mode;
@@ -300,11 +282,8 @@ struct dsi_panel {
 	u32 dsc_count;
 	u32 lm_count;
 
-	bool ctl_op_sync;
-
 	int panel_test_gpio;
 	int power_mode;
-	bool powered;
 	enum dsi_panel_physical_type panel_type;
 
 	struct dsi_panel_ops panel_ops;
@@ -352,9 +331,6 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 
 void dsi_panel_put(struct dsi_panel *panel);
 
-void dsi_panel_get_fps_switch_cmd(struct dsi_panel *panel,
-			struct dsi_display_mode *mode, u32 refresh_rate);
-
 int dsi_panel_drv_init(struct dsi_panel *panel, struct mipi_dsi_host *host);
 
 int dsi_panel_drv_deinit(struct dsi_panel *panel);
@@ -386,16 +362,6 @@ int dsi_panel_set_lp1(struct dsi_panel *panel);
 
 int dsi_panel_set_lp2(struct dsi_panel *panel);
 
-/**
- * dsi_panel_set_lp2_load() -	Add or remove LP2 load on DSI pannel supplies
- * @panel:			DSI panel handle.
- * @enable:			Boolean to control whether to add or remove
- * the LP2 load.
- *
- * Return: error code.
- */
-int dsi_panel_set_lp2_load(struct dsi_panel *panel, bool enable);
-
 int dsi_panel_set_nolp(struct dsi_panel *panel);
 
 int dsi_panel_prepare(struct dsi_panel *panel);
@@ -423,8 +389,6 @@ int dsi_panel_send_qsync_off_dcs(struct dsi_panel *panel,
 
 int dsi_panel_send_roi_dcs(struct dsi_panel *panel, int ctrl_idx,
 		struct dsi_rect *roi);
-
-int dsi_panel_dcs_cmd_tx(struct dsi_panel *panel, enum dsi_cmd_set_type cmd);
 
 int dsi_panel_switch_video_mode_out(struct dsi_panel *panel);
 

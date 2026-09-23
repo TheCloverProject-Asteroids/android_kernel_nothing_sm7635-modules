@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2019, 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -39,7 +39,6 @@
  * @SDE_IRQ_TYPE_HIST_DSPP_DONE:	DSPP Histogram done
  * @SDE_IRQ_TYPE_HIST_DSPP_RSTSEQ:	DSPP Histogram reset
  * @SDE_IRQ_TYPE_WD_TIMER:		Watchdog timer
- * @SDE_IRQ_TYPE_WD_TIMER_1:        Intf Watchdog timer instance
  * @SDE_IRQ_TYPE_SFI_VIDEO_IN:		Video static frame INTR into static
  * @SDE_IRQ_TYPE_SFI_VIDEO_OUT:		Video static frame INTR out-of static
  * @SDE_IRQ_TYPE_SFI_CMD_0_IN:		DSI CMD0 static frame INTR into static
@@ -62,10 +61,6 @@
  * @SDE_IRQ_TYPE_LTM_STATS_WB_PB:	LTM stats WB push back interrupt
  * @SDE_IRQ_TYPE_PROG_LINE:		Programmable Line interrupt for WB
  * @SDE_IRQ_TYPE_RESERVED:		Reserved for expansion
- * @SDE_IRQ_TYPE_INTF_ESYNC_EMSYNC:		INTF ESYNC EMSYNC
- * @SDE_IRQ_TYPE_INTF_ESYNC_VSYNC:		INTF ESYNC VSYNC
- * @SDE_IRQ_TYPE_INTF_PANEL_VSYNC:		INTF receives this VSYNC from Panel
- * @SDE_IRQ_TYPE_INTF_ESYNC_MDP_VSYNC:		INTF ESYNC MDP VSYNC
  */
 enum sde_intr_type {
 	SDE_IRQ_TYPE_WB_ROT_COMP,
@@ -84,7 +79,6 @@ enum sde_intr_type {
 	SDE_IRQ_TYPE_HIST_DSPP_DONE,
 	SDE_IRQ_TYPE_HIST_DSPP_RSTSEQ,
 	SDE_IRQ_TYPE_WD_TIMER,
-	SDE_IRQ_TYPE_WD_TIMER_1,
 	SDE_IRQ_TYPE_SFI_VIDEO_IN,
 	SDE_IRQ_TYPE_SFI_VIDEO_OUT,
 	SDE_IRQ_TYPE_SFI_CMD_0_IN,
@@ -107,10 +101,6 @@ enum sde_intr_type {
 	SDE_IRQ_TYPE_LTM_STATS_WB_PB,
 	SDE_IRQ_TYPE_WB_PROG_LINE,
 	SDE_IRQ_TYPE_RESERVED,
-	SDE_IRQ_TYPE_INTF_ESYNC_EMSYNC,
-	SDE_IRQ_TYPE_INTF_ESYNC_VSYNC,
-	SDE_IRQ_TYPE_INTF_PANEL_VSYNC,
-	SDE_IRQ_TYPE_INTF_ESYNC_MDP_VSYNC,
 };
 
 struct sde_hw_intr;

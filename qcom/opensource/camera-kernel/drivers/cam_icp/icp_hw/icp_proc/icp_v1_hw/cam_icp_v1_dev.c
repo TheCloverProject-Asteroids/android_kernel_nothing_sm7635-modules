@@ -19,8 +19,6 @@
 #include "camera_main.h"
 #include "cam_icp_soc_common.h"
 #include "cam_icp_v1_dev.h"
-#include "cam_mem_mgr_api.h"
-#include "cam_req_mgr_dev.h"
 
 static int max_icp_v1_hw_idx = -1;
 
@@ -87,7 +85,7 @@ int cam_icp_v1_register_cpas(struct cam_hw_soc_info *soc_info,
 
 static inline void cam_icp_v1_soc_info_deinit(struct cam_hw_soc_info *soc_info)
 {
-	CAM_MEM_FREE(soc_info->soc_private);
+	kfree(soc_info->soc_private);
 }
 
 static int cam_icp_v1_soc_info_init(struct cam_hw_soc_info *soc_info,
@@ -95,7 +93,7 @@ static int cam_icp_v1_soc_info_init(struct cam_hw_soc_info *soc_info,
 {
 	struct cam_icp_soc_info *icp_soc_info = NULL;
 
-	icp_soc_info = CAM_MEM_ZALLOC(sizeof(*icp_soc_info), GFP_KERNEL);
+	icp_soc_info = kzalloc(sizeof(*icp_soc_info), GFP_KERNEL);
 	if (!icp_soc_info)
 		return -ENOMEM;
 
@@ -118,18 +116,15 @@ static int cam_icp_v1_component_bind(struct device *dev,
 	const struct of_device_id *match_dev = NULL;
 	struct cam_icp_v1_device_core_info *core_info = NULL;
 	struct platform_device *pdev = to_platform_device(dev);
-	struct timespec64 ts_start, ts_end;
-	long microsec = 0;
 
-	CAM_GET_TIMESTAMP(ts_start);
-	icp_v1_dev_intf = CAM_MEM_ZALLOC(sizeof(struct cam_hw_intf), GFP_KERNEL);
+	icp_v1_dev_intf = kzalloc(sizeof(struct cam_hw_intf), GFP_KERNEL);
 	if (!icp_v1_dev_intf)
 		return -ENOMEM;
 
 	of_property_read_u32(pdev->dev.of_node,
 		"cell-index", &icp_v1_dev_intf->hw_idx);
 
-	icp_v1_dev = CAM_MEM_ZALLOC(sizeof(struct cam_hw_info), GFP_KERNEL);
+	icp_v1_dev = kzalloc(sizeof(struct cam_hw_info), GFP_KERNEL);
 	if (!icp_v1_dev) {
 		rc = -ENOMEM;
 		goto icp_v1_dev_alloc_failure;
@@ -147,7 +142,7 @@ static int cam_icp_v1_component_bind(struct device *dev,
 
 	platform_set_drvdata(pdev, icp_v1_dev_intf);
 
-	core_info = CAM_MEM_ZALLOC(sizeof(struct cam_icp_v1_device_core_info),
+	core_info = kzalloc(sizeof(struct cam_icp_v1_device_core_info),
 		GFP_KERNEL);
 	if (!core_info) {
 		rc = -ENOMEM;
@@ -191,9 +186,6 @@ static int cam_icp_v1_component_bind(struct device *dev,
 
 	CAM_DBG(CAM_ICP, "ICP_V1:%u component bound successfully",
 		icp_v1_dev_intf->hw_idx);
-	CAM_GET_TIMESTAMP(ts_end);
-	CAM_GET_TIMESTAMP_DIFF_IN_MICRO(ts_start, ts_end, microsec);
-	cam_record_bind_latency(pdev->name, microsec);
 
 	return 0;
 
@@ -202,11 +194,11 @@ cpas_reg_failed:
 init_soc_failure:
 	cam_icp_v1_soc_info_deinit(&icp_v1_dev->soc_info);
 match_err:
-	CAM_MEM_FREE(core_info);
+	kfree(core_info);
 core_info_alloc_failure:
-	CAM_MEM_FREE(icp_v1_dev);
+	kfree(icp_v1_dev);
 icp_v1_dev_alloc_failure:
-	CAM_MEM_FREE(icp_v1_dev_intf);
+	kfree(icp_v1_dev_intf);
 
 	return rc;
 }
@@ -235,9 +227,9 @@ static void cam_icp_v1_component_unbind(struct device *dev,
 
 	max_icp_v1_hw_idx = -1;
 
-	CAM_MEM_FREE(icp_v1_dev->core_info);
-	CAM_MEM_FREE(icp_v1_dev);
-	CAM_MEM_FREE(icp_v1_dev_intf);
+	kfree(icp_v1_dev->core_info);
+	kfree(icp_v1_dev);
+	kfree(icp_v1_dev_intf);
 }
 
 static const struct component_ops cam_icp_v1_component_ops = {

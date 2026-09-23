@@ -209,7 +209,6 @@ struct swr_mstr_ctrl {
 	struct dentry *debugfs_reg_dump;
 	unsigned int read_data;
 #endif
-	struct proc_dir_entry *swr_mstr_ctrl_proc_entry;
 };
 
 #endif /* _SWR_WCD_CTRL_H */

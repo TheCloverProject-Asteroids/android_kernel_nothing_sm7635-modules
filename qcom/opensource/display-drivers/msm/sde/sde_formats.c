@@ -650,22 +650,6 @@ static const struct sde_format sde_format_map_ubwc[] = {
 		SDE_FETCH_UBWC, 4, SDE_TILE_HEIGHT_NV12),
 };
 
-static const struct sde_format sde_format_map_LOSSY_8_5[] = {
-	INTERLEAVED_RGB_FMT_TILED(ABGR8888,
-		COLOR_8BIT, COLOR_8BIT, COLOR_8BIT, COLOR_8BIT,
-		C2_R_Cr, C0_G_Y, C1_B_Cb, C3_ALPHA, 4,
-		true, 4, (SDE_FORMAT_FLAG_LOSSY_8_5 | SDE_FORMAT_FLAG_COMPRESSED),
-		SDE_FETCH_UBWC, 2, SDE_TILE_HEIGHT_UBWC),
-};
-
-static const struct sde_format sde_format_map_LOSSY_2_1[] = {
-	INTERLEAVED_RGB_FMT_TILED(ABGR8888,
-		COLOR_8BIT, COLOR_8BIT, COLOR_8BIT, COLOR_8BIT,
-		C2_R_Cr, C0_G_Y, C1_B_Cb, C3_ALPHA, 4,
-		true, 4, (SDE_FORMAT_FLAG_LOSSY_2_1 | SDE_FORMAT_FLAG_COMPRESSED),
-		SDE_FETCH_UBWC, 2, SDE_TILE_HEIGHT_UBWC),
-};
-
 static const struct sde_format sde_format_map_p010[] = {
 	PSEUDO_YUV_FMT_LOOSE(NV12,
 		0, COLOR_8BIT, COLOR_8BIT, COLOR_8BIT,
@@ -690,52 +674,6 @@ static const struct sde_format sde_format_map_tp10_ubwc[] = {
 		SDE_CHROMA_420, (SDE_FORMAT_FLAG_YUV | SDE_FORMAT_FLAG_DX |
 				SDE_FORMAT_FLAG_COMPRESSED),
 		SDE_FETCH_UBWC, 4, SDE_TILE_HEIGHT_NV12),
-};
-
-/*
- * Unpack pattern for R, G and B plane is fixed for all input formats
- * in CAC mode
- */
-static const struct sde_format sde_format_map_cac_r[] = {
-	INTERLEAVED_RGB_FMT(ABGR8888,
-		COLOR_8BIT, COLOR_8BIT, COLOR_8BIT, COLOR_8BIT,
-		C0_G_Y, C3_ALPHA, C3_ALPHA, C3_ALPHA, 4,
-		true, 4, SDE_FORMAT_FLAG_CAC,
-		SDE_FETCH_LINEAR, 1),
-
-	INTERLEAVED_RGB_FMT(ABGR2101010,
-		COLOR_8BIT, COLOR_8BIT, COLOR_8BIT, COLOR_8BIT,
-		C0_G_Y, C3_ALPHA, C3_ALPHA, C3_ALPHA, 4,
-		true, 4, (SDE_FORMAT_FLAG_DX | SDE_FORMAT_FLAG_CAC),
-		SDE_FETCH_LINEAR, 1),
-};
-
-static const struct sde_format sde_format_map_cac_g[] = {
-	INTERLEAVED_RGB_FMT(ABGR8888,
-		COLOR_8BIT, COLOR_8BIT, COLOR_8BIT, COLOR_8BIT,
-		C3_ALPHA, C0_G_Y, C3_ALPHA, C3_ALPHA, 4,
-		true, 4, SDE_FORMAT_FLAG_CAC,
-		SDE_FETCH_LINEAR, 1),
-
-	INTERLEAVED_RGB_FMT(ABGR2101010,
-		COLOR_8BIT, COLOR_8BIT, COLOR_8BIT, COLOR_8BIT,
-		C3_ALPHA, C0_G_Y, C3_ALPHA, C3_ALPHA, 4,
-		true, 4, (SDE_FORMAT_FLAG_DX | SDE_FORMAT_FLAG_CAC),
-		SDE_FETCH_LINEAR, 1),
-};
-
-static const struct sde_format sde_format_map_cac_b[] = {
-	INTERLEAVED_RGB_FMT(ABGR8888,
-		COLOR_8BIT, COLOR_8BIT, COLOR_8BIT, COLOR_8BIT,
-		C3_ALPHA, C3_ALPHA, C1_B_Cb, C3_ALPHA, 4,
-		true, 4, SDE_FORMAT_FLAG_CAC,
-		SDE_FETCH_LINEAR, 1),
-
-	INTERLEAVED_RGB_FMT(ABGR2101010,
-		COLOR_8BIT, COLOR_8BIT, COLOR_8BIT, COLOR_8BIT,
-		C3_ALPHA, C3_ALPHA, C1_B_Cb, C3_ALPHA, 4,
-		true, 4, (SDE_FORMAT_FLAG_DX | SDE_FORMAT_FLAG_CAC),
-		SDE_FETCH_LINEAR, 1),
 };
 
 bool sde_format_is_tp10_ubwc(const struct sde_format *fmt)
@@ -803,18 +741,11 @@ static int _sde_format_get_media_color_ubwc(const struct sde_format *fmt)
 		return color_fmt;
 	}
 
-	if (test_bit(SDE_FORMAT_FLAG_LOSSY_8_5_BIT, fmt->flag)) {
-		color_fmt = MMM_COLOR_FMT_RGBA8888_L_8_5_UBWC;
-	} else if (test_bit(SDE_FORMAT_FLAG_LOSSY_2_1_BIT, fmt->flag)) {
-		color_fmt = MMM_COLOR_FMT_RGBA8888_L_2_1_UBWC;
-	} else {
-		for (i = 0; i < ARRAY_SIZE(sde_media_ubwc_map); ++i) {
-			if (fmt->base.pixel_format == sde_media_ubwc_map[i].format) {
-				color_fmt = sde_media_ubwc_map[i].color;
-				break;
-			}
+	for (i = 0; i < ARRAY_SIZE(sde_media_ubwc_map); ++i)
+		if (fmt->base.pixel_format == sde_media_ubwc_map[i].format) {
+			color_fmt = sde_media_ubwc_map[i].color;
+			break;
 		}
-	}
 	return color_fmt;
 }
 
@@ -1181,9 +1112,6 @@ int sde_format_populate_layout(
 	if (ret)
 		return ret;
 
-	if (SDE_FORMAT_IS_CAC_FETCH(layout->format))
-		return 0;
-
 	for (i = 0; i < SDE_MAX_PLANES; ++i)
 		plane_addr[i] = layout->plane_addr[i];
 
@@ -1237,14 +1165,9 @@ int sde_format_check_modified_format(
 			bos_total_size += bos[i]->size;
 	}
 
-	/*
-	 * In dual pass CAC, second pass CAC fetch pipes get data from CAC splitter
-	 * instead of FB, hence this check needs to be bypassed.
-	 */
-	if (bos_total_size < layout.total_size &&
-			!SDE_FORMAT_IS_CAC_FETCH(fmt)) {
-		DRM_ERROR("buffers total size too small %u expected %u cac_fmt:%d\n",
-				bos_total_size, layout.total_size, SDE_FORMAT_IS_CAC_FETCH(fmt));
+	if (bos_total_size < layout.total_size) {
+		DRM_ERROR("buffers total size too small %u expected %u\n",
+				bos_total_size, layout.total_size);
 		return -EINVAL;
 	}
 
@@ -1281,16 +1204,6 @@ const struct sde_format *sde_get_sde_format_ext(
 		map_size = ARRAY_SIZE(sde_format_map_ubwc);
 		SDE_DEBUG("found fmt: %4.4s  DRM_FORMAT_MOD_QCOM_COMPRESSED\n",
 				(char *)&format);
-		break;
-	case DRM_FORMAT_MOD_QCOM_COMPRESSED | DRM_FORMAT_MOD_QCOM_LOSSY_8_5:
-		map = sde_format_map_LOSSY_8_5;
-		map_size = ARRAY_SIZE(sde_format_map_LOSSY_8_5);
-		SDE_DEBUG("found fmt: %4.4s DRM_FORMAT_MOD_QCOM_LOSSY_8_5\n", (char *)&format);
-		break;
-	case DRM_FORMAT_MOD_QCOM_COMPRESSED | DRM_FORMAT_MOD_QCOM_LOSSY_2_1:
-		map = sde_format_map_LOSSY_2_1;
-		map_size = ARRAY_SIZE(sde_format_map_LOSSY_2_1);
-		SDE_DEBUG("found fmt: %4.4s DRM_FORMAT_MOD_QCOM_LOSSY_2_1\n", (char *)&format);
 		break;
 	case DRM_FORMAT_MOD_QCOM_DX:
 		map = sde_format_map_p010;
@@ -1335,27 +1248,6 @@ const struct sde_format *sde_get_sde_format_ext(
 		map_size = ARRAY_SIZE(sde_format_map_tp10_tile);
 		SDE_DEBUG(
 			"found fmt: %4.4s DRM_FORMAT_MOD_QCOM_TILE/DX/TIGHT\n",
-				(char *)&format);
-		break;
-	case DRM_FORMAT_MOD_QCOM_CAC_R:
-		map = sde_format_map_cac_r;
-		map_size = ARRAY_SIZE(sde_format_map_cac_r);
-		SDE_DEBUG(
-			"found cac fmt: %4.4s DRM_FORMAT_MOD_QCOM_CAC_R\n",
-				(char *)&format);
-		break;
-	case DRM_FORMAT_MOD_QCOM_CAC_G:
-		map = sde_format_map_cac_g;
-		map_size = ARRAY_SIZE(sde_format_map_cac_g);
-		SDE_DEBUG(
-			"found cac fmt: %4.4s DRM_FORMAT_MOD_QCOM_CAC_G\n",
-				(char *)&format);
-		break;
-	case DRM_FORMAT_MOD_QCOM_CAC_B:
-		map = sde_format_map_cac_b;
-		map_size = ARRAY_SIZE(sde_format_map_cac_b);
-		SDE_DEBUG(
-			"found cac fmt: %4.4s DRM_FORMAT_MOD_QCOM_CAC_B\n",
 				(char *)&format);
 		break;
 	default:

@@ -99,16 +99,9 @@
 #define CAM_ICP_CMD_GENERIC_BLOB_FW_MEM_UNMAP     0x4
 #define CAM_ICP_CMD_GENERIC_BLOB_CLK_V2           0x5
 #define CAM_ICP_CMD_GENERIC_BLOB_PRESIL_HANGDUMP  0x6
-#define CAM_ICP_CMD_GENERIC_BLOB_SYSCACHE_CONFIG  0x7
 
 /* Max number of device types supported per ICP instance */
 #define CAM_ICP_MAX_NUM_OF_DEV_TYPES              0x5
-
-/*
- * The index to the max version of the ACQUIRE_DEV API
- * supported in ICP in the query cap params
- */
-#define CAM_ICP_QUERY_MAX_ACQUIRE_DEV_VER_SUPPORTED_INDEX 0
 
 /**
  * struct cam_icp_clk_bw_request_v2
@@ -254,7 +247,7 @@ struct cam_icp_query_cap_cmd_v2 {
 	__u32                            num_valid_params;
 	__u32                            valid_param_mask;
 	__u32                            params[5];
-} __attribute__((__packed__));
+};
 
 /**
  * struct cam_icp_res_info - ICP output resource info

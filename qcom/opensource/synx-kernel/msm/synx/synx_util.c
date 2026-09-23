@@ -50,7 +50,7 @@ int synx_util_init_coredata(struct synx_coredata *synx_obj,
 	mutex_init(&synx_obj->obj_lock);
 	INIT_LIST_HEAD(&synx_obj->reg_cbs_list);
 	if (params->name)
-		strscpy(synx_obj->name, params->name, sizeof(synx_obj->name));
+		strlcpy(synx_obj->name, params->name, sizeof(synx_obj->name));
 
 	if (params->flags & SYNX_CREATE_DMA_FENCE) {
 		fence = (struct dma_fence *)params->fence;
@@ -108,7 +108,6 @@ int synx_util_init_coredata(struct synx_coredata *synx_obj,
 	if (rc != SYNX_SUCCESS)
 		goto clean;
 
-	set_bit(SYNX_NATIVE_FENCE_FLAG_ENABLED_BIT, &fence->flags);
 	synx_obj->status = synx_util_get_object_status(synx_obj);
 	return SYNX_SUCCESS;
 
@@ -331,14 +330,13 @@ void synx_util_object_destroy(struct synx_coredata *synx_obj)
 		dprintk(SYNX_ERR,
 			"dipatching un-released callbacks of session %pK\n",
 			synx_cb->session);
+		synx_cb->status = SYNX_STATE_SIGNALED_CANCEL;
 		if (synx_cb->timeout != SYNX_NO_TIMEOUT) {
 			dprintk(SYNX_VERB,
-				"Deleting timer synx_cb 0x%p, timeout 0x%llx\n",
+				"Deleting timer synx_cb 0x%x, timeout 0x%llx\n",
 				synx_cb, synx_cb->timeout);
-			del_timer_sync(&synx_cb->synx_timer);
+			del_timer(&synx_cb->synx_timer);
 		}
-
-		synx_cb->status = SYNX_STATE_SIGNALED_CANCEL;
 		list_del_init(&synx_cb->node);
 		queue_work(synx_dev->wq_cb,
 			&synx_cb->cb_dispatch);
@@ -756,17 +754,14 @@ u32 __fence_state(struct dma_fence *fence, bool locked)
 	case -SYNX_STATE_SIGNALED_CANCEL:
 		state = SYNX_STATE_SIGNALED_CANCEL;
 		break;
+	case -SYNX_STATE_SIGNALED_EXTERNAL:
+		state = SYNX_STATE_SIGNALED_EXTERNAL;
+		break;
 	case -SYNX_STATE_SIGNALED_ERROR:
 		state = SYNX_STATE_SIGNALED_ERROR;
 		break;
-	case -SYNX_STATE_SIGNALED_SSR:
-		state = SYNX_STATE_SIGNALED_SSR;
-		break;
 	default:
-		if (status < 0 && status >= -SYNX_STATE_SIGNALED_MAX)
-			state = SYNX_STATE_SIGNALED_EXTERNAL;
-		else
-			state = (u32)(-status);
+		state = (u32)(-status);
 	}
 
 	return state;
@@ -1216,14 +1211,13 @@ void synx_util_callback_dispatch(struct synx_coredata *synx_obj, u32 status)
 
 	list_for_each_entry_safe(synx_cb,
 		synx_cb_temp, &synx_obj->reg_cbs_list, node) {
-
+		synx_cb->status = status;
 		if (synx_cb->timeout != SYNX_NO_TIMEOUT) {
 			dprintk(SYNX_VERB,
-				"Deleting timer synx_cb %p, timeout 0x%llx\n",
+				"Deleting timer synx_cb 0x%x, timeout 0x%llx\n",
 				synx_cb, synx_cb->timeout);
-			del_timer_sync(&synx_cb->synx_timer);
+			del_timer(&synx_cb->synx_timer);
 		}
-		synx_cb->status = status;
 		list_del_init(&synx_cb->node);
 		queue_work(synx_dev->wq_cb,
 			&synx_cb->cb_dispatch);
@@ -1456,18 +1450,16 @@ static void synx_client_cleanup(struct work_struct *dispatch)
 	struct synx_handle_coredata *curr;
 	struct hlist_node *tmp;
 
-	if (__ratelimit(&synx_ratelimit_state))
-		dprintk(SYNX_INFO, "[sess :%llu] session removed %s\n",
-			client->id, client->name);
+	dprintk(SYNX_INFO, "[sess :%llu] session removed %s\n",
+		client->id, client->name);
 	/*
 	 * go over all the remaining synx obj handles
 	 * un-released from this session and remove them.
 	 */
 	hash_for_each_safe(client->handle_map, i, tmp, curr, node) {
-		if (__ratelimit(&synx_ratelimit_state))
-			dprintk(SYNX_WARN,
-				"[sess :%llu] un-released handle %u\n",
-				client->id, curr->key);
+		dprintk(SYNX_WARN,
+			"[sess :%llu] un-released handle %u\n",
+			client->id, curr->key);
 		j = kref_read(&curr->refcount);
 		/* release pending reference */
 		while (j--)
@@ -1564,7 +1556,7 @@ int synx_util_save_data(void *fence, u32 flags,
 				kref_init(&entry->refcount);
 				hash_add(synx_dev->native->csl_fence_map,
 					&entry->node, entry->key);
-				dprintk(SYNX_MEM, "added csl fence %llu to map %pK\n",
+				dprintk(SYNX_MEM, "added csl fence %d to map %pK\n",
 					entry->key, entry);
 			} else {
 				rc = -SYNX_NOMEM;

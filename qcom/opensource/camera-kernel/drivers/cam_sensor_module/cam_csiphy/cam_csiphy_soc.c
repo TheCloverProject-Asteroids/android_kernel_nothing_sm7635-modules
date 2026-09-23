@@ -13,9 +13,6 @@
 #include "include/cam_csiphy_2_2_0_hwreg.h"
 #include "include/cam_csiphy_2_2_1_hwreg.h"
 #include "include/cam_csiphy_2_3_0_hwreg.h"
-#include "include/cam_csiphy_2_4_0_hwreg.h"
-#include "include/cam_csiphy_2_4_1_hwreg.h"
-#include "cam_mem_mgr_api.h"
 
 /* Clock divide factor for CPHY spec v1.0 */
 #define CSIPHY_DIVISOR_16                    16
@@ -40,7 +37,7 @@ static int cam_csiphy_io_dump(void __iomem *base_addr, uint16_t num_regs, int cs
 		return -EINVAL;
 	}
 
-	buffer = CAM_MEM_ZALLOC(CSIPHY_LOG_BUFFER_SIZE_IN_BYTES, GFP_KERNEL);
+	buffer = kzalloc(CSIPHY_LOG_BUFFER_SIZE_IN_BYTES, GFP_KERNEL);
 	if (!buffer) {
 		CAM_ERR(CAM_CSIPHY, "Could not allocate the memory for buffer");
 		return -ENOMEM;
@@ -68,65 +65,9 @@ static int cam_csiphy_io_dump(void __iomem *base_addr, uint16_t num_regs, int cs
 		pr_info("%s\n", buffer);
 	}
 
-	CAM_MEM_FREE(buffer);
+	kfree(buffer);
 
 	return 0;
-}
-
-int32_t cam_csiphy_common_status_reg_dump(struct csiphy_device *csiphy_dev,
-	bool dump_to_log)
-{
-	struct csiphy_reg_parms_t *csiphy_reg = NULL;
-	int32_t                    rc = 0;
-	resource_size_t            size = 0;
-	void __iomem              *phy_base = NULL;
-	int                        reg_id = 0;
-	uint32_t                   val, status_reg, clear_reg;
-	unsigned int              *buffer;
-
-	if (!csiphy_dev) {
-		rc = -EINVAL;
-		CAM_ERR(CAM_CSIPHY, "invalid input %d", rc);
-		return rc;
-	}
-
-	csiphy_reg = csiphy_dev->ctrl_reg->csiphy_reg;
-	phy_base = csiphy_dev->soc_info.reg_map[0].mem_base;
-	status_reg = csiphy_reg->mipi_csiphy_interrupt_status0_addr;
-	clear_reg = csiphy_reg->mipi_csiphy_interrupt_clear0_addr;
-	buffer = csiphy_dev->qmargin_data.csiphy_qmargin_output_regs;
-	size = dump_to_log ? csiphy_reg->csiphy_num_common_status_regs :
-		CSIPHY_QMARGIN_CMN_STATUS_REG_COUNT;
-
-	if (dump_to_log)
-		CAM_INFO(CAM_CSIPHY, "PHY base addr=%pK offset=0x%x size=%d",
-			phy_base, status_reg, size);
-
-	if (unlikely(!phy_base)) {
-		CAM_ERR(CAM_CSIPHY, "phy base is NULL  %s", CAM_BOOL_TO_YESNO(phy_base));
-		return -EINVAL;
-	}
-
-	if (unlikely(!size || !buffer)) {
-		CAM_ERR(CAM_CSIPHY, "Common status read buffer is NULL: %s, reg reads: %d",
-			CAM_BOOL_TO_YESNO(!buffer), size);
-		return -EINVAL;
-	}
-
-	for (reg_id = 0; reg_id < size; reg_id++) {
-		val = cam_io_r(phy_base + status_reg + (0x4 * reg_id));
-
-		if (reg_id < csiphy_reg->csiphy_interrupt_status_size)
-			cam_io_w_mb(val, phy_base + clear_reg + (0x4 * reg_id));
-
-		if (dump_to_log)
-			CAM_INFO(CAM_CSIPHY, "CSIPHY%d_COMMON_STATUS%u = 0x%x",
-				csiphy_dev->soc_info.index, reg_id, val);
-		if (buffer && (reg_id < CSIPHY_QMARGIN_CMN_STATUS_REG_COUNT))
-			buffer[reg_id] = val;
-	}
-
-	return rc;
 }
 
 int32_t cam_csiphy_reg_dump(struct cam_hw_soc_info *soc_info)
@@ -145,6 +86,48 @@ int32_t cam_csiphy_reg_dump(struct cam_hw_soc_info *soc_info)
 	rc = cam_csiphy_io_dump(addr, (size >> 2), soc_info->index);
 	if (rc < 0) {
 		CAM_ERR(CAM_CSIPHY, "generating dump failed %d", rc);
+		return rc;
+	}
+	return rc;
+}
+
+int32_t cam_csiphy_common_status_reg_dump(struct csiphy_device *csiphy_dev)
+{
+	struct csiphy_reg_parms_t *csiphy_reg = NULL;
+	int32_t                    rc = 0;
+	resource_size_t            size = 0;
+	void __iomem              *phy_base = NULL;
+	int                        reg_id = 0;
+	uint32_t                   val, status_reg, clear_reg;
+
+	if (!csiphy_dev) {
+		rc = -EINVAL;
+		CAM_ERR(CAM_CSIPHY, "invalid input %d", rc);
+		return rc;
+	}
+
+	csiphy_reg = csiphy_dev->ctrl_reg->csiphy_reg;
+	phy_base = csiphy_dev->soc_info.reg_map[0].mem_base;
+	status_reg = csiphy_reg->mipi_csiphy_interrupt_status0_addr;
+	clear_reg = csiphy_reg->mipi_csiphy_interrupt_clear0_addr;
+	size = csiphy_reg->csiphy_num_common_status_regs;
+
+	CAM_INFO(CAM_CSIPHY, "PHY base addr=%pK offset=0x%x size=%d",
+		phy_base, status_reg, size);
+
+	if (phy_base != NULL) {
+		for (reg_id = 0; reg_id < size; reg_id++) {
+			val = cam_io_r(phy_base + status_reg + (0x4 * reg_id));
+
+			if (reg_id < csiphy_reg->csiphy_interrupt_status_size)
+				cam_io_w_mb(val, phy_base + clear_reg + (0x4 * reg_id));
+
+			CAM_INFO(CAM_CSIPHY, "CSIPHY%d_COMMON_STATUS%u = 0x%x",
+				csiphy_dev->soc_info.index, reg_id, val);
+		}
+	} else {
+		rc = -EINVAL;
+		CAM_ERR(CAM_CSIPHY, "phy base is NULL  %d", rc);
 		return rc;
 	}
 	return rc;
@@ -179,13 +162,14 @@ enum cam_vote_level get_clk_voting_dynamic(
 			continue;
 
 		if (soc_info->clk_rate[cam_vote_level]
-				[csiphy_dev->rx_clk_src_idx] > phy_data_rate) {
+			[csiphy_dev->rx_clk_src_idx] > phy_data_rate) {
 			CAM_DBG(CAM_CSIPHY,
 				"Found match PHY:%d clk_name:%s data_rate:%llu clk_rate:%d level:%d",
 				soc_info->index,
 				soc_info->clk_name[csiphy_dev->rx_clk_src_idx],
 				phy_data_rate,
-				soc_info->clk_rate[cam_vote_level][csiphy_dev->rx_clk_src_idx],
+				soc_info->clk_rate[cam_vote_level]
+				[csiphy_dev->rx_clk_src_idx],
 				cam_vote_level);
 			return cam_vote_level;
 		}
@@ -219,7 +203,6 @@ int32_t cam_csiphy_enable_hw(struct csiphy_device *csiphy_dev, int32_t index)
 			soc_info->clk_name[i],
 			soc_info->clk_rate[vote_level][i]);
 	}
-	csiphy_dev->curr_clk_vote_level = vote_level;
 
 	rc = cam_soc_util_enable_platform_resource(soc_info,
 		(soc_info->is_clk_drv_en && param->use_hw_client_voting) ?
@@ -328,7 +311,10 @@ int32_t cam_csiphy_parse_dt_info(struct platform_device *pdev,
 	struct csiphy_device *csiphy_dev)
 {
 	int32_t   rc = 0, i = 0;
+	uint32_t  clk_cnt = 0;
 	uint32_t   is_regulator_enable_sync;
+	char      *csi_3p_clk_name = "csi_phy_3p_clk";
+	char      *csi_3p_clk_src_name = "csiphy_3p_clk_src";
 	struct cam_hw_soc_info   *soc_info;
 	void *irq_data[CAM_SOC_MAX_IRQ_LINES_PER_DEV] = {0};
 
@@ -383,16 +369,6 @@ int32_t cam_csiphy_parse_dt_info(struct platform_device *pdev,
 		csiphy_dev->hw_version = CSIPHY_VERSION_V230;
 		csiphy_dev->is_divisor_32_comp = true;
 		csiphy_dev->clk_lane = 0;
-	} else if (of_device_is_compatible(soc_info->dev->of_node, "qcom,csiphy-v2.4.0")) {
-		csiphy_dev->ctrl_reg = &ctrl_reg_2_4_0;
-		csiphy_dev->hw_version = CSIPHY_VERSION_V240;
-		csiphy_dev->is_divisor_32_comp = true;
-		csiphy_dev->clk_lane = 0;
-	} else if (of_device_is_compatible(soc_info->dev->of_node, "qcom,csiphy-v2.4.1")) {
-		csiphy_dev->ctrl_reg = &ctrl_reg_2_4_1;
-		csiphy_dev->hw_version = CSIPHY_VERSION_V241;
-		csiphy_dev->is_divisor_32_comp = true;
-		csiphy_dev->clk_lane = 0;
 	} else {
 		CAM_ERR(CAM_CSIPHY, "invalid hw version : 0x%x",
 			csiphy_dev->hw_version);
@@ -408,17 +384,36 @@ int32_t cam_csiphy_parse_dt_info(struct platform_device *pdev,
 
 	for (i = 0; i < soc_info->num_clk; i++) {
 		if (!strcmp(soc_info->clk_name[i],
+			csi_3p_clk_src_name)) {
+			csiphy_dev->csiphy_3p_clk_info[0].clk_name =
+				soc_info->clk_name[i];
+			csiphy_dev->csiphy_3p_clk_info[0].clk_rate =
+				soc_info->clk_rate[0][i];
+			csiphy_dev->csiphy_3p_clk[0] =
+				soc_info->clk[i];
+			continue;
+		} else if (!strcmp(soc_info->clk_name[i],
+				csi_3p_clk_name)) {
+			csiphy_dev->csiphy_3p_clk_info[1].clk_name =
+				soc_info->clk_name[i];
+			csiphy_dev->csiphy_3p_clk_info[1].clk_rate =
+				soc_info->clk_rate[0][i];
+			csiphy_dev->csiphy_3p_clk[1] =
+				soc_info->clk[i];
+			continue;
+		} else if (!strcmp(soc_info->clk_name[i],
 				CAM_CSIPHY_RX_CLK_SRC)) {
 			csiphy_dev->rx_clk_src_idx = i;
-		} else if (strnstr(soc_info->clk_name[i], CAM_CSIPHY_TIMER_CLK_SRC,
-			strlen(soc_info->clk_name[i]))) {
-			csiphy_dev->timer_clk_src_idx = i;
+			continue;
 		}
 
-		CAM_DBG(CAM_CSIPHY, "PHY:%d clk_rate[0][%d] = %d",
-			soc_info->index, i,
-			soc_info->clk_rate[0][i]);
+		CAM_DBG(CAM_CSIPHY, "clk_rate[%d] = %d", clk_cnt,
+			soc_info->clk_rate[0][clk_cnt]);
+		clk_cnt++;
 	}
+
+	csiphy_dev->csiphy_max_clk =
+		soc_info->clk_rate[0][soc_info->src_clk_idx];
 
 	for (i = 0; i < soc_info->irq_count; i++)
 		irq_data[i] = csiphy_dev;

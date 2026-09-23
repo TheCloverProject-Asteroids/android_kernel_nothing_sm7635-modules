@@ -187,6 +187,18 @@ void mlo_roam_copy_partner_info(struct mlo_partner_info *partner_info,
 				uint8_t skip_vdev_id, bool fill_all_links);
 
 /**
+ * mlo_roam_init_cu_bpcc() - init cu bpcc per roam sync data
+ * @vdev: vdev object
+ * @sync_ind: roam sync ind pointer
+ *
+ * This api will be called to init cu bpcc from connect response.
+ *
+ * Return: none
+ */
+void mlo_roam_init_cu_bpcc(struct wlan_objmgr_vdev *vdev,
+			   struct roam_offload_synch_ind *sync_ind);
+
+/**
  * mlo_roam_update_connected_links - update connected links bitmap after roaming
  *
  * @vdev: vdev pointer
@@ -266,7 +278,6 @@ mlo_get_link_mac_addr_from_reassoc_rsp(struct wlan_objmgr_vdev *vdev,
  *
  * @vdev: vdev pointer
  * @reassoc_rsp: cm vdev reassoc rsp pointer
- * @auth_status: auth status from roam sync event
  *
  * This api will be called to copy cm vdev reassoc rsp which will
  * be used to later bring up link vdev/s.
@@ -275,8 +286,7 @@ mlo_get_link_mac_addr_from_reassoc_rsp(struct wlan_objmgr_vdev *vdev,
  */
 QDF_STATUS
 mlo_roam_copy_reassoc_rsp(struct wlan_objmgr_vdev *vdev,
-			  struct wlan_cm_connect_resp *reassoc_rsp,
-			  uint32_t auth_status);
+			  struct wlan_cm_connect_resp *reassoc_rsp);
 
 /**
  * mlo_roam_link_connect_notify - Send connect req
@@ -557,6 +567,11 @@ mlo_roam_copy_partner_info(struct mlo_partner_info *partner_info,
 			   uint8_t skip_vdev_id, bool fill_all_links)
 {}
 
+static inline
+void mlo_roam_init_cu_bpcc(struct wlan_objmgr_vdev *vdev,
+			   struct roam_offload_synch_ind *sync_ind)
+{}
+
 static inline void
 mlo_roam_update_connected_links(struct wlan_objmgr_vdev *vdev,
 				struct wlan_cm_connect_resp *connect_rsp)
@@ -610,8 +625,7 @@ mlo_roam_set_link_id(struct wlan_objmgr_vdev *vdev,
 
 static inline QDF_STATUS
 mlo_roam_copy_reassoc_rsp(struct wlan_objmgr_vdev *vdev,
-			  struct wlan_cm_connect_resp *reassoc_rsp,
-			  uint32_t auth_status)
+			  struct wlan_cm_connect_resp *reassoc_rsp)
 {
 	return QDF_STATUS_E_NOSUPPORT;
 }

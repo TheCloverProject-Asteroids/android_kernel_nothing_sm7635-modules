@@ -31,18 +31,6 @@ int _cnss_pci_enumerate(struct cnss_plat_data *plat_priv, u32 rc_num);
 int cnss_pci_assert_perst(struct cnss_pci_data *pci_priv);
 
 /**
- * cnss_pci_fmd_enable() - Update FMD status to PCIe
- * @pci_priv: driver PCI bus context pointer
- *
- * This function shall call corresponding PCIe root complex driver API
- * to update FMD status. The purpose of this API is to handle PERST
- * during execution of FMD recipe.
- *
- * Return: 0 for success, negative value for error
- */
-int cnss_pci_fmd_enable(struct cnss_pci_data *pci_priv);
-
-/**
  * cnss_pci_disable_pc() - Disable PCIe link power collapse from RC driver
  * @pci_priv: driver PCI bus context pointer
  * @vote: value to indicate disable (true) or enable (false)
@@ -113,12 +101,9 @@ void cnss_dereg_pci_event(struct cnss_pci_data *pci_priv);
  */
 int cnss_wlan_adsp_pc_enable(struct cnss_pci_data *pci_priv,
 			     bool control);
-int cnss_set_pci_pwrctrl(struct cnss_pci_data *pci_priv, bool power_on);
 int cnss_set_pci_link(struct cnss_pci_data *pci_priv, bool link_up);
 int cnss_pci_prevent_l1(struct device *dev);
-int __cnss_pci_prevent_l1(struct device *dev);
 void cnss_pci_allow_l1(struct device *dev);
-void __cnss_pci_allow_l1(struct device *dev);
 int cnss_pci_get_msi_assignment(struct cnss_pci_data *pci_priv);
 int cnss_pci_get_iommu_addr(struct cnss_pci_data *pci_priv, struct device_node *of_node);
 int cnss_pci_init_smmu(struct cnss_pci_data *pci_priv);
@@ -184,11 +169,6 @@ int cnss_pci_assert_perst(struct cnss_pci_data *pci_priv)
 	return -EOPNOTSUPP;
 }
 
-int cnss_pci_fmd_enable(struct cnss_pci_data *pci_priv)
-{
-	return 0;
-}
-
 int cnss_pci_disable_pc(struct cnss_pci_data *pci_priv, bool vote)
 {
 	return 0;
@@ -218,17 +198,7 @@ int cnss_wlan_adsp_pc_enable(struct cnss_pci_data *pci_priv, bool control)
 	return 0;
 }
 
-int cnss_set_pci_pwrctrl(struct cnss_pci_data *pci_priv, bool power_on)
-{
-	return 0;
-}
-
 int cnss_set_pci_link(struct cnss_pci_data *pci_priv, bool link_up)
-{
-	return 0;
-}
-
-static inline int __cnss_pci_prevent_l1(struct device *dev)
 {
 	return 0;
 }
@@ -238,10 +208,6 @@ int cnss_pci_prevent_l1(struct device *dev)
 	return 0;
 }
 EXPORT_SYMBOL(cnss_pci_prevent_l1);
-
-static inline void __cnss_pci_allow_l1(struct device *dev)
-{
-}
 
 void cnss_pci_allow_l1(struct device *dev)
 {

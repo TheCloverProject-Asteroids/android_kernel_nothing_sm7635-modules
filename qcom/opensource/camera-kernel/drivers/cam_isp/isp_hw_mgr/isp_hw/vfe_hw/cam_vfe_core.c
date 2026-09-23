@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/delay.h>
@@ -540,9 +540,6 @@ int cam_vfe_process_cmd(void *hw_priv, uint32_t cmd_type,
 	case CAM_ISP_HW_CMD_MC_CTXT_SEL:
 	case CAM_ISP_HW_CMD_IRQ_INJECTION:
 	case CAM_ISP_HW_CMD_DUMP_IRQ_DESCRIPTION:
-	case CAM_ISP_HW_CMD_UBWC_UPDATE_V3:
-	case CAM_ISP_HW_CMD_WM_CONFIG_UPDATE_V2:
-	case CAM_ISP_HW_CMD_READ_RST_PERF_CNTRS:
 		rc = core_info->vfe_bus->hw_ops.process_cmd(
 			core_info->vfe_bus->bus_priv, cmd_type, cmd_args,
 			arg_size);
@@ -597,7 +594,7 @@ int cam_vfe_test_irq_line(void *hw_priv)
 {
 	struct cam_hw_info *vfe_hw = hw_priv;
 	void *vfe_irq_ctrl;
-	int rc = 0, local_ret;
+	int rc;
 
 	if (!hw_priv) {
 		CAM_ERR(CAM_ISP, "invalid argument");
@@ -605,24 +602,19 @@ int cam_vfe_test_irq_line(void *hw_priv)
 	}
 
 	vfe_irq_ctrl = ((struct cam_vfe_hw_core_info *)vfe_hw->core_info)->vfe_irq_controller;
-	local_ret = cam_vfe_init_hw(vfe_hw, NULL, 0);
-	if (local_ret) {
+	rc = cam_vfe_init_hw(vfe_hw, NULL, 0);
+	if (rc) {
 		CAM_ERR(CAM_ISP, "VFE:%d failed to init hw", vfe_hw->soc_info.index);
-		return local_ret;
+		return rc;
 	}
 
-	local_ret = cam_irq_controller_test_irq_line(vfe_irq_ctrl, "VFE:%d",
-		vfe_hw->soc_info.index);
-	if (local_ret) {
+	rc = cam_irq_controller_test_irq_line(vfe_irq_ctrl, "VFE:%d", vfe_hw->soc_info.index);
+	if (rc)
 		CAM_ERR(CAM_ISP, "VFE:%d IRQ line test failed", vfe_hw->soc_info.index);
-		rc = local_ret;
-	}
 
-	local_ret = cam_vfe_deinit_hw(vfe_hw, NULL, 0);
-	if (local_ret) {
+	rc = cam_vfe_deinit_hw(vfe_hw, NULL, 0);
+	if (rc)
 		CAM_ERR(CAM_ISP, "VFE:%d failed to deinit hw", vfe_hw->soc_info.index);
-		return local_ret;
-	}
 
 	return rc;
 }

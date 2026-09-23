@@ -48,7 +48,6 @@ struct cam_sfe_top_err_irq_desc {
 	uint32_t  bitmask;
 	char     *err_name;
 	char     *desc;
-	char     *debug;
 };
 
 struct cam_sfe_top_debug_info {

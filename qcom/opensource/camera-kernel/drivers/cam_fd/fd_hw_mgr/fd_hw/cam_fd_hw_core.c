@@ -8,7 +8,6 @@
 #include "cam_fd_hw_soc.h"
 #include "cam_trace.h"
 #include "cam_common_util.h"
-#include "cam_mem_mgr_api.h"
 
 #define CAM_FD_REG_VAL_PAIR_SIZE 256
 
@@ -1013,7 +1012,6 @@ int cam_fd_hw_start(void *hw_priv, void *hw_start_args, uint32_t arg_size)
 		cdm_cmd->userdata = NULL;
 		cdm_cmd->cookie = 0;
 		cdm_cmd->gen_irq_arb = false;
-		cdm_cmd->fast_complete = NULL;
 
 		for (i = 0 ; i <= start_args->num_hw_update_entries; i++) {
 			cmd = (start_args->hw_update_entries + i);
@@ -1123,21 +1121,21 @@ int cam_fd_hw_reserve(void *hw_priv, void *hw_reserve_args, uint32_t arg_size)
 		return -EINVAL;
 	}
 
-	cdm_cmd = CAM_MEM_ZALLOC(((sizeof(struct cam_cdm_bl_request)) +
+	cdm_cmd = kzalloc(((sizeof(struct cam_cdm_bl_request)) +
 			((CAM_FD_MAX_HW_ENTRIES - 1) *
 			sizeof(struct cam_cdm_bl_cmd))), GFP_KERNEL);
 	if (!cdm_cmd)
 		return -ENOMEM;
 
-	ctx_hw_private = CAM_MEM_ZALLOC(sizeof(struct cam_fd_ctx_hw_private),
+	ctx_hw_private = kzalloc(sizeof(struct cam_fd_ctx_hw_private),
 		GFP_KERNEL);
 	if (!ctx_hw_private) {
-		CAM_MEM_FREE(cdm_cmd);
+		kfree(cdm_cmd);
 		return -ENOMEM;
 	}
 
 	memset(&cdm_acquire, 0, sizeof(cdm_acquire));
-	strscpy(cdm_acquire.identifier, "fd", sizeof("fd"));
+	strlcpy(cdm_acquire.identifier, "fd", sizeof("fd"));
 	cdm_acquire.cell_index = fd_hw->soc_info.index;
 	cdm_acquire.handle = 0;
 	cdm_acquire.userdata = ctx_hw_private;
@@ -1169,8 +1167,8 @@ int cam_fd_hw_reserve(void *hw_priv, void *hw_reserve_args, uint32_t arg_size)
 
 	return 0;
 error:
-	CAM_MEM_FREE(ctx_hw_private);
-	CAM_MEM_FREE(cdm_cmd);
+	kfree(ctx_hw_private);
+	kfree(cdm_cmd);
 	return rc;
 }
 
@@ -1201,8 +1199,8 @@ int cam_fd_hw_release(void *hw_priv, void *hw_release_args, uint32_t arg_size)
 		CAM_ERR(CAM_FD, "Release cdm handle failed, handle=0x%x, rc=%d",
 			ctx_hw_private->cdm_handle, rc);
 
-	CAM_MEM_FREE(ctx_hw_private->cdm_cmd);
-	CAM_MEM_FREE(ctx_hw_private);
+	kfree(ctx_hw_private->cdm_cmd);
+	kfree(ctx_hw_private);
 	release_args->ctx_hw_private = NULL;
 
 	return 0;

@@ -27,7 +27,6 @@
 #include <include/wlan_psoc_mlme.h>
 #include <wlan_psoc_mlme_main.h>
 #include <wlan_psoc_mlme_api.h>
-#include "wlan_utility.h"
 
 struct psoc_mlme_obj *mlme_psoc_get_priv(struct wlan_objmgr_psoc *psoc)
 {

@@ -728,27 +728,16 @@ static struct snd_soc_dai_link msm_wcn_btfm_proxy_be_dai_links[] = {
 };
 
 static struct snd_soc_dai_link ext_disp_be_dai_link[] = {
-	/* DISP PORT BACK END DAI Link for DP0*/
+	/* DISP PORT BACK END DAI Link */
 	{
-		.name = LPASS_BE_DISPLAY_PORT_RX_0,
-		.stream_name = LPASS_BE_DISPLAY_PORT_RX_0,
+		.name = LPASS_BE_DISPLAY_PORT_RX,
+		.stream_name = LPASS_BE_DISPLAY_PORT_RX,
 		.playback_only = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			SND_SOC_DPCM_TRIGGER_POST},
 		.ignore_pmdown_time = 1,
 		.ignore_suspend = 1,
 		SND_SOC_DAILINK_REG(display_port),
-	},
-	/* DISP PORT BACK END DAI Link for DP1*/
-	{
-		.name = LPASS_BE_DISPLAY_PORT_RX_1,
-		.stream_name = LPASS_BE_DISPLAY_PORT_RX_1,
-		.playback_only = 1,
-		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-			SND_SOC_DPCM_TRIGGER_POST},
-		.ignore_pmdown_time = 1,
-		.ignore_suspend = 1,
-		SND_SOC_DAILINK_REG(display_port1),
 	},
 };
 

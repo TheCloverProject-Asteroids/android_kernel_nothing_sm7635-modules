@@ -53,6 +53,18 @@ QDF_STATUS tgt_tdls_set_fw_state(struct wlan_objmgr_psoc *psoc,
 		return QDF_STATUS_SUCCESS;
 }
 
+QDF_STATUS tgt_tdls_set_peer_state(struct wlan_objmgr_psoc *psoc,
+				   struct tdls_peer_update_state *peer_param)
+{
+	struct wlan_lmac_if_tdls_tx_ops *tdls_ops = NULL;
+
+	tdls_ops = wlan_psoc_get_tdls_txops(psoc);
+	if (tdls_ops && tdls_ops->update_peer_state)
+		return tdls_ops->update_peer_state(psoc, peer_param);
+	else
+		return QDF_STATUS_SUCCESS;
+}
+
 QDF_STATUS tgt_tdls_set_offchan_mode(struct wlan_objmgr_psoc *psoc,
 				     struct tdls_channel_switch_params *param)
 {

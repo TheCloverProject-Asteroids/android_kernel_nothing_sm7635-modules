@@ -35,7 +35,6 @@
 #ifdef WLAN_FEATURE_11BE_MLO
 #include "wlan_mlo_mgr_public_structs.h"
 #endif
-#include "wlan_objmgr_global_obj.h"
 
 #define ASCII_SPACE_CHARACTER 32
 
@@ -715,9 +714,6 @@ util_scan_copy_beacon_data(struct scan_cache_entry *new_entry,
 	struct ie_list *ie_lst;
 	uint8_t i;
 
-	if (!scan_entry->raw_frame.ptr || !scan_entry->raw_frame.len)
-		return QDF_STATUS_E_EMPTY;
-
 	new_entry->raw_frame.ptr =
 		qdf_mem_malloc_atomic(scan_entry->raw_frame.len);
 	if (!new_entry->raw_frame.ptr)
@@ -805,9 +801,6 @@ util_scan_copy_beacon_data(struct scan_cache_entry *new_entry,
 		ie_lst->t2lm[i] = conv_ptr(ie_lst->t2lm[i], old_ptr, new_ptr);
 #endif
 	ie_lst->qcn = conv_ptr(ie_lst->qcn, old_ptr, new_ptr);
-	ie_lst->wifi6_rsno = conv_ptr(ie_lst->wifi6_rsno, old_ptr, new_ptr);
-	ie_lst->rsnxo = conv_ptr(ie_lst->rsnxo, old_ptr, new_ptr);
-	ie_lst->wifi7_rsno = conv_ptr(ie_lst->wifi7_rsno, old_ptr, new_ptr);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -969,52 +962,14 @@ util_scan_entry_xrates(struct scan_cache_entry *scan_entry)
  * util_scan_entry_rsn()- function to read rsn IE
  * @scan_entry: scan entry
  *
- * API, function to read rsn IE and return the
- * pointer to RSN data
+ * API, function to read rsn IE
  *
- *
- * Return: rsnie data or NULL if ie is not present
+ * Return: rsnie or NULL if ie is not present
  */
 static inline uint8_t*
 util_scan_entry_rsn(struct scan_cache_entry *scan_entry)
 {
 	return scan_entry->ie_list.rsn;
-}
-
-/**
- * util_scan_entry_wifi6_rsno()- function to read wifi6 RSNO/RSNO1 element
- * @scan_entry: scan entry
- *
- * Return: wifi6 RSN if present or NULL if ie is not present
- */
-static inline uint8_t*
-util_scan_entry_wifi6_rsno(struct scan_cache_entry *scan_entry)
-{
-	return scan_entry->ie_list.wifi6_rsno;
-}
-
-/**
- * util_scan_entry_wifi7_rsno()- function to read wifi7 RSNO/RSNO2 element
- * @scan_entry: scan entry
- *
- * Return: wifi7 RSN if present or NULL if ie is not present
- */
-static inline uint8_t*
-util_scan_entry_wifi7_rsno(struct scan_cache_entry *scan_entry)
-{
-	return scan_entry->ie_list.wifi7_rsno;
-}
-
-/*
- * util_scan_entry_rsnxo() - function to read RSNXO element
- * @scan_entry: scan entry
- *
- * Return: RSNXO if present or NULL if ie is not present
- */
-static inline uint8_t*
-util_scan_entry_rsnxo(struct scan_cache_entry *scan_entry)
-{
-	return scan_entry->ie_list.rsnxo;
 }
 
 /**
@@ -1052,6 +1007,24 @@ util_scan_entry_single_pmk(struct wlan_objmgr_psoc *psoc,
 	return false;
 }
 #endif
+
+/**
+ * util_scan_get_rsn_len()- function to read rsn IE length if present
+ * @scan_entry: scan entry
+ *
+ * API, function to read rsn length if present
+ *
+ * Return: rsnie length
+ */
+static inline uint8_t
+util_scan_get_rsn_len(struct scan_cache_entry *scan_entry)
+{
+	if (scan_entry && scan_entry->ie_list.rsn)
+		return scan_entry->ie_list.rsn[1] + 2;
+	else
+		return 0;
+}
+
 
 /**
  * util_scan_entry_wpa() - function to read wpa IE
@@ -1639,65 +1612,6 @@ util_scan_entry_heop(struct scan_cache_entry *scan_entry)
 	return scan_entry->ie_list.heop;
 }
 
-#ifdef WLAN_FEATURE_11BE_MLO
-static inline uint8_t*
-util_scan_entry_bv_ml_ie(struct scan_cache_entry *scan_entry)
-{
-	return scan_entry->ie_list.multi_link_bv;
-}
-
-static inline uint8_t*
-util_scan_entry_t2lm(struct scan_cache_entry *scan_entry)
-{
-	return scan_entry->ie_list.t2lm[0];
-}
-
-/**
- * util_scan_entry_t2lm_len() - API to get t2lm IE length
- * @scan_entry: scan entry
- *
- * Return, Length or 0 if ie is not present
- */
-uint32_t util_scan_entry_t2lm_len(struct scan_cache_entry *scan_entry);
-
-/**
- * util_scan_entry_reset_bv_ml_ie()
- * @scan_entry: scan entry
- *
- * API function to reset bv_ml_ie
- *
- * Return: void
- */
-static inline void
-util_scan_entry_reset_bv_ml_ie(struct scan_cache_entry *scan_entry)
-{
-	scan_entry->ie_list.multi_link_bv = NULL;
-}
-#else
-static inline uint8_t*
-util_scan_entry_bv_ml_ie(struct scan_cache_entry *scan_entry)
-{
-	return NULL;
-}
-
-static inline uint8_t*
-util_scan_entry_t2lm(struct scan_cache_entry *scan_entry)
-{
-	return NULL;
-}
-
-static inline uint32_t
-util_scan_entry_t2lm_len(struct scan_cache_entry *scan_entry)
-{
-	return 0;
-}
-
-static inline void
-util_scan_entry_reset_bv_ml_ie(struct scan_cache_entry *scan_entry)
-{
-}
-#endif
-
 #ifdef WLAN_FEATURE_11BE
 /**
  * util_scan_entry_ehtcap() - function to read eht caps vendor ie
@@ -1732,14 +1646,6 @@ util_scan_entry_bw_ind(struct scan_cache_entry *scan_entry)
 {
 	return scan_entry->ie_list.bw_ind;
 }
-
-static inline void
-util_scan_entry_reset_11be_caps(struct scan_cache_entry *scan_entry)
-{
-	scan_entry->ie_list.ehtcap = NULL;
-	scan_entry->ie_list.ehtop = NULL;
-	util_scan_entry_reset_bv_ml_ie(scan_entry);
-}
 #else
 
 static inline uint8_t*
@@ -1753,6 +1659,7 @@ util_scan_entry_bw_ind(struct scan_cache_entry *scan_entry)
 {
 	return NULL;
 }
+#endif
 
 #ifdef WLAN_FEATURE_11BE_MLO
 static inline uint8_t*
@@ -1933,10 +1840,9 @@ util_scan_entry_mbo_oce(struct scan_cache_entry *scan_entry)
  * util_scan_entry_rsnxe() - function to read RSNXE ie
  * @scan_entry: scan entry
  *
- * API, function to read RSNXE data
+ * API, function to read RSNXE ie
  *
- * Return: RSNXE data
- * Note: Use util_scan_get_rsnx_len() to get the length of RSNXE data
+ * Return: RSNXE ie
  */
 static inline uint8_t *
 util_scan_entry_rsnxe(struct scan_cache_entry *scan_entry)
@@ -2048,37 +1954,6 @@ static inline bool util_scan_is_null_ssid(struct wlan_ssid *ssid)
 
 	return false;
 }
-
-#ifdef WLAN_FEATURE_11BE_MLO
-/**
- * util_scan_get_ml_info(): Dump ml scan info
- * @scan_params: new received entry
- * @log_str: Buffer pointer
- * @str_len: max string length
- * @len: already filled length in buffer
- *
- * Return: length filled in buffer
- */
-static inline uint32_t
-util_scan_get_ml_info(struct scan_cache_entry *scan_params,
-		      char *log_str, uint32_t str_len, uint32_t len)
-{
-	if (qdf_is_macaddr_zero(&scan_params->ml_info.mld_mac_addr))
-		return 0;
-
-	return qdf_scnprintf(log_str + len, str_len - len,
-		", MLD " QDF_MAC_ADDR_FMT " links %d",
-		QDF_MAC_ADDR_REF(scan_params->ml_info.mld_mac_addr.bytes),
-		scan_params->ml_info.num_links);
-}
-#else
-static inline uint32_t
-util_scan_get_ml_info(struct scan_cache_entry *scan_params,
-		      char *log_str, uint32_t str_len, uint32_t len)
-{
-	return 0;
-}
-#endif
 
 /**
  * util_scan_get_6g_oper_channel() - function to get primary channel

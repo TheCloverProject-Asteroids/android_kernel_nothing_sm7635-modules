@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2023-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_IFE_CSID_980_H_
@@ -58,99 +58,78 @@ static const struct cam_ife_csid_irq_desc cam_ife_csid_980_rx_irq_desc[][32] = {
 			.bitmask = BIT(9),
 			.desc = "SENSOR_MODE_ID_CHANGE",
 		},
-		{0},
-		{0},
 		{
 			.bitmask = BIT(12),
-			.desc =
-				"DL0_EOT_LOST, Sensor: Issue is with the timing signals received in the cphy packet on lane 0 - Check phy/sensor config",
+			.desc = "ERROR_DL0_EOT_LOST",
 		},
 		{
 			.bitmask = BIT(13),
-			.desc =
-				"DL1_EOT_LOST, Sensor: Issue is with the timing signals received in the cphy packet on lane 1 - Check phy/sensor config",
+			.desc = "ERROR_DL1_EOT_LOST",
 		},
 		{
 			.bitmask = BIT(14),
-			.desc =
-				"DL2_EOT_LOST, Sensor: Issue is with the timing signals received in the cphy packet on lane 2 - Check phy/sensor config",
+			.desc = "ERROR_DL2_EOT_LOST",
 		},
 		{
 			.bitmask = BIT(15),
-			.desc =
-				"DL3_EOT_LOST, Sensor: Issue is with the timing signals received in the cphy packet on lane 3 - Check phy/sensor config",
+			.desc = "ERROR_DL3_EOT_LOST",
 		},
 		{
 			.bitmask = BIT(16),
-			.desc =
-				"DL0_SOT_LOST, Sensor: Timing signals are missed received in the cphy packet on lane 0 - Check phy/sensor config",
+			.desc = "ERROR_DL0_SOT_LOST",
 		},
 		{
 			.bitmask = BIT(17),
-			.desc =
-				"DL1_SOT_LOST, Sensor: Timing signals are missed received in the cphy packet on lane 1 - Check phy/sensor config",
+			.desc = "ERROR_DL1_SOT_LOST",
 		},
 		{
 			.bitmask = BIT(18),
-			.desc =
-				"DL2_SOT_LOST, Sensor: Timing signals are missed received in the cphy packet on lane 2 - Check phy/sensor config",
+			.desc = "ERROR_DL2_SOT_LOST",
 		},
 		{
 			.bitmask = BIT(19),
-			.desc =
-				"DL3_SOT_LOST, Sensor: Timing signals are missed received in the cphy packet on lane 3 - Check phy/sensor config",
+			.desc = "ERROR_DL3_SOT_LOST",
 		},
 		{
 			.bitmask = BIT(20),
-			.desc =
-				"DL0_FIFO_OVERFLOW, System: Data has been lost when transferring from PHY to CSID on Lane 0 - Check PHY clock, CSID clock and possible skew among the data lanes",
+			.desc = "ERROR_DL0_FIFO_OVERFLOW",
 		},
 		{
 			.bitmask = BIT(21),
-			.desc =
-				"DL1_FIFO_OVERFLOW, System: Data has been lost when transferring from PHY to CSID on Lane 1 - Check PHY clock, CSID clock and possible skew among the data lanes",
+			.desc = "ERROR_DL1_FIFO_OVERFLOW",
 		},
 		{
 			.bitmask = BIT(22),
-			.desc =
-				"DL2_FIFO_OVERFLOW, System: Data has been lost when transferring from PHY to CSID on Lane 2 - Check PHY clock, CSID clock and possible skew among the data lanes",
+			.desc = "ERROR_DL2_FIFO_OVERFLOW",
 		},
 		{
 			.bitmask = BIT(23),
-			.desc =
-				"DL3_FIFO_OVERFLOW, System: Data has been lost when transferring from PHY to CSID on Lane 3 - Check PHY clock, CSID clock and possible skew among the data lanes",
+			.desc = "ERROR_DL3_FIFO_OVERFLOW",
 		},
 		{
 			.bitmask = BIT(24),
-			.desc =
-				"CPHY_PH_CRC, Sensor: All CPHY packet headers received are corrupted - Check phy/sensor config",
+			.desc = "ERROR_CPHY_PH_CRC",
 		},
 		{
 			.bitmask = BIT(25),
-			.desc =
-				"PAYLOAD_CRC, Sensor: The calculated CRC of a long packet does not match the transmitted (expected) CRC, possible corruption - Check phy/sensor config",
+			.desc = "ERROR_PAYLOAD_CRC",
 		},
 		{
 			.bitmask = BIT(26),
-			.desc =
-				"DPHY_PH_ECC_DED, Sensor: A short or long packet is corrupted and cannot be recovered - Check phy/sensor config",
+			.desc = "ERROR_DPHY_PH_ECC_DED",
 		},
 		{
 			.bitmask = BIT(27),
-			.desc =
-				"MMAPPED_VC_DT, SW: A long packet has a VC_DT combination that is configured for more than one IPP or RDIs",
+			.desc = "ERROR_MMAPPED_VC_DT",
 		},
 		{
 			.bitmask = BIT(28),
-			.desc =
-				"UNMAPPED_VC_DT, Sensor: A long packet has a VC_DT combination that is not configured for IPP or RDIs",
+			.desc = "ERROR_UNMAPPED_VC_DT",
 		},
 		{
 			.bitmask = BIT(29),
-			.desc =
-				"STREAM_UNDERFLOW, Sensor: Long packet payload size is less than payload header size, resulting a corrupted frame - Perform PHY Tuning/Check sensor limitations",
+			.desc = "ERROR_STREAM_UNDERFLOW",
 		},
-		{0},
 		{
 			.bitmask = BIT(31),
 			.desc = "CSI2_RX_IRQ_STATUS_2",
@@ -159,22 +138,19 @@ static const struct cam_ife_csid_irq_desc cam_ife_csid_980_rx_irq_desc[][32] = {
 	{
 		{
 			.bitmask = BIT(0),
-			.desc =
-				"LONG_PKT, Debug: The header of the first long pkt matching the configured vc-dt has been captured",
+			.desc = "LONG_PKT",
 		},
 		{
 			.bitmask = BIT(1),
-			.desc =
-				"SHORT_PKT, Debug: The header of the first short pkt matching the configured vc-dt has been captured",
+			.desc = "SHORT_PKT",
 		},
 		{
 			.bitmask = BIT(2),
-			.desc =
-				"CPHY_PKT_HDR, Debug: The header of the first cphy pkt matching the configured vc-dt has been captured",
+			.desc = "CPHY_PKT_HDR",
 		},
 		{
 			.bitmask = BIT(3),
-			.desc = "Illegal programming for next frame ID config",
+			.desc = "ERROR_ILLEGAL_PROGRAMMING_IRQ",
 		},
 	},
 };
@@ -188,23 +164,21 @@ static const struct cam_ife_csid_irq_desc cam_ife_csid_980_path_irq_desc[] = {
 	{
 		.bitmask = BIT(0),
 		.err_type = CAM_ISP_HW_ERROR_CSID_FATAL,
-		.irq_name = "ILLEGAL_PROGRAMMING",
-		.desc = "SW: Illegal programming sequence",
-		.debug = "Check the following possiblities:",
+		.desc = "ILLEGAL_PROGRAMMING",
 		.err_handler = cam_ife_csid_ver2_print_illegal_programming_irq_status,
 	},
 	{0},
 	{
 		.bitmask = BIT(2),
-		.irq_name = "INFO_DATA_FIFO_FULL",
+		.desc = "ERROR_FIFO_OVERFLOW",
 	},
 	{
 		.bitmask = BIT(3),
-		.irq_name = "CAMIF_EOF",
+		.desc = "CAMIF_EOF",
 	},
 	{
 		.bitmask = BIT(4),
-		.irq_name = "CAMIF_SOF",
+		.desc = "CAMIF_SOF",
 	},
 	{0},
 	{0},
@@ -212,112 +186,90 @@ static const struct cam_ife_csid_irq_desc cam_ife_csid_980_path_irq_desc[] = {
 	{0},
 	{
 		.bitmask = BIT(9),
-		.irq_name = "INFO_INPUT_EOF",
+		.desc = "INFO_INPUT_EOF",
 	},
 	{
 		.bitmask = BIT(10),
-		.irq_name = "INFO_INPUT_EOL",
+		.desc = "INFO_INPUT_EOL",
 	},
 	{
 		.bitmask = BIT(11),
-		.irq_name = "INFO_INPUT_SOL",
+		.desc = "INFO_INPUT_SOL",
 	},
 	{
 		.bitmask = BIT(12),
-		.irq_name = "INFO_INPUT_SOF",
+		.desc = "INFO_INPUT_SOF",
 	},
 	{
 		.bitmask = BIT(13),
 		.err_type = CAM_ISP_HW_ERROR_CSID_FRAME_SIZE,
-		.irq_name = "ERROR_PIX_COUNT",
-		.desc = "SW: Mismatch in expected versus received number of pixels per line",
-		.debug = "Check SW config/sensor stream",
+		.desc = "ERROR_PIX_COUNT",
 		.err_handler = cam_ife_csid_ver2_print_format_measure_info,
 	},
 	{
 		.bitmask = BIT(14),
 		.err_type = CAM_ISP_HW_ERROR_CSID_FRAME_SIZE,
-		.irq_name = "ERROR_LINE_COUNT",
-		.desc = "SW: Mismatch in expected versus received number of lines",
-		.debug = "Check SW config/sensor stream",
+		.desc = "ERROR_LINE_COUNT",
 		.err_handler = cam_ife_csid_ver2_print_format_measure_info,
 	},
 	{
 		.bitmask = BIT(15),
-		.irq_name = "VCDT_GRP1_SEL",
+		.desc = "VCDT_GRP1_SEL",
 	},
 	{
 		.bitmask = BIT(16),
-		.irq_name = "VCDT_GRP0_SEL",
+		.desc = "VCDT_GRP0_SEL",
 	},
 	{
 		.bitmask = BIT(17),
-		.irq_name = "VCDT_GRP_CHANGE",
+		.desc = "VCDT_GRP_CHANGE",
 	},
 	{
 		.bitmask = BIT(18),
 		.err_type = CAM_ISP_HW_ERROR_CSID_CAMIF_FRAME_DROP,
-		.irq_name = "CAMIF_FRAME_DROP",
-		.desc =
-			"Sensor: The pre CAMIF frame drop would drop a frame in case the new frame starts prior to the end of the previous frame",
-		.debug = "Slower downstream processing or faster frame generation from sensor",
+		.desc = "CAMIF_FRAME_DROP",
 	},
 	{
 		.bitmask = BIT(19),
 		.err_type = CAM_ISP_HW_ERROR_RECOVERY_OVERFLOW,
-		.irq_name = "OVERFLOW_RECOVERY",
-		.desc = "Detected by the overflow recovery block",
-		.debug = "Backpressure downstream",
+		.desc = "OVERFLOW_RECOVERY: Back pressure/output fifo ovrfl",
 	},
 	{
 		.bitmask = BIT(20),
-		.irq_name = "ERROR_REC_CCIF_VIOLATION",
-		.desc = "Output CCIF has a violation with respect to frame timing",
+		.desc = "ERROR_REC_CCIF_VIOLATION From Camif",
 	},
 	{
 		.bitmask = BIT(21),
-		.irq_name = "CAMIF_EPOCH0",
+		.desc = "CAMIF_EPOCH0",
 	},
 	{
 		.bitmask = BIT(22),
-		.irq_name = "CAMIF_EPOCH1",
+		.desc = "CAMIF_EPOCH1",
 	},
 	{
 		.bitmask = BIT(23),
-		.irq_name = "RUP_DONE",
+		.desc = "RUP_DONE",
 	},
 	{
 		.bitmask = BIT(24),
-		.irq_name = "ILLEGAL_BATCH_ID",
-		.desc = "SW: Decoded frame ID does not match with any of the programmed batch IDs",
-		.debug = "Check frame ID and all available batch IDs",
+		.desc = "ILLEGAL_BATCH_ID",
 	},
 	{
 		.bitmask = BIT(25),
-		.irq_name = "BATCH_END_MISSING_VIOLATION",
-		.desc = "SW: Input number of frames is not a multiple of the batch size",
-		.debug = "Check the configured pattern/period for batching",
+		.desc = "BATCH_END_MISSING_VIOLATION",
 	},
 	{
 		.bitmask = BIT(26),
-		.err_type = CAM_ISP_HW_ERROR_CSID_UNBOUNDED_FRAME,
-		.irq_name = "UNBOUNDED_FRAME",
-		.desc = "Sensor: Frame end or frame start is missing",
-		.debug = "Check the settle count in sensor driver XML",
+		.desc = "UNBOUNDED_FRAME",
 	},
-	{0},
 	{
 		.bitmask = BIT(28),
-		.irq_name = "SENSOR_SWITCH_OUT_OF_SYNC_FRAME_DROP",
-		.desc =
-			"Sensor/SW: The programmed MUP is out of sync with the VC of the incoming frame",
+		.desc = "SENSOR_SWITCH_OUT_OF_SYNC_FRAME_DROP",
 		.err_handler = cam_ife_csid_hw_ver2_mup_mismatch_handler,
 	},
 	{
 		.bitmask = BIT(29),
-		.irq_name = "CCIF_VIOLATION",
-		.desc =
-			"The output CCIF from the serializer has a violation with respect to frame timing",
+		.desc = "CCIF_VIOLATION: Bad frame timings",
 	},
 };
 
@@ -327,39 +279,28 @@ static const struct cam_ife_csid_top_irq_desc cam_ife_csid_980_top_irq_desc[][32
 			.bitmask  = BIT(1),
 			.err_type = CAM_ISP_HW_ERROR_CSID_SENSOR_SWITCH_ERROR,
 			.err_name = "FATAL_SENSOR_SWITCHING_IRQ",
-			.desc =
-				"Sensor/SW: Minimum VBI period between dynamically switching between two sensor modes was either violated or the downstream pipe was not active when the switch was made",
+			.desc = "Fatal Error during dynamically switching between 2 sensors",
 		},
 	},
 	{
 		{
 			.bitmask  = BIT(2),
 			.err_name = "ERROR_NO_VOTE_DN",
-			.desc =
-				"DRV: vote_down is never generated for the same frame and resource is never relinquished",
-			.debug = "Check vote up generated time",
+			.desc = "vote_up is asserted before IDLE is encountered in a frame",
 		},
 		{
 			.bitmask  = BIT(3),
-			.err_type = CAM_ISP_HW_ERROR_DRV_VOTEUP_LATE,
+			.err_type = CAM_ISP_HW_ERROR_RECOVERY_OVERFLOW,
 			.err_name = "ERROR_VOTE_UP_LATE",
-			.desc = "DRV: vote_up is generated after SOF",
-			.debug = "Check the vote up timer value",
+			.desc = "vote_up is asserted at the same time as an SOF",
 			.err_handler = cam_ife_csid_hw_ver2_drv_err_handler,
 		},
 		{
 			.bitmask  = BIT(4),
 			.err_type = CAM_ISP_HW_ERROR_CSID_OUTPUT_FIFO_OVERFLOW,
 			.err_name = "ERROR_RDI_LINE_BUFFER_CONFLICT",
-			.desc =
-				"System/SW: Multiple RDIs configured to access the same shared line buffer, more of a SW issue that led to this programming",
+			.desc = "Two or more RDIs programmed to access the shared line buffer",
 			.err_handler = cam_ife_csid_hw_ver2_rdi_line_buffer_conflict_handler,
-		},
-		{
-			.bitmask = BIT(5),
-			.err_name = "ERROR_SENSOR_HBI",
-			.desc = "Sensor: Sensor HBI is less than expected HBI",
-			.debug = "Check sensor configuration",
 		},
 	},
 };
@@ -378,7 +319,6 @@ static struct cam_irq_register_set cam_ife_csid_980_irq_reg_set[CAM_IFE_CSID_IRQ
 		.set_reg_offset    = 0x00000090,
 		.test_set_val      = BIT(0),
 		.test_sub_val      = BIT(0),
-		.force_rd_mask     = BIT(31), /* force read due to hw errata */
 	},
 	/* RX_1 */
 	{
@@ -474,7 +414,7 @@ static struct cam_irq_controller_reg_info cam_ife_csid_980_top_irq_reg_info[] = 
 	{
 	.num_registers = 1,
 	.irq_reg_set = &cam_ife_csid_980_irq_reg_set[CAM_IFE_CSID_IRQ_REG_TOP_2],
-	.global_irq_cmd_offset = 0, /* intentionally set to zero */
+	.global_irq_cmd_offset = 0,
 	},
 
 };
@@ -679,7 +619,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.lut_bank_0_sel_val               = 0,
 		.lut_bank_1_sel_val               = 1,
 		.fatal_err_mask                   = 0x241c6001,
-		.non_fatal_err_mask               = 0x12000000,
+		.non_fatal_err_mask               = 0x12000004,
 		.sof_irq_mask                     = 0x10,
 		.rup_irq_mask                     = 0x800000,
 		.epoch0_irq_mask                  = 0x200000,
@@ -691,7 +631,6 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.top_irq_mask                     = {0x100,},
 		.epoch0_shift_val                 = 16,
 		.epoch1_shift_val                 = 0,
-		.disable_sof_retime_default       = true,
 };
 
 static struct cam_ife_csid_ver2_path_reg_info
@@ -786,7 +725,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.timestamp_en_shift_val           = 6,
 		.start_master_sel_shift_val       = 4,
 		.fatal_err_mask                   = 0x241c6001,
-		.non_fatal_err_mask               = 0x12000000,
+		.non_fatal_err_mask               = 0x12000004,
 		.sof_irq_mask                     = 0x10,
 		.rup_irq_mask                     = 0x800000,
 		.epoch0_irq_mask                  = 0x200000,
@@ -795,8 +734,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.rup_mask                         = 0x2,
 		.aup_mask                         = 0x2,
 		.rup_aup_set_mask                 = 0x1,
-		.top_irq_mask                     = {0x200,},
-		.disable_sof_retime_default       = true,
+		.top_irq_mask                     = {0x100,},
 };
 
 static struct cam_ife_csid_ver2_path_reg_info
@@ -891,7 +829,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.timestamp_en_shift_val           = 6,
 		.start_master_sel_shift_val       = 4,
 		.fatal_err_mask                   = 0x241c6001,
-		.non_fatal_err_mask               = 0x12000000,
+		.non_fatal_err_mask               = 0x12000004,
 		.sof_irq_mask                     = 0x10,
 		.rup_irq_mask                     = 0x800000,
 		.epoch0_irq_mask                  = 0x200000,
@@ -900,8 +838,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.rup_mask                         = 0x4,
 		.aup_mask                         = 0x4,
 		.rup_aup_set_mask                 = 0x1,
-		.top_irq_mask                     = {0x400,},
-		.disable_sof_retime_default       = true,
+		.top_irq_mask                     = {0x100,},
 };
 
 
@@ -1004,14 +941,14 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.drop_h_en_shift_val              = 10,
 		.format_measure_en_shift_val      = 4,
 		.timestamp_en_shift_val           = 6,
-		.overflow_ctrl_en                 = 0,
+		.overflow_ctrl_en                 = 1,
 		.overflow_ctrl_mode_val           = 0x8,
 		.min_hbi_shift_val                = 1,
 		.start_master_sel_shift_val       = 4,
 		.lut_bank_0_sel_val               = 0,
 		.lut_bank_1_sel_val               = 1,
 		.fatal_err_mask                   = 0x241c6001,
-		.non_fatal_err_mask               = 0x12000000,
+		.non_fatal_err_mask               = 0x12000004,
 		.rup_mask                         = 0x10000,
 		.aup_mask                         = 0x10000,
 		.rup_aup_set_mask                 = 0x1,
@@ -1019,8 +956,6 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.epoch0_shift_val                 = 16,
 		.epoch1_shift_val                 = 0,
 		.sof_retiming_dis_shift           = 5,
-		.disable_sof_retime_default       = true,
-		.use_master_slave_default         = true,
 };
 
 static struct cam_ife_csid_ver2_path_reg_info
@@ -1100,7 +1035,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 
 		/* configurations */
 		.resume_frame_boundary            = 1,
-		.overflow_ctrl_en                 = 0,
+		.overflow_ctrl_en                 = 1,
 		.capabilities                     = CAM_IFE_CSID_CAP_INPUT_LCR |
 							CAM_IFE_CSID_CAP_RDI_UNPACK_MSB |
 							CAM_IFE_CSID_CAP_LINE_SMOOTHING_IN_RDI |
@@ -1125,7 +1060,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.offline_mode_en_shift_val        = 2,
 		.ccif_violation_en                = 1,
 		.fatal_err_mask                   = 0x241c6001,
-		.non_fatal_err_mask               = 0x12000000,
+		.non_fatal_err_mask               = 0x12000004,
 		.sof_irq_mask                     = 0x10,
 		.rup_irq_mask                     = 0x800000,
 		.epoch0_irq_mask                  = 0x200000,
@@ -1137,11 +1072,9 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.top_irq_mask                     = {0x10000,},
 		.epoch0_shift_val                 = 16,
 		.epoch1_shift_val                 = 0,
-		.pix_store_en_shift_val           = 0,
+		.pix_store_en_shift_val           = 10,
 		.sof_retiming_dis_shift           = 5,
 		.default_out_format               = CAM_FORMAT_PLAIN16_16,
-		.disable_sof_retime_default       = true,
-		.use_master_slave_default         = true,
 };
 
 static struct cam_ife_csid_ver2_path_reg_info
@@ -1221,7 +1154,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 
 		/* configurations */
 		.resume_frame_boundary            = 1,
-		.overflow_ctrl_en                 = 0,
+		.overflow_ctrl_en                 = 1,
 		.capabilities                     = CAM_IFE_CSID_CAP_INPUT_LCR |
 							CAM_IFE_CSID_CAP_RDI_UNPACK_MSB |
 							CAM_IFE_CSID_CAP_LINE_SMOOTHING_IN_RDI |
@@ -1246,7 +1179,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.offline_mode_en_shift_val        = 2,
 		.ccif_violation_en                = 1,
 		.fatal_err_mask                   = 0x241c6001,
-		.non_fatal_err_mask               = 0x12000000,
+		.non_fatal_err_mask               = 0x12000004,
 		.sof_irq_mask                     = 0x10,
 		.rup_irq_mask                     = 0x800000,
 		.epoch0_irq_mask                  = 0x200000,
@@ -1258,7 +1191,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.top_irq_mask                     = {0x20000,},
 		.epoch0_shift_val                 = 16,
 		.epoch1_shift_val                 = 0,
-		.pix_store_en_shift_val           = 0,
+		.pix_store_en_shift_val           = 10,
 		.sof_retiming_dis_shift           = 5,
 };
 
@@ -1339,7 +1272,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 
 		/* configurations */
 		.resume_frame_boundary            = 1,
-		.overflow_ctrl_en                 = 0,
+		.overflow_ctrl_en                 = 1,
 		.capabilities                     = CAM_IFE_CSID_CAP_INPUT_LCR |
 							CAM_IFE_CSID_CAP_RDI_UNPACK_MSB |
 							CAM_IFE_CSID_CAP_LINE_SMOOTHING_IN_RDI |
@@ -1364,7 +1297,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.offline_mode_en_shift_val        = 2,
 		.ccif_violation_en                = 1,
 		.fatal_err_mask                   = 0x241c6001,
-		.non_fatal_err_mask               = 0x12000000,
+		.non_fatal_err_mask               = 0x12000004,
 		.sof_irq_mask                     = 0x10,
 		.rup_irq_mask                     = 0x800000,
 		.epoch0_irq_mask                  = 0x200000,
@@ -1376,7 +1309,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.top_irq_mask                     = {0x40000,},
 		.epoch0_shift_val                 = 16,
 		.epoch1_shift_val                 = 0,
-		.pix_store_en_shift_val           = 0,
+		.pix_store_en_shift_val           = 10,
 		.sof_retiming_dis_shift           = 5,
 
 };
@@ -1454,7 +1387,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 
 		/* configurations */
 		.resume_frame_boundary            = 1,
-		.overflow_ctrl_en                 = 0,
+		.overflow_ctrl_en                 = 1,
 		.capabilities                     = CAM_IFE_CSID_CAP_INPUT_LCR |
 							CAM_IFE_CSID_CAP_RDI_UNPACK_MSB |
 							CAM_IFE_CSID_CAP_LINE_SMOOTHING_IN_RDI |
@@ -1479,7 +1412,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.offline_mode_en_shift_val        = 2,
 		.ccif_violation_en                = 1,
 		.fatal_err_mask                   = 0x241c6001,
-		.non_fatal_err_mask               = 0x12000000,
+		.non_fatal_err_mask               = 0x12000004,
 		.sof_irq_mask                     = 0x10,
 		.rup_irq_mask                     = 0x800000,
 		.epoch0_irq_mask                  = 0x200000,
@@ -1491,7 +1424,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.top_irq_mask                     = {0x80000,},
 		.epoch0_shift_val                 = 16,
 		.epoch1_shift_val                 = 0,
-		.pix_store_en_shift_val           = 0,
+		.pix_store_en_shift_val           = 10,
 		.sof_retiming_dis_shift           = 5,
 };
 
@@ -1568,7 +1501,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 
 		/* configurations */
 		.resume_frame_boundary            = 1,
-		.overflow_ctrl_en                 = 0,
+		.overflow_ctrl_en                 = 1,
 		.capabilities                     = CAM_IFE_CSID_CAP_INPUT_LCR |
 							CAM_IFE_CSID_CAP_RDI_UNPACK_MSB |
 							CAM_IFE_CSID_CAP_LINE_SMOOTHING_IN_RDI |
@@ -1593,7 +1526,7 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.offline_mode_en_shift_val        = 2,
 		.ccif_violation_en                = 1,
 		.fatal_err_mask                   = 0x241c6001,
-		.non_fatal_err_mask               = 0x12000000,
+		.non_fatal_err_mask               = 0x12000004,
 		.sof_irq_mask                     = 0x10,
 		.rup_irq_mask                     = 0x800000,
 		.epoch0_irq_mask                  = 0x200000,
@@ -1605,96 +1538,9 @@ static struct cam_ife_csid_ver2_path_reg_info
 		.top_irq_mask                     = {0x100000,},
 		.epoch0_shift_val                 = 16,
 		.epoch1_shift_val                 = 0,
-		.pix_store_en_shift_val           = 0,
+		.pix_store_en_shift_val           = 10,
 		.sof_retiming_dis_shift           = 5,
 };
-
-static struct cam_ife_csid_rx_debug_mask cam_ife_csid_980_rx_debug_mask = {
-
-	.evt_bitmap = {
-		BIT_ULL(CAM_IFE_CSID_RX_DL0_EOT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL1_EOT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL2_EOT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL3_EOT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL0_SOT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL1_SOT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL2_SOT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL3_SOT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_WARNING_ECC) |
-			BIT_ULL(CAM_IFE_CSID_RX_ERROR_CPHY_PH_CRC) |
-			BIT_ULL(CAM_IFE_CSID_RX_LANE0_FIFO_OVERFLOW) |
-			BIT_ULL(CAM_IFE_CSID_RX_LANE1_FIFO_OVERFLOW) |
-			BIT_ULL(CAM_IFE_CSID_RX_LANE2_FIFO_OVERFLOW) |
-			BIT_ULL(CAM_IFE_CSID_RX_LANE3_FIFO_OVERFLOW) |
-			BIT_ULL(CAM_IFE_CSID_RX_ERROR_CRC) |
-			BIT_ULL(CAM_IFE_CSID_RX_ERROR_ECC) |
-			BIT_ULL(CAM_IFE_CSID_RX_MMAPPED_VC_DT) |
-			BIT_ULL(CAM_IFE_CSID_RX_UNMAPPED_VC_DT) |
-			BIT_ULL(CAM_IFE_CSID_RX_STREAM_UNDERFLOW) |
-			BIT_ULL(CAM_IFE_CSID_RX_RX2_IRQ) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL0_EOT_LOST) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL1_EOT_LOST) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL2_EOT_LOST) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL3_EOT_LOST) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL0_SOT_LOST) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL1_SOT_LOST) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL2_SOT_LOST) |
-			BIT_ULL(CAM_IFE_CSID_RX_DL3_SOT_LOST),
-
-		BIT_ULL(CAM_IFE_CSID_RX_LONG_PKT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_SHORT_PKT_CAPTURED) |
-			BIT_ULL(CAM_IFE_CSID_RX_CPHY_PKT_HDR_CAPTURED),
-	},
-
-
-	.bit_pos[CAM_IFE_CSID_RX_DL0_EOT_CAPTURED] = 0,
-	.bit_pos[CAM_IFE_CSID_RX_DL1_EOT_CAPTURED] = 1,
-	.bit_pos[CAM_IFE_CSID_RX_DL2_EOT_CAPTURED] = 2,
-	.bit_pos[CAM_IFE_CSID_RX_DL3_EOT_CAPTURED] = 3,
-	.bit_pos[CAM_IFE_CSID_RX_DL0_SOT_CAPTURED] = 4,
-	.bit_pos[CAM_IFE_CSID_RX_DL1_SOT_CAPTURED] = 5,
-	.bit_pos[CAM_IFE_CSID_RX_DL2_SOT_CAPTURED] = 6,
-	.bit_pos[CAM_IFE_CSID_RX_DL3_SOT_CAPTURED] = 7,
-	.bit_pos[CAM_IFE_CSID_RX_WARNING_ECC] = 8,
-	.bit_pos[CAM_IFE_CSID_RX_LONG_PKT_CAPTURED] = 0,
-	.bit_pos[CAM_IFE_CSID_RX_SHORT_PKT_CAPTURED] = 1,
-	.bit_pos[CAM_IFE_CSID_RX_CPHY_PKT_HDR_CAPTURED] = 2,
-	.bit_pos[CAM_IFE_CSID_RX_ERROR_CPHY_PH_CRC] = 24,
-	.bit_pos[CAM_IFE_CSID_RX_LANE0_FIFO_OVERFLOW] = 20,
-	.bit_pos[CAM_IFE_CSID_RX_LANE1_FIFO_OVERFLOW] = 21,
-	.bit_pos[CAM_IFE_CSID_RX_LANE2_FIFO_OVERFLOW] = 22,
-	.bit_pos[CAM_IFE_CSID_RX_LANE3_FIFO_OVERFLOW] = 23,
-	.bit_pos[CAM_IFE_CSID_RX_ERROR_CRC] = 25,
-	.bit_pos[CAM_IFE_CSID_RX_ERROR_ECC] = 26,
-	.bit_pos[CAM_IFE_CSID_RX_MMAPPED_VC_DT] = 27,
-	.bit_pos[CAM_IFE_CSID_RX_UNMAPPED_VC_DT] = 28,
-	.bit_pos[CAM_IFE_CSID_RX_STREAM_UNDERFLOW] = 29,
-	.bit_pos[CAM_IFE_CSID_RX_RX2_IRQ] = 31,
-	.bit_pos[CAM_IFE_CSID_RX_DL0_EOT_LOST] = 12,
-	.bit_pos[CAM_IFE_CSID_RX_DL1_EOT_LOST] = 13,
-	.bit_pos[CAM_IFE_CSID_RX_DL2_EOT_LOST] = 14,
-	.bit_pos[CAM_IFE_CSID_RX_DL3_EOT_LOST] = 15,
-	.bit_pos[CAM_IFE_CSID_RX_DL0_SOT_LOST] = 16,
-	.bit_pos[CAM_IFE_CSID_RX_DL1_SOT_LOST] = 17,
-	.bit_pos[CAM_IFE_CSID_RX_DL2_SOT_LOST] = 18,
-	.bit_pos[CAM_IFE_CSID_RX_DL3_SOT_LOST] = 19,
-};
-
-static struct cam_ife_csid_top_debug_mask cam_ife_csid_980_top_debug_mask = {
-
-	.evt_bitmap = {
-		0ULL,
-
-		BIT_ULL(CAM_IFE_CSID_TOP_INFO_VOTE_UP) |
-			BIT_ULL(CAM_IFE_CSID_TOP_INFO_VOTE_DN) |
-			BIT_ULL(CAM_IFE_CSID_TOP_ERR_NO_VOTE_DN),
-	},
-
-	.bit_pos[CAM_IFE_CSID_TOP_INFO_VOTE_UP] = 0,
-	.bit_pos[CAM_IFE_CSID_TOP_INFO_VOTE_DN] = 1,
-	.bit_pos[CAM_IFE_CSID_TOP_ERR_NO_VOTE_DN] = 2,
-};
-
 
 static struct cam_ife_csid_ver2_csi2_rx_reg_info
 	cam_ife_csid_980_csi2_reg_info = {
@@ -1764,17 +1610,16 @@ static struct cam_ife_csid_ver2_csi2_rx_reg_info
 		.epd_mode_shift_en               = 8,
 		.eotp_shift_en                   = 9,
 		.dyn_sensor_switch_shift_en      = 10,
-		.rup_aup_latch_shift             = 13,
+		.rup_aup_latch_shift             = 11,
 		.rup_aup_latch_supported         = true,
 		.long_pkt_strobe_rst_shift       = 0,
 		.short_pkt_strobe_rst_shift      = 1,
 		.cphy_pkt_strobe_rst_shift       = 2,
 		.unmapped_pkt_strobe_rst_shift   = 3,
-		.fatal_err_mask                  = {0x25fff000, 0x0},
-		.part_fatal_err_mask             = {0x02000000, 0x0},
-		.non_fatal_err_mask              = {0x08000000, 0x0},
-		.top_irq_mask                    = {0x4, 0x0},
-		.rx_rx2_irq_mask                 = 0x80000000,
+		.fatal_err_mask                  = {0x38f00000,},
+		.part_fatal_err_mask             = {0xF0000,},
+		.non_fatal_err_mask              = {0x08000000,},
+		.top_irq_mask                    = {0x4,},
 };
 
 static struct cam_ife_csid_ver2_common_reg_info
@@ -1791,10 +1636,10 @@ static struct cam_ife_csid_ver2_common_reg_info
 	.offline_cmd_addr                        = 0x0024,
 	.shdr_master_slave_cfg_addr              = 0x0028,
 	.multi_sensor_mode_addr                  = 0x002C,
-	.top_irq_status_addr                     = {0x0084, 0x0094},
-	.top_irq_mask_addr                       = {0x0088, 0x0098},
-	.top_irq_clear_addr                      = {0x008C, 0x009C},
-	.top_irq_set_addr                        = {0x0090, 0x00A0},
+	.top_irq_status_addr                     = {0x0084,},
+	.top_irq_mask_addr                       = {0x0088,},
+	.top_irq_clear_addr                      = {0x008C,},
+	.top_irq_set_addr                        = {0x0090,},
 	.buf_done_irq_status_addr                = 0x00A4,
 	.buf_done_irq_mask_addr                  = 0x00A8,
 	.buf_done_irq_clear_addr                 = 0x00AC,
@@ -1809,14 +1654,13 @@ static struct cam_ife_csid_ver2_common_reg_info
 	.debug_sensor_hbi_irq_vcdt_addr          = 0x0180,
 	.debug_violation_addr                    = 0x03D4,
 	.debug_cfg_addr                          = 0x03E0,
-	.rx_mode_id_cfg1_addr                    = 0x0470,
 
 	/*configurations */
 	.major_version                           = 6,
 	.minor_version                           = 8,
 	.version_incr                            = 0,
 	.num_rdis                                = 5,
-	.num_pix                                 = 3,
+	.num_pix                                 = 1,
 	.num_ppp                                 = 1,
 	.rst_done_shift_val                      = 1,
 	.path_en_shift_val                       = 31,
@@ -1833,7 +1677,6 @@ static struct cam_ife_csid_ver2_common_reg_info
 	.frame_id_decode_en_shift_val            = 1,
 	.multi_vcdt_vc1_shift_val                = 2,
 	.multi_vcdt_dt1_shift_val                = 7,
-	.multi_vcdt_ts_combo_en_shift_val        = 13,
 	.multi_vcdt_en_shift_val                 = 0,
 	.timestamp_stb_sel_shift_val             = 8,
 	.vfr_en_shift_val                        = 0,
@@ -1848,8 +1691,6 @@ static struct cam_ife_csid_ver2_common_reg_info
 	.early_eof_supported                     = 1,
 	.vfr_supported                           = 1,
 	.multi_vcdt_supported                    = 1,
-	.ts_comb_vcdt_en                         = true,
-	.ts_comb_vcdt_mask                       = 3,
 	.frame_id_dec_supported                  = 1,
 	.measure_en_hbi_vbi_cnt_mask             = 0xc,
 	.measure_pixel_line_en_mask              = 0x3,
@@ -1861,7 +1702,7 @@ static struct cam_ife_csid_ver2_common_reg_info
 	.ipp_irq_mask_all                        = 0x7FFF,
 	.rdi_irq_mask_all                        = 0x7FFF,
 	.ppp_irq_mask_all                        = 0xFFFF,
-	.top_err_irq_mask                        = {0x00000002, 0x18},
+	.top_err_irq_mask                        = {0x00000002,},
 	.rst_loc_path_only_val                   = 0x0,
 	.rst_loc_complete_csid_val               = 0x1,
 	.rst_mode_frame_boundary_val             = 0x0,
@@ -1875,23 +1716,17 @@ static struct cam_ife_csid_ver2_common_reg_info
 	.rst_mode_shift_val                      = 0,
 	.epoch_factor                            = 50,
 	.global_reset                            = 1,
-	.aup_rup_supported                       = 1,
+	.rup_supported                           = 1,
 	.only_master_rup                         = 1,
 	.format_measure_height_mask_val          = 0xFFFF,
 	.format_measure_height_shift_val         = 0x10,
 	.format_measure_width_mask_val           = 0xFFFF,
 	.format_measure_width_shift_val          = 0x0,
-	.format_measure_max_hbi_shift            = 16,
-	.format_measure_min_hbi_mask             = 0xFFF,
 	.top_buf_done_irq_mask                   = 0x8,
 	.decode_format_payload_only              = 0xF,
 	.timestamp_enabled_in_cfg0               = true,
 	.camif_irq_support                       = true,
-	.capabilities                            = CAM_IFE_CSID_CAP_SPLIT_RUP_AUP |
-							CAM_IFE_CSID_CAP_SKIP_PATH_CFG1 |
-							CAM_IFE_CSID_CAP_SKIP_EPOCH_CFG|
-							CAM_IFE_CSID_CAP_MULTI_CTXT,
-	.top_top2_irq_mask                       = 0x80000000,
+	.capabilities                            = CAM_IFE_CSID_CAP_SPLIT_RUP_AUP,
 	.drv_rup_en_val_map = {
 		2, /*RDI0 */
 		3, /*RDI1 */
@@ -1914,10 +1749,6 @@ static struct cam_ife_csid_ver2_common_reg_info
 		BIT(9), /*CAM_ISP_RDI3_PATH */
 		BIT(10), /*CAM_ISP_RDI4_PATH */
 	},
-	.path_domain_id_cfg0                     = 0x0,
-	.path_domain_id_cfg1                     = 0x4,
-	.path_domain_id_cfg2                     = 0x8,
-	.phy_sel_base_idx                        = 1,
 };
 
 struct cam_ife_csid_ver2_mc_reg_info
@@ -1964,16 +1795,13 @@ static struct cam_ife_csid_ver2_reg_info cam_ife_csid_980_reg_info = {
 	.path_reg[CAM_IFE_PIX_PATH_RES_RDI_4] = &cam_ife_csid_980_rdi_4_reg_info,
 	.ipp_mc_reg                           = &cam_ife_csid_980_ipp_mc_reg_info,
 	.need_top_cfg = 0x0,
-	.dynamic_drv_supported = true,
 	.top_irq_desc        = &cam_ife_csid_980_top_irq_desc,
 	.rx_irq_desc         = &cam_ife_csid_980_rx_irq_desc,
 	.path_irq_desc       = cam_ife_csid_980_path_irq_desc,
 	.num_top_err_irqs    = cam_ife_csid_980_num_top_irq_desc,
 	.num_rx_err_irqs     = cam_ife_csid_980_num_rx_irq_desc,
 	.num_path_err_irqs   = ARRAY_SIZE(cam_ife_csid_980_path_irq_desc),
-	.top_debug_mask      = &cam_ife_csid_980_top_debug_mask,
-	.rx_debug_mask       = &cam_ife_csid_980_rx_debug_mask,
-	.num_top_regs        = 2,
-	.num_rx_regs         = 2,
+	.num_top_regs        = 1,
+	.num_rx_regs         = 1,
 };
 #endif /*_CAM_IFE_CSID_980_H_ */

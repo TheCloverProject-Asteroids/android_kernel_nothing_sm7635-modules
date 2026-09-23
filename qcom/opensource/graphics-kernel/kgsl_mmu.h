@@ -104,7 +104,6 @@ struct kgsl_mmu;
 struct kgsl_mmu_ops {
 	void (*mmu_close)(struct kgsl_mmu *mmu);
 	int (*mmu_start)(struct kgsl_mmu *mmu);
-	bool (*mmu_ctx_terminated_on_fault)(struct kgsl_mmu *mmu);
 	uint64_t (*mmu_get_current_ttbr0)(struct kgsl_mmu *mmu, struct kgsl_context *context);
 	void (*mmu_pagefault_resume)(struct kgsl_mmu *mmu, bool terminate);
 	void (*mmu_clear_fsr)(struct kgsl_mmu *mmu);
@@ -117,18 +116,17 @@ struct kgsl_mmu_ops {
 	void (*mmu_map_global)(struct kgsl_mmu *mmu,
 		struct kgsl_memdesc *memdesc, u32 padding);
 	void (*mmu_send_tlb_hint)(struct kgsl_mmu *mmu, bool hint);
-	void (*mmu_sysfs_init)(struct kgsl_mmu *mmu);
 };
 
 struct kgsl_mmu_pt_ops {
 	int (*mmu_map)(struct kgsl_pagetable *pt,
 			struct kgsl_memdesc *memdesc);
 	int (*mmu_map_child)(struct kgsl_pagetable *pt,
-			struct kgsl_memdesc *memdesc, u64 offset,
-			struct kgsl_memdesc *child, u64 child_offset,
-			u64 length);
+		struct kgsl_memdesc *memdesc, u64 offset,
+		struct kgsl_memdesc *child, u64 child_offset,
+		u64 length);
 	int (*mmu_map_zero_page_to_range)(struct kgsl_pagetable *pt,
-			struct kgsl_memdesc *memdesc, u64 start, u64 length);
+		struct kgsl_memdesc *memdesc, u64 start, u64 length);
 	int (*mmu_unmap)(struct kgsl_pagetable *pt,
 			struct kgsl_memdesc *memdesc);
 	int (*mmu_unmap_range)(struct kgsl_pagetable *pt,
@@ -137,12 +135,13 @@ struct kgsl_mmu_pt_ops {
 	u64 (*get_ttbr0)(struct kgsl_pagetable *pt);
 	int (*get_context_bank)(struct kgsl_pagetable *pt, struct kgsl_context *context);
 	int (*get_asid)(struct kgsl_pagetable *pt, struct kgsl_context *context);
-	int (*get_gpuaddr)(struct kgsl_pagetable *pt, struct kgsl_memdesc *memdesc);
+	int (*get_gpuaddr)(struct kgsl_pagetable *pt,
+				struct kgsl_memdesc *memdesc);
 	void (*put_gpuaddr)(struct kgsl_memdesc *memdesc);
 	uint64_t (*find_svm_region)(struct kgsl_pagetable *pt, uint64_t start,
-			uint64_t end, uint64_t size, uint64_t align);
+		uint64_t end, uint64_t size, uint64_t align);
 	int (*set_svm_region)(struct kgsl_pagetable *pt,
-			struct kgsl_memdesc *memdesc, uint64_t gpuaddr, uint64_t size);
+				uint64_t gpuaddr, uint64_t size);
 	int (*svm_range)(struct kgsl_pagetable *pt, uint64_t *lo, uint64_t *hi,
 			uint64_t memflags);
 	bool (*addr_in_range)(struct kgsl_pagetable *pagetable,
@@ -236,8 +235,8 @@ uint64_t kgsl_mmu_find_svm_region(struct kgsl_pagetable *pagetable,
 		uint64_t start, uint64_t end, uint64_t size,
 		uint64_t alignment);
 
-int kgsl_mmu_set_svm_region(struct kgsl_pagetable *pagetable,
-		struct kgsl_memdesc *memdesc, uint64_t gpuaddr, uint64_t size);
+int kgsl_mmu_set_svm_region(struct kgsl_pagetable *pagetable, uint64_t gpuaddr,
+		uint64_t size);
 
 void kgsl_mmu_detach_pagetable(struct kgsl_pagetable *pagetable);
 
@@ -290,14 +289,6 @@ static inline void kgsl_mmu_put_gpuaddr(struct kgsl_pagetable *pagetable,
 {
 	if (PT_OP_VALID(pagetable, put_gpuaddr))
 		pagetable->pt_ops->put_gpuaddr(memdesc);
-}
-
-static inline bool kgsl_mmu_ctx_terminated_on_fault(struct kgsl_mmu *mmu)
-{
-	if (MMU_OP_VALID(mmu, mmu_ctx_terminated_on_fault))
-		return mmu->mmu_ops->mmu_ctx_terminated_on_fault(mmu);
-
-	return false;
 }
 
 static inline u64 kgsl_mmu_get_current_ttbr0(struct kgsl_mmu *mmu, struct kgsl_context *context)
@@ -441,14 +432,4 @@ static inline int kgsl_iommu_bind(struct kgsl_device *device, struct platform_de
 ssize_t kgsl_mmu_map_sg(struct iommu_domain *domain,
 				unsigned long iova, struct scatterlist *sg,
 				unsigned int nents, int prot);
-
-/**
- * kgsl_mmu_sysfs_init - Initialize sysfs nodes for the MMU
- * @mmu: A KGSL MMU handle
- */
-static inline void kgsl_mmu_sysfs_init(struct kgsl_mmu *mmu)
-{
-	if (MMU_OP_VALID(mmu, mmu_sysfs_init))
-		mmu->mmu_ops->mmu_sysfs_init(mmu);
-}
 #endif /* __KGSL_MMU_H */

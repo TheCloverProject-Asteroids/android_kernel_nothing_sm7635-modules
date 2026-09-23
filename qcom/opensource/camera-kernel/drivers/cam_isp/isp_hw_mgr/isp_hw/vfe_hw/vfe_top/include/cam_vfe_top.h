@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_VFE_TOP_H_
@@ -31,7 +30,7 @@
 /*
  * Debug values for camif module
  */
-#define CAMIF_DEBUG_ENABLE_SENSOR_DIAG_STATUS      BIT_ULL(0)
+#define CAMIF_DEBUG_ENABLE_SENSOR_DIAG_STATUS      BIT(0)
 #define CAMIF_DEBUG_ENABLE_REG_DUMP                BIT(1)
 #define CAM_VFE_CAMIF_EVT_MAX                      256
 

@@ -188,8 +188,6 @@ static QDF_STATUS cm_connect_prepare_scan_filter_for_roam(
 	filter->mgmtcipherset =
 		wlan_crypto_get_param(vdev, WLAN_CRYPTO_PARAM_MGMT_CIPHER);
 
-	filter->mrsno_gen = wlan_vdev_get_rsno_gen_supported(vdev);
-
 	return cm_update_roam_scan_filter(vdev, cm_req, filter,
 					  security_valid_for_6ghz);
 }
@@ -222,8 +220,7 @@ static QDF_STATUS cm_roam_get_candidates(struct wlan_objmgr_pdev *pdev,
 
 	op_mode = wlan_vdev_mlme_get_opmode(cm_ctx->vdev);
 	if (num_bss && op_mode == QDF_STA_MODE)
-		cm_calculate_scores(cm_ctx, pdev, filter,
-				    candidate_list, false);
+		cm_calculate_scores(cm_ctx, pdev, filter, candidate_list);
 
 	qdf_mem_free(filter);
 
@@ -278,40 +275,6 @@ QDF_STATUS cm_host_roam_start_fail(struct cnx_mgr *cm_ctx,
 	cm_send_preauth_start_fail(cm_ctx, cm_req->cm_id, reason);
 
 	return QDF_STATUS_SUCCESS;
-}
-
-void
-cm_update_per_peer_crypto_params_for_roam(struct wlan_objmgr_vdev *vdev,
-					  struct cm_roam_req *roam_req)
-{
-	struct security_info *neg_sec_info;
-	uint16_t rsn_caps;
-
-	/* Do only for WPA/WPA2/WPA3 */
-	if (!roam_req->req.crypto.wpa_versions)
-		return;
-
-	/*
-	 * Some non PMF AP misbehave if in assoc req RSN IE contain PMF capable
-	 * bit set. Thus only if AP and self are capable, try PMF connection
-	 * else set PMF as 0. The PMF filtering is already taken care in
-	 * get scan results.
-	 */
-	neg_sec_info = &roam_req->cur_candidate->entry->neg_sec_info;
-	rsn_caps = roam_req->req.crypto.rsn_caps;
-	if (!(neg_sec_info->rsn_caps & WLAN_CRYPTO_RSN_CAP_MFP_ENABLED &&
-	     rsn_caps & WLAN_CRYPTO_RSN_CAP_MFP_ENABLED)) {
-		rsn_caps &= ~WLAN_CRYPTO_RSN_CAP_MFP_ENABLED;
-		rsn_caps &= ~WLAN_CRYPTO_RSN_CAP_MFP_REQUIRED;
-		rsn_caps &= ~WLAN_CRYPTO_RSN_CAP_OCV_SUPPORTED;
-	}
-
-	/* Update the new rsn caps */
-	wlan_crypto_set_vdev_param(vdev, WLAN_CRYPTO_PARAM_RSN_CAP,
-				   rsn_caps);
-
-	cm_update_per_peer_key_mgmt_crypto_params(vdev, neg_sec_info);
-	cm_update_per_peer_ucastcipher_crypto_params(vdev, neg_sec_info);
 }
 #else
 static QDF_STATUS cm_host_roam_start(struct cnx_mgr *cm_ctx,

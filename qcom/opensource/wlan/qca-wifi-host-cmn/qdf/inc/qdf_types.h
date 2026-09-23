@@ -60,9 +60,6 @@
 #define CPU_CLUSTER_TYPE_PERF2 2
 #endif
 
-#define qdf_get_current() __qdf_get_current()
-#define qdf_this_cpu_ksoftirqd() __qdf_this_cpu_ksoftirqd()
-
 /**
  * struct qdf_sglist - scatter-gather list
  * @nsegs: total number of segments
@@ -228,16 +225,6 @@ typedef __qdf_net_dev_stats qdf_net_dev_stats;
  * pointer to dummy net device
  */
 typedef __qdf_dummy_netdev_t qdf_dummy_netdev_t;
-
-/*
- * function pointer to compare function
- */
-typedef __qdf_cmp_func_t qdf_cmp_func_t;
-
-/*
- * function pointer to swap function
- */
-typedef __qdf_swap_func_t qdf_swap_func_t;
 
 /**
  * struct qdf_dma_map_info - Information inside a DMA map.
@@ -508,7 +495,6 @@ typedef bool (*qdf_irqlocked_func_t)(void *);
  * @QDF_MODULE_ID_COHOSTED_BSS : Co-hosted BSS module ID
  * @QDF_MODULE_ID_TELEMETRY_AGENT: Telemetry Agent Module ID
  * @QDF_MODULE_ID_RF_PATH_SWITCH: RF path switch Module ID
- * @QDF_MODULE_ID_MGMT_RX_SRNG: MGMR RX over SRNG Module ID
  * @QDF_MODULE_ID_MAX: Max place holder module ID
  *
  * New module ID needs to be added in qdf trace along with this enum.
@@ -680,7 +666,6 @@ typedef enum {
 	QDF_MODULE_ID_COHOSTED_BSS,
 	QDF_MODULE_ID_TELEMETRY_AGENT,
 	QDF_MODULE_ID_RF_PATH_SWITCH,
-	QDF_MODULE_ID_MGMT_RX_SRNG,
 	QDF_MODULE_ID_ANY,
 	QDF_MODULE_ID_MAX,
 } QDF_MODULE_ID;
@@ -904,24 +889,8 @@ enum QDF_GLOBAL_MODE {
  *	Exception Case-1: When STA is operating on DFS channel.
  *	Exception Case-2: When STA is operating on LTE-CoEx channel.
  *	Exception Case-3: When STA is operating on AP disabled channel.
- * @QDF_MCC_TO_SCC_WITH_SAME_LOWER_BAND_MCC_WITH_HIGHER_BAND: Select SCC/MCC
- *							      based on below
- *							      cases:
- *      1. When other interface is in higher band then only MCC is allowed.
- *	   For Example: If STA is connected on 5 GHz and SAP comes on 2.4 GHz band,
- *			the SAP can't upgrade the connection to 5 GHz band.
- *			Consequently, the SAP will come up on 2.4 GHz MCC.
- *      2. When other interface is in lower band then SCC is allowed.
- *	   For Example: If STA is connected on 2.4 GHz and SAP comes on 5 GHz band,
- *			the SAP can downgrade the connection to 2.4 GHz.
- *			Consequently, the SAP will come up on 2.4 GHz SCC.
- *      3. When other interface is in DFS/Indoor freq and SAP is not allowed
- *	   then MCC is allowed.
- *      4. When other interface is in 6 Ghz and SAP is not 6 Ghz capable then
- *	   MCC is allowed.
- * In case of MCC, host will initiate roam invoke to FW and try to move to SCC
- * candidate if possible.
- * This enum is applicable for Non-DBS targets only.
+ * @QDF_MCC_TO_SCC_WITH_PREFERRED_BAND: Force SCC only in user preferred band.
+ * Allow MCC if STA is operating or comes up on other than user preferred band.
  *
  * @QDF_MCC_TO_SCC_SWITCH_MAX: max switch
  */
@@ -930,7 +899,7 @@ typedef enum {
 	QDF_MCC_TO_SCC_SWITCH_FORCE_WITHOUT_DISCONNECTION = 3,
 	QDF_MCC_TO_SCC_SWITCH_WITH_FAVORITE_CHANNEL,
 	QDF_MCC_TO_SCC_SWITCH_FORCE_PREFERRED_WITHOUT_DISCONNECTION,
-	QDF_MCC_TO_SCC_WITH_SAME_LOWER_BAND_MCC_WITH_HIGHER_BAND,
+	QDF_MCC_TO_SCC_WITH_PREFERRED_BAND,
 	QDF_MCC_TO_SCC_SWITCH_MAX
 } tQDF_MCC_TO_SCC_SWITCH_MODE;
 #endif
@@ -1148,8 +1117,6 @@ struct qdf_mac_addr {
  * @QDF_PROTO_EAP_WSC_NACK: EAP expanded type WSC NACK
  * @QDF_PROTO_EAP_WSC_DONE: EAP expanded type WSC DONE
  * @QDF_PROTO_EAP_WSC_FRAG_ACK: EAP expanded type WSC frag ACK
- * @QDF_PROTO_EAPOL_G1: EAPOL Rekey frame 1/2
- * @QDF_PROTO_EAPOL_G2: EAPOL Rekey frame 2/2
  * @QDF_PROTO_SUBTYPE_MAX: subtype max
  */
 enum qdf_proto_subtype {
@@ -1213,8 +1180,6 @@ enum qdf_proto_subtype {
 	QDF_PROTO_EAP_WSC_NACK,
 	QDF_PROTO_EAP_WSC_DONE,
 	QDF_PROTO_EAP_WSC_FRAG_ACK,
-	QDF_PROTO_EAPOL_G1,
-	QDF_PROTO_EAPOL_G2,
 	QDF_PROTO_SUBTYPE_MAX
 };
 
@@ -1617,13 +1582,11 @@ struct qdf_tso_info_t {
  * @QDF_SYSTEM_SUSPEND: System suspend triggered wlan suspend
  * @QDF_RUNTIME_SUSPEND: Runtime pm inactivity timer triggered wlan suspend
  * @QDF_UNIT_TEST_WOW_SUSPEND: WoW unit test suspend
- * @QDF_WOW_UNSUPPORTED_TYPE: Wow unsupported
  */
 enum qdf_suspend_type {
 	QDF_SYSTEM_SUSPEND,
 	QDF_RUNTIME_SUSPEND,
-	QDF_UNIT_TEST_WOW_SUSPEND,
-	QDF_WOW_UNSUPPORTED_TYPE
+	QDF_UNIT_TEST_WOW_SUSPEND
 };
 
 /**
@@ -1901,8 +1864,7 @@ enum qdf_iommu_attr {
  * @QDF_DP_RX_DESC_BUF_TYPE: DP RX SW descriptor
  * @QDF_DP_RX_DESC_STATUS_TYPE: DP RX SW descriptor for monitor status
  * @QDF_DP_HW_LINK_DESC_TYPE: DP HW link descriptor
- * @QDF_DP_TX_HW_CC_SPT_PAGE_TYPE: DP pages for TX HW CC secondary page table
- * @QDF_DP_RX_HW_CC_SPT_PAGE_TYPE: DP pages for RX HW CC secondary page table
+ * @QDF_DP_HW_CC_SPT_PAGE_TYPE: DP pages for HW CC secondary page table
  * @QDF_DP_TX_TCL_DESC_TYPE: DP TCL descriptor
  * @QDF_DP_TX_DIRECT_LINK_CE_BUF_TYPE: DP tx direct link CE source ring buf
  *  pages
@@ -1921,8 +1883,7 @@ enum qdf_dp_desc_type {
 	QDF_DP_RX_DESC_BUF_TYPE,
 	QDF_DP_RX_DESC_STATUS_TYPE,
 	QDF_DP_HW_LINK_DESC_TYPE,
-	QDF_DP_TX_HW_CC_SPT_PAGE_TYPE,
-	QDF_DP_RX_HW_CC_SPT_PAGE_TYPE,
+	QDF_DP_HW_CC_SPT_PAGE_TYPE,
 	QDF_DP_TX_TCL_DESC_TYPE,
 #ifdef FEATURE_DIRECT_LINK
 	QDF_DP_TX_DIRECT_LINK_CE_BUF_TYPE,
@@ -1930,18 +1891,5 @@ enum qdf_dp_desc_type {
 	QDF_DP_RX_DIRECT_LINK_CE_BUF_TYPE,
 #endif
 	QDF_DP_DESC_TYPE_MAX
-};
-
-/**
- * enum qdf_dp_tx_pp_type - page pool type
- * @QDF_DP_PAGE_POOL_RX: rx page pool
- * @QDF_DP_PAGE_POOL_TX: tx page pool
- * @QDF_DP_PAGE_POOL_MAX: max page pool type
- */
-enum qdf_dp_tx_pp_type {
-	QDF_DP_PAGE_POOL_RX,
-	QDF_DP_PAGE_POOL_TX,
-
-	QDF_DP_PAGE_POOL_MAX
 };
 #endif /* __QDF_TYPES_H */

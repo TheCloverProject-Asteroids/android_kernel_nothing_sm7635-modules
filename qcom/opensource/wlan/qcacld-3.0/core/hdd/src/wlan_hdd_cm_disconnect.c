@@ -123,59 +123,6 @@ static void hdd_cm_print_bss_info(struct hdd_station_ctx *hdd_sta_ctx)
 		       conn_info->hs20vendor_ie.release_num : 0);
 }
 
-#ifdef IPA_HANDLE_MLO_DEF_LINK_REG
-/**
- * hdd_handle_ipa_sta_mlo_disconn() - Handle STA MLO disconnection for IPA
- * @link_info: Link info pointer in HDD adapter
- * @sta_ctx: pointer to struct hdd_station_ctx
- * @mac_addr: pointer to AP mld addr if MLO deflink. Otherwise pointer to
- *	      AP BSSID.
- *
- * This function handles STA MLO connection and only deflink information
- * is registered to IPA component for STA_DISCONNECT event.
- *
- * Return: true to notify IPA component of the STA_DISCONNECT event.
- *	   false to not notify IPA component.
- */
-static bool hdd_handle_ipa_sta_mlo_disconn(struct wlan_hdd_link_info *link_info,
-					   struct hdd_station_ctx *sta_ctx,
-					   uint8_t **mac_addr)
-{
-	struct qdf_mac_addr mac = {0};
-
-	if (wlan_vdev_mlme_is_mlo_vdev(link_info->vdev)) {
-		if (WLAN_HDD_IS_DEFLINK(link_info)) {
-			qdf_mem_copy(&mac, &sta_ctx->conn_info.mld_addr,
-				     QDF_MAC_ADDR_SIZE);
-			*mac_addr = sta_ctx->conn_info.mld_addr.bytes;
-		} else {
-			return false;
-		}
-	} else {
-		qdf_mem_copy(&mac, &sta_ctx->conn_info.bssid,
-			     QDF_MAC_ADDR_SIZE);
-		*mac_addr = sta_ctx->conn_info.bssid.bytes;
-	}
-
-	return QDF_IS_STATUS_SUCCESS(wlan_hdd_validate_mac_address(&mac));
-}
-#else /* !IPA_HANDLE_MLO_DEF_LINK_REG */
-static bool hdd_handle_ipa_sta_mlo_disconn(struct wlan_hdd_link_info *link_info,
-					   struct hdd_station_ctx *sta_ctx,
-					   uint8_t **mac_addr)
-{
-	QDF_STATUS status;
-
-	status = wlan_hdd_validate_mac_address(&sta_ctx->conn_info.bssid);
-	if (QDF_IS_STATUS_ERROR(status))
-		return false;
-
-	*mac_addr = sta_ctx->conn_info.bssid.bytes;
-
-	return true;
-}
-#endif /* IPA_HANDLE_MLO_DEF_LINK_REG */
-
 void
 __hdd_cm_disconnect_handler_pre_user_update(struct wlan_hdd_link_info *link_info)
 {
@@ -184,20 +131,19 @@ __hdd_cm_disconnect_handler_pre_user_update(struct wlan_hdd_link_info *link_info
 	struct hdd_station_ctx *sta_ctx;
 	uint32_t time_buffer_size;
 	struct wlan_objmgr_vdev *vdev;
-	uint8_t *mac_addr;
 
 	sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(link_info);
 	hdd_stop_tsf_sync(adapter);
 	time_buffer_size = sizeof(sta_ctx->conn_info.connect_time);
 	qdf_mem_zero(sta_ctx->conn_info.connect_time, time_buffer_size);
-
 	if (ucfg_ipa_is_enabled() &&
-	    hdd_handle_ipa_sta_mlo_disconn(link_info, sta_ctx, &mac_addr))
+	    QDF_IS_STATUS_SUCCESS(wlan_hdd_validate_mac_address(
+				  &sta_ctx->conn_info.bssid)))
 		ucfg_ipa_wlan_evt(hdd_ctx->pdev, adapter->dev,
 				  adapter->device_mode,
 				  link_info->vdev_id,
 				  WLAN_IPA_STA_DISCONNECT,
-				  mac_addr,
+				  sta_ctx->conn_info.bssid.bytes,
 				  false);
 
 	vdev = hdd_objmgr_get_vdev_by_user(link_info, WLAN_DP_ID);
@@ -273,15 +219,15 @@ __hdd_cm_disconnect_handler_post_user_update(struct wlan_hdd_link_info *link_inf
 	ucfg_p2p_status_disconnect(vdev);
 	hdd_cfr_disconnect(vdev);
 
+	hdd_wmm_adapter_clear(adapter);
 	ucfg_cm_ft_reset(vdev);
 	ucfg_cm_reset_key(hdd_ctx->pdev, link_info->vdev_id);
 	hdd_clear_roam_profile_ie(adapter);
-	wlan_hdd_reset_bcn_rssi_history_stats(link_info);
 
 	if (adapter->device_mode == QDF_STA_MODE)
 		wlan_crypto_reset_vdev_params(vdev);
 
-	hdd_remove_beacon_filter(hdd_ctx, link_info->vdev_id);
+	hdd_remove_beacon_filter(adapter);
 	if (sme_is_beacon_report_started(mac_handle, link_info->vdev_id)) {
 		hdd_debug("Sending beacon pause indication to userspace");
 		hdd_beacon_recv_pause_indication((hdd_handle_t)hdd_ctx,
@@ -300,7 +246,7 @@ __hdd_cm_disconnect_handler_post_user_update(struct wlan_hdd_link_info *link_inf
 		}
 	}
 
-	if (!is_link_switch) {
+	if (!is_link_switch && source != CM_MLO_ROAM_INTERNAL_DISCONNECT) {
 		/* Clear saved connection information in HDD */
 		hdd_conn_remove_connect_info(sta_ctx);
 
@@ -310,12 +256,7 @@ __hdd_cm_disconnect_handler_post_user_update(struct wlan_hdd_link_info *link_inf
 		 * valid link_info for the given adapter. So avoid this reset
 		 * for Link Switch disconnect/internal disconnect
 		 */
-		if (source != CM_MLO_ROAM_INTERNAL_DISCONNECT) {
-			hdd_wmm_adapter_clear(adapter);
-			hdd_adapter_reset_station_ctx(adapter);
-		} else {
-			hdd_cm_clear_ieee_link_id(link_info, false);
-		}
+		hdd_adapter_reset_station_ctx(adapter);
 	}
 
 	ucfg_dp_remove_conn_info(vdev);
@@ -348,7 +289,6 @@ __hdd_cm_disconnect_handler_post_user_update(struct wlan_hdd_link_info *link_inf
 		hdd_reset_sta_keep_alive_interval(link_info, hdd_ctx);
 
 	hdd_cm_print_bss_info(sta_ctx);
-	hdd_clear_conn_info_roam_count(adapter);
 }
 
 #ifdef WLAN_FEATURE_MSCS
@@ -488,7 +428,6 @@ hdd_cm_disconnect_complete_pre_user_update(struct wlan_objmgr_vdev *vdev,
 	 */
 	adapter->last_disconnect_reason =
 			osif_cm_mac_to_qca_reason(rsp->req.req.reason_code);
-	hdd_set_disconnect_link_info_cb(link_info->vdev_id, false);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -647,7 +586,6 @@ static void hdd_cm_restore_ch_width(struct wlan_objmgr_vdev *vdev,
 	int ret;
 	uint8_t vdev_id = wlan_vdev_get_id(vdev);
 	enum phy_ch_width assoc_ch_width;
-	uint32_t cb_mode;
 
 	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
 	if (!mlme_priv)
@@ -667,12 +605,7 @@ static void hdd_cm_restore_ch_width(struct wlan_objmgr_vdev *vdev,
 	if (des_chan->ch_width != assoc_ch_width)
 		wlan_hdd_re_enable_320mhz_6g_conection(hdd_ctx, assoc_ch_width);
 
-	wlan_mlme_get_channel_bonding_5ghz(hdd_ctx->psoc, &cb_mode);
-	if (cb_mode == 0 && !wlan_reg_is_24ghz_ch_freq(des_chan->ch_freq))
-		max_bw = cb_mode;
-	else
-		max_bw = get_max_bw();
-
+	max_bw = get_max_bw();
 	ret = hdd_set_mac_chan_width(link_info, max_bw, link_id, true);
 	if (ret) {
 		hdd_err("vdev %d : fail to set max ch width", vdev_id);
@@ -739,7 +672,6 @@ static void
 wlan_hdd_runtime_pm_wow_disconnect_handler(struct hdd_context *hdd_ctx)
 {
 	struct hif_opaque_softc *hif_ctx;
-	bool is_any_sta_connected = hdd_is_any_sta_connected(hdd_ctx);
 
 	if (!hdd_ctx) {
 		hdd_err("hdd_ctx is NULL");
@@ -752,10 +684,7 @@ wlan_hdd_runtime_pm_wow_disconnect_handler(struct hdd_context *hdd_ctx)
 		return;
 	}
 
-	if (!is_any_sta_connected)
-		hif_rtpm_restore_autosuspend_delay();
-
-	if (is_any_sta_connected || hdd_is_any_cli_connected(hdd_ctx)) {
+	if (hdd_is_any_sta_connected(hdd_ctx)) {
 		hdd_debug("active connections: runtime pm prevented: %d",
 			  hdd_ctx->runtime_pm_prevented);
 		return;

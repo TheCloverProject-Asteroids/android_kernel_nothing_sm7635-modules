@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/delay.h>
@@ -22,9 +22,6 @@
 #include "camera_main.h"
 #include "cam_common_util.h"
 #include "cam_context_utils.h"
-#include "cam_vmrm_interface.h"
-#include "cam_mem_mgr_api.h"
-#include "cam_req_mgr_dev.h"
 
 static struct cam_isp_dev g_isp_dev;
 
@@ -161,24 +158,17 @@ static const struct v4l2_subdev_internal_ops cam_isp_subdev_internal_ops = {
 static int cam_isp_dev_component_bind(struct device *dev,
 	struct device *master_dev, void *data)
 {
-	int                            rc;
-	int                            i;
+	int rc = -1;
+	int i;
 	struct cam_hw_mgr_intf         hw_mgr_intf;
 	struct cam_node               *node;
 	const char                    *compat_str = NULL;
-	struct platform_device        *pdev = to_platform_device(dev);
-	struct cam_driver_node         driver_node;
-	int                            iommu_hdl = -1;
-	struct timespec64              ts_start, ts_end;
-	long                           microsec = 0;
+	struct platform_device *pdev = to_platform_device(dev);
 
-	CAM_GET_TIMESTAMP(ts_start);
-	rc = of_property_read_string_index(pdev->dev.of_node, "arch-compat", 0,
+	int iommu_hdl = -1;
+
+	of_property_read_string_index(pdev->dev.of_node, "arch-compat", 0,
 		(const char **)&compat_str);
-	if (rc) {
-		CAM_ERR(CAM_ISP, "Error: failed to read arch-compat");
-		goto err;
-	}
 
 	g_isp_dev.sd.internal_ops = &cam_isp_subdev_internal_ops;
 	g_isp_dev.sd.close_seq_prior = CAM_SD_CLOSE_HIGH_PRIORITY;
@@ -212,7 +202,7 @@ static int cam_isp_dev_component_bind(struct device *dev,
 	node = (struct cam_node *) g_isp_dev.sd.token;
 
 	memset(&hw_mgr_intf, 0, sizeof(hw_mgr_intf));
-	g_isp_dev.ctx = CAM_MEM_ZALLOC_ARRAY(g_isp_dev.max_context,
+	g_isp_dev.ctx = kcalloc(g_isp_dev.max_context,
 		sizeof(struct cam_context),
 		GFP_KERNEL);
 	if (!g_isp_dev.ctx) {
@@ -221,13 +211,13 @@ static int cam_isp_dev_component_bind(struct device *dev,
 		goto unregister;
 	}
 
-	g_isp_dev.ctx_isp = CAM_MEM_ZALLOC_ARRAY(g_isp_dev.max_context,
+	g_isp_dev.ctx_isp = kcalloc(g_isp_dev.max_context,
 		sizeof(struct cam_isp_context),
 		GFP_KERNEL);
 	if (!g_isp_dev.ctx_isp) {
 		CAM_ERR(CAM_ISP,
 			"Mem Allocation failed for Isp private context");
-		CAM_MEM_FREE(g_isp_dev.ctx);
+		kfree(g_isp_dev.ctx);
 		g_isp_dev.ctx = NULL;
 		goto unregister;
 	}
@@ -273,29 +263,14 @@ static int cam_isp_dev_component_bind(struct device *dev,
 
 	mutex_init(&g_isp_dev.isp_mutex);
 
-	driver_node.driver_id = CAM_DRIVER_ID_ISP;
-	scnprintf(driver_node.driver_name,
-		sizeof(driver_node.driver_name), "%s", pdev->name);
-	driver_node.driver_msg_callback = cam_isp_vmrm_callback_handler;
-	driver_node.driver_msg_callback_data = &g_isp_dev;
-
-	rc = cam_vmrm_populate_driver_node_info(&driver_node);
-	if (rc) {
-		CAM_ERR(CAM_VMRM, " isp driver node populate failed: %d", rc);
-		goto free_mem;
-	}
-
 	CAM_DBG(CAM_ISP, "Component bound successfully");
-	CAM_GET_TIMESTAMP(ts_end);
-	CAM_GET_TIMESTAMP_DIFF_IN_MICRO(ts_start, ts_end, microsec);
-	cam_record_bind_latency(pdev->name, microsec);
 
 	return 0;
 
 free_mem:
 	kfree(g_isp_dev.ctx);
 	g_isp_dev.ctx = NULL;
-	CAM_MEM_FREE(g_isp_dev.ctx_isp);
+	kfree(g_isp_dev.ctx_isp);
 	g_isp_dev.ctx_isp = NULL;
 
 unregister:
@@ -307,28 +282,26 @@ err:
 static void cam_isp_dev_component_unbind(struct device *dev,
 	struct device *master_dev, void *data)
 {
-	int rc, i;
+	int rc = 0;
+	int i;
 	const char *compat_str = NULL;
 	struct platform_device *pdev = to_platform_device(dev);
 
-	rc = of_property_read_string_index(pdev->dev.of_node, "arch-compat", 0,
+	of_property_read_string_index(pdev->dev.of_node, "arch-compat", 0,
 		(const char **)&compat_str);
-	if (rc) {
-		CAM_ERR(CAM_ISP, "Failed at reading arch-compat");
-		return;
-	}
 
 	cam_isp_hw_mgr_deinit(compat_str);
 	/* clean up resources */
 	for (i = 0; i < g_isp_dev.max_context; i++) {
 		rc = cam_isp_context_deinit(&g_isp_dev.ctx_isp[i]);
 		if (rc)
-			CAM_ERR(CAM_ISP, "ISP context %d deinit failed", i);
+			CAM_ERR(CAM_ISP, "ISP context %d deinit failed",
+				 i);
 	}
 
-	CAM_MEM_FREE(g_isp_dev.ctx);
+	kfree(g_isp_dev.ctx);
 	g_isp_dev.ctx = NULL;
-	CAM_MEM_FREE(g_isp_dev.ctx_isp);
+	kfree(g_isp_dev.ctx_isp);
 	g_isp_dev.ctx_isp = NULL;
 
 	rc = cam_subdev_remove(&g_isp_dev.sd);

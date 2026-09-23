@@ -139,12 +139,8 @@ struct dp_catalog_ctrl {
 };
 
 struct dp_catalog_hpd {
-	bool is_edp;
-
 	void (*config_hpd)(struct dp_catalog_hpd *hpd, bool en);
 	u32 (*get_interrupt)(struct dp_catalog_hpd *hpd);
-	bool (*wait_for_edp_panel_ready)(struct dp_catalog_hpd *hpd);
-	void (*set_edp_mode)(struct dp_catalog_hpd *hpd, bool is_edp);
 };
 
 #define HEADER_BYTE_2_BIT	 0
@@ -239,7 +235,6 @@ struct dp_catalog_panel {
 
 	bool widebus_en;
 	struct dp_dsc_cfg_data dsc;
-	u32 pclk_factor;
 
 	int (*timing_cfg)(struct dp_catalog_panel *panel);
 	void (*config_hdr)(struct dp_catalog_panel *panel, bool en,
@@ -296,7 +291,6 @@ struct dp_catalog {
 	struct dp_catalog_hpd hpd;
 
 	struct dp_catalog_sub *sub;
-	struct dp_parser *parser;
 
 	void (*set_exe_mode)(struct dp_catalog *dp_catalog, char *mode);
 	int (*get_reg_dump)(struct dp_catalog *dp_catalog,
@@ -375,9 +369,6 @@ struct dp_catalog_sub *dp_catalog_get_v420(struct device *dev,
 			struct dp_catalog *catalog, struct dp_catalog_io *io);
 
 struct dp_catalog_sub *dp_catalog_get_v200(struct device *dev,
-			struct dp_catalog *catalog, struct dp_catalog_io *io);
-
-struct dp_catalog_sub *dp_catalog_get_v500(struct device *dev,
 			struct dp_catalog *catalog, struct dp_catalog_io *io);
 
 u32 dp_catalog_get_dp_core_version(struct dp_catalog *dp_catalog);

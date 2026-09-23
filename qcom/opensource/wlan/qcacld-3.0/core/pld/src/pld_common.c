@@ -37,14 +37,6 @@
 #endif
 #endif
 
-#ifdef CNSS_UTILS
-#ifdef CONFIG_CNSS_OUT_OF_TREE
-#include "cnss_utils.h"
-#else
-#include <net/cnss_utils.h>
-#endif
-#endif
-
 #ifdef CONFIG_CNSS_OUT_OF_TREE
 #ifdef CONFIG_PLD_SNOC_ICNSS
 #ifdef CONFIG_PLD_SNOC_ICNSS2
@@ -473,19 +465,19 @@ void pld_get_default_fw_files(struct pld_fw_files *pfw_files)
 {
 	memset(pfw_files, 0, sizeof(*pfw_files));
 
-	strscpy(pfw_files->image_file, PREFIX PLD_IMAGE_FILE,
+	strlcpy(pfw_files->image_file, PREFIX PLD_IMAGE_FILE,
 		PLD_MAX_FILE_NAME);
-	strscpy(pfw_files->board_data, PREFIX PLD_BOARD_DATA_FILE,
+	strlcpy(pfw_files->board_data, PREFIX PLD_BOARD_DATA_FILE,
 		PLD_MAX_FILE_NAME);
-	strscpy(pfw_files->otp_data, PREFIX PLD_OTP_FILE,
+	strlcpy(pfw_files->otp_data, PREFIX PLD_OTP_FILE,
 		PLD_MAX_FILE_NAME);
-	strscpy(pfw_files->utf_file, PREFIX PLD_UTF_FIRMWARE_FILE,
+	strlcpy(pfw_files->utf_file, PREFIX PLD_UTF_FIRMWARE_FILE,
 		PLD_MAX_FILE_NAME);
-	strscpy(pfw_files->utf_board_data, PREFIX PLD_BOARD_DATA_FILE,
+	strlcpy(pfw_files->utf_board_data, PREFIX PLD_BOARD_DATA_FILE,
 		PLD_MAX_FILE_NAME);
-	strscpy(pfw_files->epping_file, PREFIX PLD_EPPING_FILE,
+	strlcpy(pfw_files->epping_file, PREFIX PLD_EPPING_FILE,
 		PLD_MAX_FILE_NAME);
-	strscpy(pfw_files->setup_file, PREFIX PLD_SETUP_FILE,
+	strlcpy(pfw_files->setup_file, PREFIX PLD_SETUP_FILE,
 		PLD_MAX_FILE_NAME);
 }
 
@@ -863,7 +855,6 @@ int pld_request_bus_bandwidth(struct device *dev, int bandwidth)
 	case PLD_BUS_TYPE_SNOC:
 		break;
 	case PLD_BUS_TYPE_IPCI:
-		ret = pld_ipci_request_bus_bandwidth(dev, bandwidth);
 		break;
 	case PLD_BUS_TYPE_SDIO:
 		/* To do Add call cns API */
@@ -889,8 +880,6 @@ bool pld_is_direct_link_supported(struct device *dev)
 	case PLD_BUS_TYPE_SNOC_FW_SIM:
 	case PLD_BUS_TYPE_SNOC:
 	case PLD_BUS_TYPE_IPCI:
-		ret = pld_ipci_is_direct_link_supported(dev);
-		break;
 	case PLD_BUS_TYPE_SDIO:
 	default:
 		break;
@@ -1649,8 +1638,7 @@ void *pld_smmu_get_mapping(struct device *dev)
 }
 #endif
 
-#if ((LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)) || \
-	defined(CNSS_PLAT_WIFI_KOBJ_SUPPORT))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
 struct kobject *pld_get_wifi_kobj(struct device *dev)
 {
 	struct kobject *wifi_kobj = NULL;
@@ -2856,9 +2844,6 @@ int pld_audio_smmu_map(struct device *dev, phys_addr_t paddr, dma_addr_t iova,
 	case PLD_BUS_TYPE_PCIE:
 		ret = pld_pcie_audio_smmu_map(dev, paddr, iova, size);
 		break;
-	case PLD_BUS_TYPE_IPCI:
-		ret = pld_ipci_audio_smmu_map(dev, paddr, iova, size);
-		break;
 	default:
 		ret = -EINVAL;
 		break;
@@ -2872,69 +2857,6 @@ void pld_audio_smmu_unmap(struct device *dev, dma_addr_t iova, size_t size)
 	switch (pld_get_bus_type(dev)) {
 	case PLD_BUS_TYPE_PCIE:
 		pld_pcie_audio_smmu_unmap(dev, iova, size);
-		break;
-	case PLD_BUS_TYPE_IPCI:
-		pld_ipci_audio_smmu_unmap(dev, iova, size);
-		break;
-	default:
-		break;
-	}
-}
-
-int pld_get_fw_lpass_shared_mem(struct device *dev, dma_addr_t *iova,
-				size_t *size)
-{
-	int ret;
-
-	switch (pld_get_bus_type(dev)) {
-	case PLD_BUS_TYPE_PCIE:
-		ret = pld_pcie_get_fw_lpass_shared_mem(dev, iova, size);
-		break;
-	case PLD_BUS_TYPE_IPCI:
-		ret = pld_ipci_get_fw_lpass_shared_mem(dev, iova, size);
-		break;
-	default:
-		ret = -EINVAL;
-		break;
-	}
-
-	return ret;
-}
-#endif
-
-#ifdef FEATURE_SMEM_MAILBOX
-int pld_oem_event_smem_write(struct device *dev, int flags, const __u8 *data,
-			     uint32_t len)
-{
-	return cnss_utils_smem_mailbox_write(dev, flags, data, len);
-}
-#endif
-
-#ifdef CONFIG_DT_CPU_MASK_DP_INTR
-void pld_get_cpumask_for_wlan_rx_interrupts(struct device *dev,
-					    unsigned int *cpumask)
-{
-	switch (pld_get_bus_type(dev)) {
-	case PLD_BUS_TYPE_PCIE:
-		pld_pcie_get_cpumask_for_wlan_rx_interrupts(dev, cpumask);
-		break;
-	case PLD_BUS_TYPE_IPCI:
-		pld_ipci_get_cpumask_for_wlan_rx_interrupts(dev, cpumask);
-		break;
-	default:
-		break;
-	}
-}
-
-void pld_get_cpumask_for_wlan_tx_comp_interrupts(struct device *dev,
-						 unsigned int *cpumask)
-{
-	switch (pld_get_bus_type(dev)) {
-	case PLD_BUS_TYPE_PCIE:
-		pld_pcie_get_cpumask_for_wlan_tx_comp_interrupts(dev, cpumask);
-		break;
-	case PLD_BUS_TYPE_IPCI:
-		pld_ipci_get_cpumask_for_wlan_tx_comp_interrupts(dev, cpumask);
 		break;
 	default:
 		break;

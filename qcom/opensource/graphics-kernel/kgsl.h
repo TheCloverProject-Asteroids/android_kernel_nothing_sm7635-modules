@@ -204,10 +204,6 @@ struct kgsl_driver {
 	struct workqueue_struct *workqueue;
 	/* @lockless_workqueue: Pointer to a workqueue handler which doesn't hold device mutex */
 	struct workqueue_struct *lockless_workqueue;
-	/** @pool_shrinker: Pointer to a shrinker that resizes the kgsl page pools */
-	struct shrinker *pool_shrinker;
-	/** @reclaim_shrinker: Pointer to a shrinker that reclaims kgsl memory */
-	struct shrinker *reclaim_shrinker;
 };
 
 extern struct kgsl_driver kgsl_driver;
@@ -280,7 +276,7 @@ struct kgsl_memdesc {
 	uint64_t gpuaddr;
 	phys_addr_t physaddr;
 	uint64_t size;
-	atomic_t priv;
+	unsigned int priv;
 	struct sg_table *sgt;
 	const struct kgsl_memdesc_ops *ops;
 	uint64_t flags;
@@ -289,10 +285,10 @@ struct kgsl_memdesc {
 	struct page **pages;
 	unsigned int page_count;
 	/*
-	 * @lock: Mutex to protect the gpuaddr from being accessed by
+	 * @lock: Spinlock to protect the gpuaddr from being accessed by
 	 * multiple entities trying to map the same SVM region at once
 	 */
-	struct mutex lock;
+	spinlock_t lock;
 	/** @shmem_filp: Pointer to the shmem file backing this memdesc */
 	struct file *shmem_filp;
 	/** @ranges: rbtree base for the interval list of vbo ranges */
@@ -566,8 +562,6 @@ long gpumem_free_entry(struct kgsl_mem_entry *entry);
 enum kgsl_mmutype kgsl_mmu_get_mmutype(struct kgsl_device *device);
 
 /* Helper functions */
-unsigned long kgsl_get_align(struct kgsl_memdesc *memdesc);
-
 int kgsl_request_irq(struct platform_device *pdev, const  char *name,
 		irq_handler_t handler, void *data);
 
@@ -707,10 +701,4 @@ static inline bool kgsl_addr_range_overlap(uint64_t gpuaddr1,
  */
 void kgsl_work_period_update(struct kgsl_device *device,
 			struct gpu_work_period *period, u64 active);
-
-/**
- * kgsl_context_destroy_deferred() - Destroy context in a deferred manner
- * @kref: Pointer to context refcount
- */
-void kgsl_context_destroy_deferred(struct kref *kref);
 #endif /* __KGSL_H */
