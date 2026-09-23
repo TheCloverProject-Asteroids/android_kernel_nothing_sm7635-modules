@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _MSM_VIDC_CORE_H_
@@ -31,7 +31,6 @@ struct msm_vidc_venus_ops {
 	int (*power_off)(struct msm_vidc_core *core);
 	int (*watchdog)(struct msm_vidc_core *core, u32 intr_status);
 	int (*noc_error_info)(struct msm_vidc_core *core);
-	int (*switch_gdsc_mode)(struct msm_vidc_core *core, bool sw_mode);
 };
 
 struct msm_vidc_synx_fence_data {
@@ -82,6 +81,7 @@ struct msm_vidc_core {
 	enum msm_vidc_core_sub_state           sub_state;
 	char                                   sub_state_name[MAX_NAME_LENGTH];
 	struct mutex                           lock;
+	struct msm_vidc_resource              *resource;
 	struct msm_vidc_platform              *platform;
 	u32                                    intr_status;
 	u32                                    spur_count;
@@ -104,8 +104,6 @@ struct msm_vidc_core {
 	struct work_struct                     ssr_work;
 	struct msm_vidc_core_power             power;
 	struct msm_vidc_ssr                    ssr;
-	bool                                   debug_enable_crc;
-	u32                                    hfi_debug_config;
 	u32                                    skip_pc_count;
 	u32                                    last_packet_type;
 	u8                                    *packet;
@@ -128,28 +126,6 @@ struct msm_vidc_core {
 	u32                                    packet_id;
 	u32                                    sys_init_id;
 	struct msm_vidc_synx_fence_data        synx_fence_data;
-	u32                                    irq;
-	u8 __iomem                            *register_base_addr;
-	int                                    fw_cookie;
-	bool                                   is_subcache_set_to_fw;
-	struct bus_info                       *bus_tbl;
-	u32                                    bus_tbl_count;
-	struct clock_info                     *clock_tbl;
-	u32                                    clock_tbl_count;
-	struct reset_info                     *reset_tbl;
-	u32                                    reset_tbl_count;
-	struct subcache_info                  *subcache_tbl;
-	u32                                    subcache_tbl_count;
-	struct regulator_info                 *regulator_tbl;
-	u32                                    regulator_tbl_count;
-	struct power_domain_info              *power_domain_tbl;
-	u32                                    power_domain_tbl_count;
-	struct context_bank_info              *context_bank_tbl;
-	u32                                    context_bank_tbl_count;
-	struct device_region_info             *device_region_tbl;
-	u32                                    device_region_tbl_count;
-	struct frequency_table                *freq_tbl;
-	u32                                    freq_tbl_count;
 };
 
 #endif // _MSM_VIDC_CORE_H_

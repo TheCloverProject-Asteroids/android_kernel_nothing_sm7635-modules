@@ -37,19 +37,6 @@ enum ipa_wdi_version {
 #define IPA_WDI3_RX_DIR 3
 #define IPA_WDI_INST_MAX (2)
 
-enum ipa_wdi_opt_dpath_resp_code {
-	IPA_WDI_OPT_DPATH_RESP_SUCCESS = 0,
-	IPA_WDI_OPT_DPATH_RESP_ERR_FAILURE = 200,
-	IPA_WDI_OPT_DPATH_RESP_ERR_INTERNAL = 201,
-	IPA_WDI_OPT_DPATH_RESP_ERR_TIMEOUT = 202,
-	IPA_WDI_OPT_DPATH_RESP_SUCCESS_HIGH_TPUT = 203,
-	IPA_WDI_OPT_DPATH_RESP_SUCCESS_SHUTDOWN =  204,
-	IPA_WDI_OPT_DPATH_RESP_SUCCESS_SSR = 205,
-	IPA_WDI_OPT_DPATH_RESP_MAX
-};
-
-#define IPA_WDI_OPT_DPATH_CTRL_VER_V2
-
 /**
  * struct ipa_wdi_init_in_params - wdi init input parameters
  *
@@ -75,7 +62,6 @@ struct ipa_wdi_init_in_params {
  * @is_smmu_enable: is smmu enabled
  * @is_over_gsi: is wdi over GSI or uC
  * @opt_wdi_dpath: is optimized data path enabled.
- * @opt_wdi_ctrl_dpath: is optimized ctrl data path enabled.
  */
 struct ipa_wdi_init_out_params {
 	bool is_uC_ready;
@@ -83,7 +69,6 @@ struct ipa_wdi_init_out_params {
 	bool is_over_gsi;
 	ipa_wdi_hdl_t hdl;
 	bool opt_wdi_dpath;
-	bool opt_wdi_ctrl_dpath;
 };
 /**
  * struct filter_tuple_info - Properties of filters installed with WLAN
@@ -163,15 +148,6 @@ typedef int (*ipa_wdi_opt_dpath_flt_add_cb)
 
 typedef int (*ipa_wdi_opt_dpath_flt_rem_cb)
 	(void *priv, struct ipa_wdi_opt_dpath_flt_rem_cb_params *in);
-
-typedef int (*ipa_wdi_opt_dpath_ctrl_flt_add_cb)
-	(void *priv, struct ipa_wdi_opt_dpath_flt_add_cb_params *in_out);
-
-typedef int (*ipa_wdi_opt_dpath_ctrl_flt_rem_cb)
-	(void *priv, struct ipa_wdi_opt_dpath_flt_rem_cb_params *in);
-
-typedef int (*ipa_wdi_opt_dpath_clk_status_cb)
-	(void *priv, bool status);
 
 /**
  * struct ipa_wdi_hdr_info - Header to install on IPA HW
@@ -368,17 +344,6 @@ struct ipa_wdi_capabilities_out_params {
 	u8 num_of_instances;
 };
 
-/**
- * struct ipa_wdi_outstanding_buffs - information provided to WLAN driver
- *
- * @no_tx_outstanding_buffs: no of outstanding buffer at IPA in TX direction
- * @no_rx_outstanding_buffs: no of outstanding buffer at IPA in RX direction
- */
-struct ipa_wdi_outstanding_buffs {
-	u32 no_tx_outstanding_buffs;
-	u32 no_rx_outstanding_buffs;
-};
-
 #if IS_ENABLED(CONFIG_IPA3)
 
 /**
@@ -407,7 +372,7 @@ int ipa_wdi_init(struct ipa_wdi_init_in_params *in,
 
 /**
  * ipa_wdi_opt_dpath_register_flt_cb_per_inst - Client should call this function to
- * register filter reservation/release and filter addition/deletion callbacks
+ * register filter reservation/release  and filter addition/deletion callbacks
  *
  *
  * @Return 0 on success, negative on failure
@@ -418,23 +383,6 @@ int ipa_wdi_opt_dpath_register_flt_cb_per_inst(
 	ipa_wdi_opt_dpath_flt_rsrv_rel_cb flt_rsrv_rel_cb,
 	ipa_wdi_opt_dpath_flt_add_cb flt_add_cb,
 	ipa_wdi_opt_dpath_flt_rem_cb flt_rem_cb);
-
-/**
- * ipa_wdi_opt_dpath_register_flt_cb_per_inst_v2 - Client should call this function to
- * register filter reservation/release, filter addition/deletion callbacks,
- * ctrl addition/deletion, and clk status callback
- *
- * @Return 0 on success, negative on failure
- */
-int ipa_wdi_opt_dpath_register_flt_cb_per_inst_v2(
-	ipa_wdi_hdl_t hdl,
-	ipa_wdi_opt_dpath_flt_rsrv_cb flt_rsrv_cb,
-	ipa_wdi_opt_dpath_flt_rsrv_rel_cb flt_rsrv_rel_cb,
-	ipa_wdi_opt_dpath_flt_add_cb flt_add_cb,
-	ipa_wdi_opt_dpath_flt_rem_cb flt_rem_cb,
-	ipa_wdi_opt_dpath_ctrl_flt_add_cb ctrl_flt_add_cb,
-	ipa_wdi_opt_dpath_ctrl_flt_rem_cb ctrl_flt_rem_cb,
-	ipa_wdi_opt_dpath_clk_status_cb clk_cb);
 
 /**
  * ipa_wdi_opt_dpath_notify_flt_rsvd_per_inst - Client should call this function to
@@ -547,12 +495,6 @@ int ipa_get_wdi_version(void);
  * @Return bool
  */
 bool ipa_wdi_is_tx1_used(void);
-
-/** ipa_wdi_opt_dpath_ctrl_enabled - return if ctrl cb is registered
- *
- * @Return bool
- */
-bool ipa_wdi_opt_dpath_ctrl_enabled(ipa_wdi_hdl_t hdl);
 
 /**
  * ipa_wdi_init_per_inst - Client should call this function to
@@ -813,19 +755,6 @@ int ipa_wdi_bw_monitor(struct ipa_wdi_bw_info *info);
  */
 int ipa_wdi_sw_stats(struct ipa_wdi_tx_info *info);
 
-/**
- * ipa_wdi_get_outstanding_buffers() - to get the outstanding buffers at IPA
- * @out: to pass outstanding buffers count at IPA to WLAN
- * @hdl: hdl to wdi client
- *
- * Returns:	0 on success, negative on failure
- *
- * @note Cannot be called from atomic context
- *
- */
-int ipa_wdi_get_outstanding_buffers(ipa_wdi_hdl_t hdl,
-	struct ipa_wdi_outstanding_buffs *out);
-
 #else /* IS_ENABLED(CONFIG_IPA3) */
 
 /**
@@ -862,11 +791,6 @@ static inline int ipa_get_wdi_version(void)
 }
 
 static inline int ipa_wdi_is_tx1_used(void)
-{
-	return -EPERM;
-}
-
-bool ipa_wdi_opt_dpath_ctrl_enabled(ipa_wdi_hdl_t hdl)
 {
 	return -EPERM;
 }
@@ -1010,19 +934,6 @@ static inline int ipa_wdi_opt_dpath_register_flt_cb_per_inst(
 	ipa_wdi_opt_dpath_flt_rsrv_rel_cb flt_rsrv_rel_cb,
 	ipa_wdi_opt_dpath_flt_add_cb flt_add_cb,
 	ipa_wdi_opt_dpath_flt_rem_cb flt_rem_cb)
-{
-	return -EPERM;
-}
-
-static inline int ipa_wdi_opt_dpath_register_flt_cb_per_inst_v2(
-	ipa_wdi_hdl_t hdl,
-	ipa_wdi_opt_dpath_flt_rsrv_cb flt_rsrv_cb,
-	ipa_wdi_opt_dpath_flt_rsrv_rel_cb flt_rsrv_rel_cb,
-	ipa_wdi_opt_dpath_flt_add_cb flt_add_cb,
-	ipa_wdi_opt_dpath_flt_rem_cb flt_rem_cb,
-	ipa_wdi_opt_dpath_ctrl_flt_add_cb ctrl_flt_add_cb,
-	ipa_wdi_opt_dpath_ctrl_flt_rem_cb ctrl_flt_rem_cb,
-	ipa_wdi_opt_dpath_clk_status_cb clk_cb)
 {
 	return -EPERM;
 }

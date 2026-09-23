@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "venus_hfi_queue.h"
@@ -418,10 +418,8 @@ void venus_hfi_queue_deinit(struct msm_vidc_core *core)
 	call_mem_op(core, iommu_unmap, core, &core->fence_reg.mem);
 	call_mem_op(core, iommu_unmap, core, &core->qtimer_reg.mem);
 	call_mem_op(core, memory_unmap_free, core, &core->mmap_buf.mem);
-	if (core->capabilities[SUPPORTS_SYNX_FENCE].value) {
-		call_mem_op(core, mem_dma_unmap_page, core,
-			    &core->synx_fence_data.queue);
-	}
+	call_mem_op(core, mem_dma_unmap_page, core,
+		&core->synx_fence_data.queue);
 
 	for (i = 0; i < VIDC_IFACEQ_NUMQ; i++) {
 		core->iface_queues[i].q_hdr = NULL;
@@ -574,7 +572,7 @@ int venus_hfi_queue_init(struct msm_vidc_core *core)
 			core->iface_q_table.align_virtual_addr;
 	q_tbl_hdr->qtbl_version = 0;
 	q_tbl_hdr->device_addr = (void *)core;
-	strscpy(q_tbl_hdr->name, "msm_v4l2_vidc", sizeof(q_tbl_hdr->name));
+	strlcpy(q_tbl_hdr->name, "msm_v4l2_vidc", sizeof(q_tbl_hdr->name));
 	q_tbl_hdr->qtbl_size = VIDC_IFACEQ_TABLE_SIZE;
 	q_tbl_hdr->qtbl_qhdr0_offset = sizeof(struct hfi_queue_table_header);
 	q_tbl_hdr->qtbl_qhdr_size = sizeof(struct hfi_queue_header);
@@ -628,7 +626,7 @@ int venus_hfi_queue_init(struct msm_vidc_core *core)
 		 * driver during msm_vidc_synx_fence_register(..) call
 		 */
 		rc = call_mem_op(core, mem_dma_map_page, core,
-				 &core->synx_fence_data.queue);
+			&core->synx_fence_data.queue);
 		if (rc) {
 			d_vpr_e("%s: synx fence queue buffer map failed\n", __func__);
 			goto fail_alloc_queue;
@@ -691,6 +689,10 @@ int venus_hfi_queue_init(struct msm_vidc_core *core)
 	if (core->aon_reg.mem.device_addr) {
 		payload[11] = core->aon_reg.mem.device_addr;
 		payload[12] = core->aon_reg.mem.size;
+	}
+	if (core->synx_fence_data.queue.device_addr) {
+		payload[13] = core->synx_fence_data.queue.device_addr;
+		payload[14] = core->synx_fence_data.queue.size;
 	}
 	if (core->fence_reg.mem.device_addr) {
 		payload[19] = core->fence_reg.mem.device_addr;

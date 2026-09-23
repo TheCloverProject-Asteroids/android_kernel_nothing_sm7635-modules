@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef __H_HFI_PROPERTY_H__
@@ -26,7 +26,6 @@ enum hfi_debug_config {
 	HFI_DEBUG_CONFIG_CLRDBGQ = 0x00000001,
 	HFI_DEBUG_CONFIG_WFI     = 0x00000002,
 	HFI_DEBUG_CONFIG_ARM9WD  = 0x00000004,
-	HFI_DEBUG_CONFIG_CRC     = 0x00000008,
 };
 
 #define HFI_PROP_DEBUG_CONFIG                                   0x0300000a
@@ -107,8 +106,6 @@ enum hfi_hevc_profile_type {
 	HFI_H265_PROFILE_MAIN_STILL_PICTURE    = 1,
 	HFI_H265_PROFILE_MAIN_10               = 2,
 	HFI_H265_PROFILE_MAIN_10_STILL_PICTURE = 3,
-	HFI_H265_PROFILE_MULTIVIEW_MAIN        = 4,
-	HFI_H265_PROFILE_MULTIVIEW_MAIN_10     = 5,
 };
 
 enum hfi_vp9_profile_type {
@@ -615,22 +612,6 @@ enum hfi_fence_direction_type {
 #define HFI_PROP_FENCE_DIRECTION                                0x0300019E
 
 #define HFI_PROP_FENCE_ERROR_DATA_CORRUPT                       0x0300019F
-
-#define HFI_PROP_HDR10_MAX_RGB_INFO                             0x030001A2
-
-enum hfi_view_id {
-	HFI_VIEW_ID_0 = 0,
-	HFI_VIEW_ID_1 = 1,
-	HFI_VIEW_ID_INVALID = 0xFFFFFFFF,
-};
-
-#define HFI_PROP_PAIRED_YUV                                     0x030001AA
-
-#define HFI_PROP_VIEW_ID                                        0x030001A5
-
-#define HFI_PROP_OPEN_GOP                                       0x030001A6
-
-#define HFI_PROP_THREE_DIMENSIONAL_REFERENCE_DISPLAYS_INFO      0x030001AB
 
 #define HFI_PROP_END                                            0x03FFFFFF
 

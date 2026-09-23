@@ -42,27 +42,18 @@ module_entry(
             "driver/variant/iris33/src/msm_vidc_power_iris33.c",
             "driver/variant/iris33/src/msm_vidc_iris33.c",
             "driver/platform/pineapple/src/msm_vidc_pineapple.c",
+            "driver/platform/cliffs/src/msm_vidc_cliffs.c",
         ],
-        "CONFIG_MSM_VIDC_SUN" : [
-            "driver/variant/iris35/src/msm_vidc_buffer_iris35.c",
-            "driver/variant/iris35/src/msm_vidc_bus_iris35.c",
-            "driver/variant/iris35/src/msm_vidc_clock_iris35.c",
-            "driver/variant/iris35/src/msm_vidc_power_iris35.c",
-            "driver/variant/iris35/src/msm_vidc_iris35.c",
-            "driver/platform/sun/src/msm_vidc_sun.c",
-            "driver/variant/iris33/src/msm_vidc_buffer_iris33.c",
-            "driver/variant/iris33/src/msm_vidc_bus_iris33.c",
-            "driver/variant/iris33/src/msm_vidc_clock_iris33.c",
-            "driver/variant/iris33/src/msm_vidc_power_iris33.c",
-            "driver/variant/iris33/src/msm_vidc_iris33.c",
-            "driver/platform/tuna/src/msm_vidc_tuna.c",
-            "driver/platform/kera/src/msm_vidc_kera.c",
+        "CONFIG_MSM_VIDC_VOLCANO" : [
+            "driver/variant/iris2/src/msm_vidc_buffer_iris2.c",
+            "driver/variant/iris2/src/msm_vidc_iris2.c",
+            "driver/variant/iris2/src/msm_vidc_power_iris2.c",
+            "driver/platform/volcano/src/msm_vidc_volcano.c",
         ],
     },
     deps = [
-            "//vendor/qcom/sm8750-modules/qcom/opensource/mm-drivers:mm_drivers_headers",
-            "//vendor/qcom/sm8750-modules/qcom/opensource/synx-kernel:synx_headers",
-            "//vendor/qcom/sm8750-modules/qcom/opensource/mmrm-driver:%b_mmrm_driver",
+            "//vendor/qcom/opensource/mm-drivers:mm_drivers_headers",
+            "//vendor/qcom/opensource/synx-kernel:synx_headers",
         ],
 )
 
@@ -95,26 +86,18 @@ module_entry(
     config_srcs = {
         "CONFIG_MSM_VIDC_PINEAPPLE" : [
             "driver/platform/pineapple/src/pineapple.c",
+            "driver/platform/cliffs/src/cliffs.c",
             "driver/variant/iris33/src/msm_vidc_buffer_iris33.c",
             "driver/variant/iris33/src/msm_vidc_power_iris33.c",
             "driver/variant/iris33/src/msm_vidc_bus_iris33.c",
             "driver/variant/iris33/src/msm_vidc_clock_iris33.c",
             "driver/variant/iris33/src/msm_vidc_iris33.c",
         ],
-        "CONFIG_MSM_VIDC_SUN" : [
-            "driver/platform/sun/src/sun.c",
-            "driver/variant/iris35/src/msm_vidc_buffer_iris35.c",
-            "driver/variant/iris35/src/msm_vidc_power_iris35.c",
-            "driver/variant/iris35/src/msm_vidc_bus_iris35.c",
-            "driver/variant/iris35/src/msm_vidc_clock_iris35.c",
-            "driver/variant/iris35/src/msm_vidc_iris35.c",
-            "driver/platform/tuna/src/tuna.c",
-            "driver/platform/kera/src/kera.c",
-            "driver/variant/iris33/src/msm_vidc_buffer_iris33.c",
-            "driver/variant/iris33/src/msm_vidc_bus_iris33.c",
-            "driver/variant/iris33/src/msm_vidc_clock_iris33.c",
-            "driver/variant/iris33/src/msm_vidc_power_iris33.c",
-            "driver/variant/iris33/src/msm_vidc_iris33.c",
+        "CONFIG_MSM_VIDC_VOLCANO" : [
+            "driver/variant/iris2/src/msm_vidc_buffer_iris2.c",
+            "driver/variant/iris2/src/msm_vidc_iris2.c",
+            "driver/variant/iris2/src/msm_vidc_power_iris2.c",
+            "driver/platform/volcano/src/volcano.c",
         ],
     }
 )

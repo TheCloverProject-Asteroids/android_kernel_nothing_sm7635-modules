@@ -3,24 +3,26 @@
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
-#include <soc/qcom/of_common.h>
+#include <linux/of.h>
+#include <dt-bindings/clock/qcom,gcc-sm8450.h>
+#include <dt-bindings/clock/qcom,videocc-sm8450.h>
 
 #include "msm_vidc_control.h"
-#include "msm_vidc_kera.h"
 #include "msm_vidc_platform.h"
+#include "msm_vidc_waipio.h"
 #include "msm_vidc_debug.h"
-#include "msm_vidc_iris35.h"
 #include "hfi_property.h"
 #include "hfi_command.h"
-#include "venus_hfi.h"
 
-#define DEFAULT_VIDEO_CONCEAL_COLOR_BLACK 0x8000800010
+#define DEFAULT_VIDEO_CONCEAL_COLOR_BLACK 0x8020010
+#define MAX_LTR_FRAME_COUNT     2
 #define MAX_BASE_LAYER_PRIORITY_ID 63
 #define MAX_OP_POINT            31
-#define MAX_BITRATE             245000000
+#define MAX_BITRATE             220000000
 #define DEFAULT_BITRATE         20000000
 #define MINIMUM_FPS             1
 #define MAXIMUM_FPS             480
+#define MAXIMUM_DEC_FPS         960
 #define MAX_QP                  51
 #define DEFAULT_QP              20
 #define MAX_CONSTANT_QUALITY    100
@@ -36,7 +38,7 @@
 #define HEVC    MSM_VIDC_HEVC
 #define VP9     MSM_VIDC_VP9
 #define CODECS_ALL     (H264 | HEVC | VP9)
-#define MAXIMUM_OVERRIDE_VP9_FPS 180
+#define MAXIMUM_OVERRIDE_VP9_FPS 200
 
 #ifndef V4L2_PIX_FMT_QC08C
 #define V4L2_PIX_FMT_QC08C    v4l2_fourcc('Q', '0', '8', 'C')
@@ -46,7 +48,7 @@
 #define V4L2_PIX_FMT_QC10C    v4l2_fourcc('Q', '1', '0', 'C')
 #endif
 
-static struct codec_info codec_data_kera[] = {
+static struct codec_info codec_data_waipio[] = {
 	{
 		.v4l2_codec  = V4L2_PIX_FMT_H264,
 		.vidc_codec  = MSM_VIDC_H264,
@@ -64,7 +66,7 @@ static struct codec_info codec_data_kera[] = {
 	},
 };
 
-static struct color_format_info color_format_data_kera[] = {
+static struct color_format_info color_format_data_waipio[] = {
 	{
 		.v4l2_color_format = V4L2_PIX_FMT_NV12,
 		.vidc_color_format = MSM_VIDC_FMT_NV12,
@@ -92,7 +94,7 @@ static struct color_format_info color_format_data_kera[] = {
 	},
 };
 
-static struct color_primaries_info color_primaries_data_kera[] = {
+static struct color_primaries_info color_primaries_data_waipio[] = {
 	{
 		.v4l2_color_primaries  = V4L2_COLORSPACE_DEFAULT,
 		.vidc_color_primaries  = MSM_VIDC_PRIMARIES_RESERVED,
@@ -127,7 +129,7 @@ static struct color_primaries_info color_primaries_data_kera[] = {
 	},
 };
 
-static struct transfer_char_info transfer_char_data_kera[] = {
+static struct transfer_char_info transfer_char_data_waipio[] = {
 	{
 		.v4l2_transfer_char  = V4L2_XFER_FUNC_DEFAULT,
 		.vidc_transfer_char  = MSM_VIDC_TRANSFER_RESERVED,
@@ -150,7 +152,7 @@ static struct transfer_char_info transfer_char_data_kera[] = {
 	},
 };
 
-static struct matrix_coeff_info matrix_coeff_data_kera[] = {
+static struct matrix_coeff_info matrix_coeff_data_waipio[] = {
 	{
 		.v4l2_matrix_coeff  = V4L2_YCBCR_ENC_DEFAULT,
 		.vidc_matrix_coeff  = MSM_VIDC_MATRIX_COEFF_RESERVED,
@@ -185,7 +187,7 @@ static struct matrix_coeff_info matrix_coeff_data_kera[] = {
 	},
 };
 
-static const struct msm_platform_core_capability core_data_kera[] = {
+static struct msm_platform_core_capability core_data_waipio[] = {
 	/* {type, value} */
 	{ENC_CODECS, H264 | HEVC},
 	{DEC_CODECS, H264 | HEVC | VP9},
@@ -196,12 +198,11 @@ static const struct msm_platform_core_capability core_data_kera[] = {
 	{MAX_NUM_8K_SESSIONS, 2},
 	{MAX_RT_MBPF, 174080},	/* (8192x4352)/256 + (4096x2176)/256*/
 	{MAX_MBPF, 278528}, /* ((8192x4352)/256) * 2 */
-	{MAX_MBPS, 7833600},
-	/* max_load
-	 * 7680x4320@60fps or 3840x2176@240fps
-	 * which is greater than 4096x2176@120fps,
-	 * 8192x4320@48fps
-	 */
+	{MAX_MBPS, 7833600},	/* max_load
+				 * 7680x4320@60fps or 3840x2176@240fps
+				 * which is greater than 4096x2176@120fps,
+				 * 8192x4320@48fps
+				 */
 	{MAX_MBPF_HQ, 8160}, /* ((1920x1088)/256) */
 	{MAX_MBPS_HQ, 489600}, /* ((1920x1088)/256)@60fps */
 	{MAX_MBPF_B_FRAME, 32640}, /* 3840x2176/256 */
@@ -221,12 +222,11 @@ static const struct msm_platform_core_capability core_data_kera[] = {
 	{NON_FATAL_FAULTS, 1},
 	{ENC_AUTO_FRAMERATE, 1},
 	{DEVICE_CAPS, V4L2_CAP_VIDEO_M2M_MPLANE | V4L2_CAP_STREAMING},
-	// TODO gdoddabe Enable when Synx changes are available
-	// {SUPPORTS_SYNX_FENCE, 0},
+	{SUPPORTS_SYNX_FENCE, 0},
 	{SUPPORTS_REQUESTS, 0},
 };
 
-static struct msm_platform_inst_capability instance_cap_data_kera[] = {
+static struct msm_platform_inst_capability instance_cap_data_waipio[] = {
 	/* {cap, domain, codec,
 	 *      min, max, step_or_mask, value,
 	 *      v4l2_id,
@@ -276,6 +276,7 @@ static struct msm_platform_inst_capability instance_cap_data_kera[] = {
 		0,
 		CAP_FLAG_VOLATILE},
 
+
 	{MIN_BUFFERS_OUTPUT, ENC | DEC, CODECS_ALL,
 		0, 64, 1, 4,
 		V4L2_CID_MIN_BUFFERS_FOR_CAPTURE,
@@ -302,14 +303,14 @@ static struct msm_platform_inst_capability instance_cap_data_kera[] = {
 	/* (4096 * 2304) / 256 */
 	{BATCH_FPS, DEC, H264 | HEVC | VP9, 1, 120, 1, 120},
 
-	{FRAME_RATE, ENC, CODECS_ALL,
+	{FRAME_RATE, ENC | DEC, CODECS_ALL,
 		(MINIMUM_FPS << 16), (MAXIMUM_FPS << 16),
 		1, (DEFAULT_FPS << 16),
 		0,
 		HFI_PROP_FRAME_RATE,
 		CAP_FLAG_OUTPUT_PORT},
 
-	{OPERATING_RATE, ENC, CODECS_ALL,
+	{OPERATING_RATE, ENC | DEC, CODECS_ALL,
 		(MINIMUM_FPS << 16), (MAXIMUM_FPS << 16),
 		1, (DEFAULT_FPS << 16)},
 
@@ -337,14 +338,11 @@ static struct msm_platform_inst_capability instance_cap_data_kera[] = {
 
 	{MB_CYCLES_LP, DEC, CODECS_ALL, 200, 200, 1, 200},
 
-	{MB_CYCLES_FW, ENC | DEC, CODECS_ALL, 489583, 489583, 1, 489583},
+	{MB_CYCLES_FW, ENC | DEC, CODECS_ALL, 326389, 326389, 1, 326389},
 
-	{MB_CYCLES_FW_VPP, ENC, CODECS_ALL, 48405, 48405, 1, 48405},
+	{MB_CYCLES_FW_VPP, ENC | DEC, CODECS_ALL, 44156, 44156, 1, 44156},
 
 	{MB_CYCLES_FW_VPP, DEC, CODECS_ALL, 66234, 66234, 1, 66234},
-
-	{ENC_RING_BUFFER_COUNT, ENC, H264,
-		0, MAX_ENC_RING_BUF_COUNT, 1, 0},
 
 	{CLIENT_ID, ENC | DEC, CODECS_ALL,
 		INVALID_CLIENT_ID, INT_MAX, 1, INVALID_CLIENT_ID,
@@ -374,11 +372,6 @@ static struct msm_platform_inst_capability instance_cap_data_kera[] = {
 		0, 32, 1, 0,
 		0, 0,
 		CAP_FLAG_NONE},
-
-	{SLICE_DECODE, DEC, CODECS_ALL,
-		0, 0, 0, 0,
-		V4L2_CID_MPEG_VIDEO_DECODER_SLICE_INTERFACE,
-		0},
 
 	{HEADER_MODE, ENC, CODECS_ALL,
 		V4L2_MPEG_VIDEO_HEADER_MODE_SEPARATE,
@@ -462,6 +455,9 @@ static struct msm_platform_inst_capability instance_cap_data_kera[] = {
 	{LOWLATENCY_MAX_BITRATE, ENC, H264 | HEVC, 0,
 		70000000, 1, 70000000},
 
+	{NUM_COMV, DEC, CODECS_ALL,
+		0, INT_MAX, 1, 0},
+
 	{LOSSLESS, ENC, HEVC,
 		0, 1, 1, 0,
 		V4L2_CID_MPEG_VIDEO_HEVC_LOSSLESS_CU},
@@ -517,7 +513,8 @@ static struct msm_platform_inst_capability instance_cap_data_kera[] = {
 	{CSC, ENC, CODECS_ALL,
 		0, 1, 1, 0,
 		0,
-		HFI_PROP_CSC},
+		HFI_PROP_CSC,
+		CAP_FLAG_OUTPUT_PORT},
 
 	{LOWLATENCY_MODE, ENC, H264 | HEVC,
 		0, 1, 1, 0,
@@ -532,14 +529,14 @@ static struct msm_platform_inst_capability instance_cap_data_kera[] = {
 		CAP_FLAG_INPUT_PORT | CAP_FLAG_DYNAMIC_ALLOWED},
 
 	{LTR_COUNT, ENC, H264 | HEVC,
-		0, MAX_LTR_FRAME_COUNT_5, 1, 0,
+		0, 2, 1, 0,
 		V4L2_CID_MPEG_VIDEO_LTR_COUNT,
 		HFI_PROP_LTR_COUNT,
 		CAP_FLAG_OUTPUT_PORT},
 
 	{USE_LTR, ENC, H264 | HEVC,
 		0,
-		((1 << MAX_LTR_FRAME_COUNT_5) - 1),
+		((1 << MAX_LTR_FRAME_COUNT) - 1),
 		0, 0,
 		V4L2_CID_MPEG_VIDEO_USE_LTR_FRAMES,
 		HFI_PROP_LTR_USE,
@@ -547,7 +544,7 @@ static struct msm_platform_inst_capability instance_cap_data_kera[] = {
 
 	{MARK_LTR, ENC, H264 | HEVC,
 		INVALID_DEFAULT_MARK_OR_USE_LTR,
-		(MAX_LTR_FRAME_COUNT_5 - 1),
+		(MAX_LTR_FRAME_COUNT - 1),
 		1, INVALID_DEFAULT_MARK_OR_USE_LTR,
 		V4L2_CID_MPEG_VIDEO_FRAME_LTR_INDEX,
 		HFI_PROP_LTR_MARK,
@@ -557,7 +554,7 @@ static struct msm_platform_inst_capability instance_cap_data_kera[] = {
 		0, MAX_BASE_LAYER_PRIORITY_ID, 1, 0,
 		V4L2_CID_MPEG_VIDEO_BASELAYER_PRIORITY_ID,
 		HFI_PROP_BASELAYER_PRIORITYID,
-		CAP_FLAG_INPUT_PORT | CAP_FLAG_DYNAMIC_ALLOWED},
+		CAP_FLAG_OUTPUT_PORT},
 
 	{AU_DELIMITER, ENC, H264 | HEVC,
 		0, 1, 1, 0,
@@ -925,7 +922,7 @@ static struct msm_platform_inst_capability instance_cap_data_kera[] = {
 
 	{LEVEL, ENC, HEVC,
 		V4L2_MPEG_VIDEO_HEVC_LEVEL_1,
-		V4L2_MPEG_VIDEO_HEVC_LEVEL_6,
+		V4L2_MPEG_VIDEO_HEVC_LEVEL_6_2,
 		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_1) |
 		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_2) |
 		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_2_1) |
@@ -936,7 +933,9 @@ static struct msm_platform_inst_capability instance_cap_data_kera[] = {
 		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_5) |
 		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_5_1) |
 		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_5_2) |
-		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_6),
+		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_6) |
+		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_6_1) |
+		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_6_2),
 		V4L2_MPEG_VIDEO_HEVC_LEVEL_5,
 		V4L2_CID_MPEG_VIDEO_HEVC_LEVEL,
 		HFI_PROP_LEVEL,
@@ -1095,8 +1094,8 @@ static struct msm_platform_inst_capability instance_cap_data_kera[] = {
 		HFI_PROP_8X8_TRANSFORM,
 		CAP_FLAG_OUTPUT_PORT},
 
-	{CHROMA_QP_INDEX_OFFSET, ENC, HEVC | H264,
-		MIN_CHROMA_QP_OFFSET, MAX_CHROMA_QP_OFFSET_MASK,
+	{CHROMA_QP_INDEX_OFFSET, ENC, HEVC,
+		MIN_CHROMA_QP_OFFSET, MAX_CHROMA_QP_OFFSET,
 		1, MAX_CHROMA_QP_OFFSET,
 		V4L2_CID_MPEG_VIDEO_H264_CHROMA_QP_INDEX_OFFSET,
 		HFI_PROP_CHROMA_QP_OFFSET,
@@ -1134,15 +1133,15 @@ static struct msm_platform_inst_capability instance_cap_data_kera[] = {
 		HFI_PROP_BUFFER_HOST_MAX_COUNT,
 		CAP_FLAG_OUTPUT_PORT},
 
-	{CONCEAL_COLOR_8BIT, DEC, CODECS_ALL, 0x0, 0xFF00FF00FF, 1,
+	{CONCEAL_COLOR_8BIT, DEC, CODECS_ALL, 0x0, 0xff3fcff, 1,
 		DEFAULT_VIDEO_CONCEAL_COLOR_BLACK,
-		V4L2_CID_MPEG_VIDEO_DEC_CONCEAL_COLOR,
+		V4L2_CID_MPEG_VIDEO_MUTE_YUV,
 		HFI_PROP_CONCEAL_COLOR_8BIT,
 		CAP_FLAG_INPUT_PORT},
 
-	{CONCEAL_COLOR_10BIT, DEC, CODECS_ALL, 0x0, 0x3FF03FF03FF, 1,
+	{CONCEAL_COLOR_10BIT, DEC, CODECS_ALL, 0x0, 0x3fffffff, 1,
 		DEFAULT_VIDEO_CONCEAL_COLOR_BLACK,
-		V4L2_CID_MPEG_VIDEO_DEC_CONCEAL_COLOR,
+		V4L2_CID_MPEG_VIDEO_MUTE_YUV,
 		HFI_PROP_CONCEAL_COLOR_10BIT,
 		CAP_FLAG_INPUT_PORT},
 
@@ -1209,6 +1208,12 @@ static struct msm_platform_inst_capability instance_cap_data_kera[] = {
 		HFI_PROP_SEQ_CHANGE_AT_SYNC_FRAME,
 		CAP_FLAG_INPUT_PORT | CAP_FLAG_DYNAMIC_ALLOWED},
 
+	{PRIORITY, DEC | ENC, CODECS_ALL,
+		0, 4, 1, 4,
+		0,
+		HFI_PROP_SESSION_PRIORITY,
+		CAP_FLAG_DYNAMIC_ALLOWED},
+
 	{FIRMWARE_PRIORITY_OFFSET, DEC | ENC, CODECS_ALL,
 		1, 1, 1, 1},
 
@@ -1224,16 +1229,18 @@ static struct msm_platform_inst_capability instance_cap_data_kera[] = {
 		0},
 };
 
-static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kera[] = {
+static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_waipio[] = {
 	/* {cap, domain, codec,
-	 *      parents,
 	 *      children,
 	 *      adjust, set}
 	 */
 
+	{PIX_FMTS, ENC, H264,
+		{0}},
+
 	{PIX_FMTS, ENC, HEVC,
 		{PROFILE, MIN_FRAME_QP, MAX_FRAME_QP, I_FRAME_QP, P_FRAME_QP,
-			B_FRAME_QP, MIN_QUALITY, BLUR_TYPES, LTR_COUNT}},
+			B_FRAME_QP, MIN_QUALITY, BLUR_TYPES}},
 
 	{PIX_FMTS, DEC, HEVC,
 		{PROFILE}},
@@ -1278,12 +1285,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kera
 		NULL,
 		msm_vidc_set_req_sync_frame},
 
-	{BIT_RATE, ENC, H264,
-		{PEAK_BITRATE, L0_BR},
-		msm_vidc_adjust_bitrate,
-		msm_vidc_set_bitrate},
-
-	{BIT_RATE, ENC, HEVC,
+	{BIT_RATE, ENC, H264 | HEVC,
 		{PEAK_BITRATE, L0_BR},
 		msm_vidc_adjust_bitrate,
 		msm_vidc_set_bitrate},
@@ -1323,7 +1325,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kera
 
 	{BLUR_TYPES, ENC, H264 | HEVC,
 		{0},
-		msm_vidc_adjust_blur_type,
+		msm_vidc_adjust_blur_type_iris2,
 		msm_vidc_set_u32_enum},
 
 	{LOWLATENCY_MODE, ENC, H264 | HEVC,
@@ -1333,7 +1335,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kera
 
 	{LOWLATENCY_MODE, DEC, H264 | HEVC | VP9,
 		{STAGE},
-		NULL,
+		msm_vidc_adjust_dec_lowlatency_mode,
 		NULL},
 
 	{LTR_COUNT, ENC, H264 | HEVC,
@@ -1436,14 +1438,14 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kera
 		NULL,
 		msm_vidc_set_frame_qp},
 
-	{LAYER_TYPE, ENC, H264 | HEVC,
-		{CONTENT_ADAPTIVE_CODING, LTR_COUNT}},
+	{LAYER_TYPE, ENC, H264,
+		{CONTENT_ADAPTIVE_CODING}},
 
 	{LAYER_ENABLE, ENC, H264 | HEVC,
 		{CONTENT_ADAPTIVE_CODING}},
 
 	{ENH_LAYER_COUNT, ENC, H264 | HEVC,
-		{GOP_SIZE, B_FRAME, BIT_RATE, MIN_QUALITY, LTR_COUNT},
+		{GOP_SIZE, B_FRAME, BIT_RATE, MIN_QUALITY, SLICE_MODE},
 		msm_vidc_adjust_layer_count,
 		msm_vidc_set_layer_count_and_type},
 
@@ -1483,7 +1485,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kera
 		msm_vidc_set_u32},
 
 	{PROFILE, ENC, H264,
-		{ENTROPY_MODE, TRANSFORM_8X8, CHROMA_QP_INDEX_OFFSET},
+		{ENTROPY_MODE, TRANSFORM_8X8},
 		NULL,
 		msm_vidc_set_u32_enum},
 
@@ -1523,7 +1525,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kera
 		msm_vidc_set_deblock_mode},
 
 	{SLICE_MODE, ENC, H264 | HEVC,
-		{STAGE, DELIVERY_MODE},
+		{STAGE},
 		msm_vidc_adjust_slice_count,
 		msm_vidc_set_slice_count},
 
@@ -1532,7 +1534,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kera
 		msm_vidc_adjust_transform_8x8,
 		msm_vidc_set_u32},
 
-	{CHROMA_QP_INDEX_OFFSET, ENC, HEVC | H264,
+	{CHROMA_QP_INDEX_OFFSET, ENC, HEVC,
 		{0},
 		msm_vidc_adjust_chroma_qp_index_offset,
 		msm_vidc_set_chroma_qp_index_offset},
@@ -1557,17 +1559,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kera
 		msm_vidc_adjust_input_buf_host_max_count,
 		msm_vidc_set_u32},
 
-	{INPUT_BUF_HOST_MAX_COUNT, ENC, H264 | HEVC,
-		{0},
-		msm_vidc_adjust_input_buf_host_max_count,
-		msm_vidc_set_u32},
-
 	{OUTPUT_BUF_HOST_MAX_COUNT, ENC | DEC, CODECS_ALL,
-		{0},
-		msm_vidc_adjust_output_buf_host_max_count,
-		msm_vidc_set_u32},
-
-	{OUTPUT_BUF_HOST_MAX_COUNT, ENC, H264 | HEVC,
 		{0},
 		msm_vidc_adjust_output_buf_host_max_count,
 		msm_vidc_set_u32},
@@ -1575,24 +1567,14 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kera
 	{CONCEAL_COLOR_8BIT, DEC, CODECS_ALL,
 		{0},
 		NULL,
-		msm_vidc_set_conceal_color},
+		msm_vidc_set_u32_packed},
 
 	{CONCEAL_COLOR_10BIT, DEC, CODECS_ALL,
 		{0},
 		NULL,
-		msm_vidc_set_conceal_color},
+		msm_vidc_set_u32_packed},
 
 	{STAGE, ENC | DEC, CODECS_ALL,
-		{0},
-		NULL,
-		msm_vidc_set_stage},
-
-	{STAGE, ENC, H264 | HEVC,
-		{0},
-		NULL,
-		msm_vidc_set_stage},
-
-	{STAGE, DEC, H264 | HEVC | VP9,
 		{0},
 		NULL,
 		msm_vidc_set_stage},
@@ -1612,6 +1594,11 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kera
 		NULL,
 		msm_vidc_set_u32},
 
+	{PRIORITY, DEC | ENC, CODECS_ALL,
+		{0},
+		msm_vidc_adjust_session_priority,
+		msm_vidc_set_session_priority},
+
 	{FIRMWARE_PRIORITY_OFFSET, DEC | ENC, CODECS_ALL,
 		{0},
 		NULL,
@@ -1624,21 +1611,21 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kera
 };
 
 /* Default UBWC config for LPDDR5 */
-static struct msm_vidc_ubwc_config_data ubwc_config_kera[] = {
+static struct msm_vidc_ubwc_config_data ubwc_config_waipio[] = {
 	UBWC_CONFIG(8, 32, 16, 0, 1, 1, 1),
 };
 
-static struct msm_vidc_format_capability format_data_kera = {
-	.codec_info = codec_data_kera,
-	.codec_info_size = ARRAY_SIZE(codec_data_kera),
-	.color_format_info = color_format_data_kera,
-	.color_format_info_size = ARRAY_SIZE(color_format_data_kera),
-	.color_prim_info = color_primaries_data_kera,
-	.color_prim_info_size = ARRAY_SIZE(color_primaries_data_kera),
-	.transfer_char_info = transfer_char_data_kera,
-	.transfer_char_info_size = ARRAY_SIZE(transfer_char_data_kera),
-	.matrix_coeff_info = matrix_coeff_data_kera,
-	.matrix_coeff_info_size = ARRAY_SIZE(matrix_coeff_data_kera),
+static struct msm_vidc_format_capability format_data_waipio = {
+	.codec_info = codec_data_waipio,
+	.codec_info_size = ARRAY_SIZE(codec_data_waipio),
+	.color_format_info = color_format_data_waipio,
+	.color_format_info_size = ARRAY_SIZE(color_format_data_waipio),
+	.color_prim_info = color_primaries_data_waipio,
+	.color_prim_info_size = ARRAY_SIZE(color_primaries_data_waipio),
+	.transfer_char_info = transfer_char_data_waipio,
+	.transfer_char_info_size = ARRAY_SIZE(transfer_char_data_waipio),
+	.matrix_coeff_info = matrix_coeff_data_waipio,
+	.matrix_coeff_info_size = ARRAY_SIZE(matrix_coeff_data_waipio),
 };
 
 /* name, min_kbps, max_kbps */
@@ -1831,37 +1818,18 @@ static const struct msm_vidc_platform_data waipio_data = {
 	.msm_vidc_ssr_type_size = ARRAY_SIZE(waipio_msm_vidc_ssr_type),
 };
 
-int msm_vidc_kera_check_ddr_type(void)
-{
-	u32 ddr_type;
-
-	ddr_type = of_fdt_get_ddrtype();
-	if (ddr_type != DDR_TYPE_LPDDR5 &&
-	    ddr_type != DDR_TYPE_LPDDR5X) {
-		d_vpr_e("%s: wrong ddr type %d\n", __func__, ddr_type);
-		return -EINVAL;
-	}
-
-	d_vpr_h("%s: ddr type %d\n", __func__, ddr_type);
-	return 0;
-}
-
 static int msm_vidc_init_data(struct msm_vidc_core *core)
 {
 	int rc = 0;
 
-	d_vpr_h("%s: initialize kera data\n", __func__);
+	d_vpr_h("%s: initialize waipio data\n", __func__);
 
-	core->platform->data = kera_data;
-
-	rc = msm_vidc_kera_check_ddr_type();
-	if (rc)
-		return rc;
+	core->platform->data = waipio_data;
 
 	return rc;
 }
 
-int msm_vidc_init_platform_kera(struct msm_vidc_core *core)
+int msm_vidc_init_platform_waipio(struct msm_vidc_core *core)
 {
 	int rc = 0;
 

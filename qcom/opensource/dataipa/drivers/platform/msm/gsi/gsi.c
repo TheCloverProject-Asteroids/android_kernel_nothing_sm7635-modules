@@ -61,9 +61,6 @@
 /* FOR_SEQ_HIGH channel scratch: (((8 * (pipe_id * ctx_size + offset_lines)) + 4) / 4) */
 #define GSI_GSI_SHRAM_n_EP_FOR_SEQ_HIGH_N_GET(ep_id) (((8 * (ep_id * 10 + 9)) + 4) / 4)
 
-#define IPA_GSI_OFFSET_WORDS_SCRATCH_FOR_SEQ_HIGH_5_5 19
-#define IPA_NUM_BYTES_PER_CHNL_SHRAM_5_5 20
-
 #ifndef CONFIG_DEBUG_FS
 void gsi_debugfs_init(void)
 {
@@ -83,8 +80,6 @@ static bool running_emulation;
 #endif
 
 struct gsi_ctx *gsi_ctx;
-EXPORT_SYMBOL_GPL(gsi_ctx);
-
 
 static union __packed gsi_channel_scratch __gsi_update_mhi_channel_scratch(
 	unsigned long chan_hdl, struct __packed gsi_mhi_channel_scratch mscr);
@@ -2131,10 +2126,8 @@ static int gsi_cleanup_xfer_user_data(unsigned long chan_hdl,
 			rp_idx = gsi_find_idx_from_addr(&ctx->ring,
 				ctx->ring.rp_local);
 			WARN_ON(!ctx->user_data[rp_idx].valid);
-			if (ctx->user_data[rp_idx].valid) {
-				cleanup_cb(ctx->props.chan_user_data,
-					ctx->user_data[rp_idx].p);
-			}
+			cleanup_cb(ctx->props.chan_user_data,
+				ctx->user_data[rp_idx].p);
 			gsi_incr_ring_rp(&ctx->ring);
 		}
 	}
@@ -4092,41 +4085,6 @@ int gsi_query_channel_info(unsigned long chan_hdl,
 }
 EXPORT_SYMBOL(gsi_query_channel_info);
 
-int gsi_is_teth_channel_empty(unsigned long chan_hdl, bool *is_empty)
-{
-	uint32_t rp;
-	uint32_t wp;
-
-	if (!gsi_ctx) {
-		pr_err("%s:%d gsi context not allocated\n", __func__, __LINE__);
-		return -GSI_STATUS_NODEV;
-	}
-
-	if (chan_hdl >= gsi_ctx->max_ch || !is_empty) {
-		GSIERR("bad params chan_hdl=%lu is_empty=%pK\n",
-				chan_hdl, is_empty);
-		return -GSI_STATUS_INVALID_PARAMS;
-	}
-
-	rp = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_4,
-			gsi_ctx->per.ee, chan_hdl);
-	rp = rp & 0xfffff; /* Only 20bits to be checked. */
-	wp = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_RE_FETCH_WRITE_PTR,
-			gsi_ctx->per.ee, chan_hdl);
-	if (rp == wp) {
-		GSIDBG("Teth channel empty ch=%lu rp = 0x%x wp = 0x%x\n",
-				chan_hdl, rp, wp);
-		*is_empty = true;
-	} else {
-		GSIDBG("Teth channel not empty ch=%lu rp = 0x%x wp = 0x%x\n",
-				chan_hdl, rp, wp);
-		*is_empty = false;
-	}
-
-	return GSI_STATUS_SUCCESS;
-}
-EXPORT_SYMBOL_GPL(gsi_is_teth_channel_empty);
-
 int gsi_is_channel_empty(unsigned long chan_hdl, bool *is_empty)
 {
 	struct gsi_chan_ctx *ctx;
@@ -5799,17 +5757,6 @@ uint64_t gsi_read_chan_ring_re_fetch_wp(int chan_id, int ee)
 	return wp;
 }
 EXPORT_SYMBOL(gsi_read_chan_ring_re_fetch_wp);
-
-uint32_t gsi_get_outstanding_buffers(int ep_idx)
-{
-	uint32_t outstanding_buffers = 0;
-
-	outstanding_buffers = gsihal_read_reg_n(GSI_GSI_SHRAM_n,
-		((ep_idx * IPA_NUM_BYTES_PER_CHNL_SHRAM_5_5)
-		+ IPA_GSI_OFFSET_WORDS_SCRATCH_FOR_SEQ_HIGH_5_5));
-	return outstanding_buffers;
-}
-EXPORT_SYMBOL_GPL(gsi_get_outstanding_buffers);
 
 enum gsi_chan_prot gsi_get_chan_prot_type(int chan_hdl)
 {

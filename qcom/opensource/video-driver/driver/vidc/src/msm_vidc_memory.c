@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/dma-buf.h>
@@ -340,11 +340,7 @@ static int msm_vidc_dma_buf_unmap_attachment(struct msm_vidc_core *core,
 		return -EINVAL;
 	}
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 2, 0))
 	dma_buf_unmap_attachment(attach, table, DMA_BIDIRECTIONAL);
-#else
-	dma_buf_unmap_attachment_unlocked(attach, table, DMA_BIDIRECTIONAL);
-#endif
 
 	return rc;
 }
@@ -360,11 +356,7 @@ static struct sg_table *msm_vidc_dma_buf_map_attachment(
 		return NULL;
 	}
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 2, 0))
 	table = dma_buf_map_attachment(attach, DMA_BIDIRECTIONAL);
-#else
-	table = dma_buf_map_attachment_unlocked(attach, DMA_BIDIRECTIONAL);
-#endif
 	if (IS_ERR_OR_NULL(table)) {
 		rc = PTR_ERR(table) ? PTR_ERR(table) : -1;
 		d_vpr_e("Failed to map table, error %d\n", rc);
@@ -394,8 +386,7 @@ static int msm_vidc_memory_alloc_map(struct msm_vidc_core *core, struct msm_vidc
 
 	cb = msm_vidc_get_context_bank_for_region(core, mem->region);
 	if (!cb) {
-		d_vpr_e("%s: Failed to get context bank device\n",
-			 __func__);
+		d_vpr_e("%s: failed to get context bank device\n", __func__);
 		return -EIO;
 	}
 
@@ -431,13 +422,12 @@ static int msm_vidc_memory_unmap_free(struct msm_vidc_core *core, struct msm_vid
 
 	cb = msm_vidc_get_context_bank_for_region(core, mem->region);
 	if (!cb) {
-		d_vpr_e("%s: Failed to get context bank device\n",
-			 __func__);
+		d_vpr_e("%s: failed to get context bank device\n", __func__);
 		return -EIO;
 	}
 
 	dma_free_attrs(cb->dev, mem->size, mem->kvaddr, mem->device_addr,
-		       mem->attrs);
+		mem->attrs);
 
 	mem->kvaddr = NULL;
 	mem->device_addr = 0;
@@ -446,7 +436,7 @@ static int msm_vidc_memory_unmap_free(struct msm_vidc_core *core, struct msm_vid
 }
 
 static int msm_vidc_dma_map_page(struct msm_vidc_core *core,
-				 struct msm_vidc_mem *mem)
+	struct msm_vidc_mem *mem)
 {
 	int rc = 0;
 	struct context_bank_info *cb = NULL;
@@ -472,7 +462,7 @@ static int msm_vidc_dma_map_page(struct msm_vidc_core *core,
 
 	/* map and obtain dma address for physically contiguous memory */
 	dma_addr = dma_map_page(cb->dev, phys_to_page(mem->phys_addr),
-				0, (size_t)mem->size, mem->direction);
+		0, (size_t)mem->size, mem->direction);
 
 	rc = dma_mapping_error(cb->dev, dma_addr);
 	if (rc) {
@@ -484,7 +474,8 @@ static int msm_vidc_dma_map_page(struct msm_vidc_core *core,
 	mem->refcount++;
 
 exit:
-	d_vpr_l("%s: type %11s, device_addr %#llx, size %u region %d, refcount %d\n",
+	d_vpr_l(
+		"%s: type %11s, device_addr %#llx, size %u region %d, refcount %d\n",
 		__func__, buf_name(mem->type), mem->device_addr,
 		mem->size, mem->region, mem->refcount);
 
@@ -495,7 +486,7 @@ error:
 }
 
 static int msm_vidc_dma_unmap_page(struct msm_vidc_core *core,
-				   struct msm_vidc_mem *mem)
+	struct msm_vidc_mem *mem)
 {
 	int rc = 0;
 	struct context_bank_info *cb = NULL;
@@ -529,7 +520,7 @@ static int msm_vidc_dma_unmap_page(struct msm_vidc_core *core,
 		goto exit;
 
 	dma_unmap_page(cb->dev, (dma_addr_t)(mem->device_addr),
-		       mem->size, mem->direction);
+		mem->size, mem->direction);
 
 	mem->device_addr = 0x0;
 
@@ -555,7 +546,8 @@ static int msm_vidc_iommu_map(struct msm_vidc_core *core, struct msm_vidc_mem *m
 
 	cb = msm_vidc_get_context_bank_for_region(core, mem->region);
 	if (!cb) {
-		d_vpr_e("%s: Failed to get context bank device\n", __func__);
+		d_vpr_e("%s: failed to get context bank device for region: %d\n",
+			__func__, mem->region);
 		return -EIO;
 	}
 
@@ -585,8 +577,8 @@ static int msm_vidc_iommu_unmap(struct msm_vidc_core *core, struct msm_vidc_mem 
 
 	cb = msm_vidc_get_context_bank_for_region(core, mem->region);
 	if (!cb) {
-		d_vpr_e("%s: Failed to get context bank device\n",
-			__func__);
+		d_vpr_e("%s: failed to get context bank device for region: %d\n",
+			__func__, mem->region);
 		return -EIO;
 	}
 

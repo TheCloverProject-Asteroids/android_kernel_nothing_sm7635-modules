@@ -486,7 +486,6 @@ void msm_vidc_ssr_handler(struct work_struct *work);
 int msm_vidc_trigger_stability(struct msm_vidc_core *core,
 			       u64 trigger_stability_val);
 void msm_vidc_stability_handler(struct work_struct *work);
-int msm_vidc_set_crc(struct msm_vidc_core *core);
 int cancel_stability_work_sync(struct msm_vidc_inst *inst);
 void msm_vidc_fw_unload_handler(struct work_struct *work);
 int msm_vidc_suspend(struct msm_vidc_core *core);
@@ -531,11 +530,10 @@ int msm_vidc_flush_read_only_buffers(struct msm_vidc_inst *inst,
 				     enum msm_vidc_buffer_type type);
 struct msm_vidc_buffer *get_meta_buffer(struct msm_vidc_inst *inst,
 					struct msm_vidc_buffer *vbuf);
-struct msm_vidc_inst *get_inst_ref_locked(struct msm_vidc_inst *inst);
 struct msm_vidc_inst *get_inst_ref(struct msm_vidc_core *core,
 				   struct msm_vidc_inst *instance);
 struct msm_vidc_inst *get_inst(struct msm_vidc_core *core,
-		u32 session_id);
+			       u32 session_id);
 void put_inst(struct msm_vidc_inst *inst);
 bool msm_vidc_allow_metadata_delivery(struct msm_vidc_inst *inst,
 				      u32 cap_id, u32 port);
@@ -581,12 +579,6 @@ int msm_vidc_init_core_caps(struct msm_vidc_core *core);
 int msm_vidc_init_instance_caps(struct msm_vidc_core *core);
 int msm_vidc_deinit_core_caps(struct msm_vidc_core *core);
 int msm_vidc_update_debug_str(struct msm_vidc_inst *inst);
-int msm_vidc_session_command(struct msm_vidc_inst *inst,
-			      u32 cmd, enum msm_vidc_port_type port,
-			      u32 payload_type,
-			      void *payload,
-			      u32 payload_size,
-			      const char *func);
 void msm_vidc_allow_dcvs(struct msm_vidc_inst *inst);
 bool msm_vidc_allow_decode_batch(struct msm_vidc_inst *inst);
 int msm_vidc_check_session_supported(struct msm_vidc_inst *inst);
@@ -602,7 +594,6 @@ int msm_vidc_ts_reorder_remove_timestamp(struct msm_vidc_inst *inst, u64 timesta
 int msm_vidc_ts_reorder_get_first_timestamp(struct msm_vidc_inst *inst, u64 *timestamp);
 int msm_vidc_ts_reorder_flush(struct msm_vidc_inst *inst);
 const char *buf_name(enum msm_vidc_buffer_type type);
-const char *buf_region_name(enum msm_vidc_buffer_region region);
 bool res_is_greater_than(u32 width, u32 height,
 			 u32 ref_width, u32 ref_height);
 bool res_is_greater_than_or_equal_to(u32 width, u32 height,

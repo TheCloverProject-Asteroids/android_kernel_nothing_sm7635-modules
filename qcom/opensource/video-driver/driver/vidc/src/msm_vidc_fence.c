@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "msm_vidc_fence.h"
 #include "msm_vidc_driver.h"
 #include "msm_vidc_debug.h"
-
-extern struct msm_vidc_core *g_core;
 
 static const char *msm_vidc_dma_fence_get_driver_name(struct dma_fence *df)
 {
@@ -82,7 +80,7 @@ struct msm_vidc_fence *msm_vidc_fence_create(struct msm_vidc_inst *inst)
 }
 
 int msm_vidc_dma_fence_create_fd(struct msm_vidc_inst *inst,
-				 struct msm_vidc_fence *fence)
+	struct msm_vidc_fence *fence)
 {
 	int rc = 0;
 
@@ -112,8 +110,8 @@ err_fd:
 	return rc;
 }
 
-static struct
-msm_vidc_fence *msm_vidc_get_dma_fence_from_id(struct msm_vidc_inst *inst, u64 fence_id)
+static struct msm_vidc_fence *msm_vidc_get_dma_fence_from_id(
+	struct msm_vidc_inst *inst, u64 fence_id)
 {
 	struct msm_vidc_fence *fence, *dummy_fence;
 	bool found = false;
@@ -149,12 +147,14 @@ static int msm_vidc_fence_signal(struct msm_vidc_inst *inst, u64 fence_id)
 
 	i_vpr_l(inst, "%s: fence %s\n", __func__, fence->name);
 	list_del_init(&fence->list);
+
 	dma_fence_signal(&fence->dma_fence);
 	dma_fence_put(&fence->dma_fence);
 
 exit:
 	return rc;
 }
+
 
 static void msm_vidc_fence_destroy(struct msm_vidc_inst *inst, u64 fence_id)
 {

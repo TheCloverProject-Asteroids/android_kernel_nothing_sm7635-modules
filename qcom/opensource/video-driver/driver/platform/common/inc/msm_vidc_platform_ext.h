@@ -1,64 +1,41 @@
-/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
-#ifndef __V4l2_VIDC_EXTENSIONS_H__
-#define __V4l2_VIDC_EXTENSIONS_H__
+#ifndef _MSM_VIDC_PLATFORM_EXT_H_
+#define _MSM_VIDC_PLATFORM_EXT_H_
 
-#include <linux/types.h>
-#include <linux/v4l2-controls.h>
-
-/* AV1 */
-#ifndef V4L2_PIX_FMT_AV1
-#define V4L2_PIX_FMT_AV1                        v4l2_fourcc('A', 'V', '1', '0')
-#endif
+#include "msm_vidc_control.h"
 
 /* HEIC encoder and decoder */
 #define V4L2_PIX_FMT_VIDC_HEIC                  v4l2_fourcc('H', 'E', 'I', 'C')
 
 #define V4L2_META_FMT_VIDC                      v4l2_fourcc('Q', 'M', 'E', 'T')
 
-#ifndef V4L2_MPEG_VIDEO_HEVC_PROFILE_MAIN_10_STILL_PICTURE
-#define V4L2_MPEG_VIDEO_HEVC_PROFILE_MAIN_10_STILL_PICTURE    (3)
-#endif
-
-#ifndef V4L2_MPEG_VIDEO_HEVC_PROFILE_MAIN_MULTIVIEW
-#define V4L2_MPEG_VIDEO_HEVC_PROFILE_MAIN_MULTIVIEW    (4)
-#endif
-
-#ifndef V4L2_MPEG_VIDEO_HEVC_PROFILE_MAIN_10_MULTIVIEW
-#define V4L2_MPEG_VIDEO_HEVC_PROFILE_MAIN_10_MULTIVIEW    (5)
-#endif
-
-/* vendor controls start */
-#ifdef V4L2_CTRL_CLASS_CODEC
-#define V4L2_CID_MPEG_VIDC_BASE (V4L2_CTRL_CLASS_CODEC | 0x2000)
-#else
-#define V4L2_CID_MPEG_VIDC_BASE (V4L2_CTRL_CLASS_MPEG | 0x2000)
-#endif
-
-#define V4L2_MPEG_MSM_VIDC_DISABLE 0
-#define V4L2_MPEG_MSM_VIDC_ENABLE 1
-
+#ifndef V4L2_CID_MPEG_VIDC_SECURE
 #define V4L2_CID_MPEG_VIDC_SECURE               (V4L2_CID_MPEG_VIDC_BASE + 0x1)
+#endif
 
+#ifndef V4L2_CID_MPEG_VIDC_LOWLATENCY_REQUEST
 #define V4L2_CID_MPEG_VIDC_LOWLATENCY_REQUEST   (V4L2_CID_MPEG_VIDC_BASE + 0x3)
+#endif
 
 /* FIXme: */
 #define V4L2_CID_MPEG_VIDC_CODEC_CONFIG         (V4L2_CID_MPEG_VIDC_BASE + 0x4)
 #define V4L2_CID_MPEG_VIDC_FRAME_RATE           (V4L2_CID_MPEG_VIDC_BASE + 0x5)
 #define V4L2_CID_MPEG_VIDC_OPERATING_RATE       (V4L2_CID_MPEG_VIDC_BASE + 0x6)
 
+#ifndef V4L2_CID_MPEG_VIDC_TIME_DELTA_BASED_RC
 #define V4L2_CID_MPEG_VIDC_TIME_DELTA_BASED_RC  (V4L2_CID_MPEG_VIDC_BASE + 0xD)
+#endif
 
 /* Encoder quality controls */
 #define V4L2_CID_MPEG_VIDC_CONTENT_ADAPTIVE_CODING                            \
 	(V4L2_CID_MPEG_VIDC_BASE + 0xE)
 #define V4L2_CID_MPEG_VIDC_QUALITY_BITRATE_BOOST                              \
 	(V4L2_CID_MPEG_VIDC_BASE + 0xF)
-#define V4L2_CID_MPEG_VIDC_BLUR_TYPES                                         \
+#define V4L2_CID_MPEG_VIDC_VIDEO_BLUR_TYPES                                   \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x10)
 enum v4l2_mpeg_vidc_blur_types {
 	VIDC_BLUR_NONE               = 0x0,
@@ -67,10 +44,10 @@ enum v4l2_mpeg_vidc_blur_types {
 };
 
 /* (blur width) << 16 | (blur height) */
-#define V4L2_CID_MPEG_VIDC_BLUR_RESOLUTION                                    \
+#define V4L2_CID_MPEG_VIDC_VIDEO_BLUR_RESOLUTION                              \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x11)
 /* TODO: jdas: compound control for matrix */
-#define V4L2_CID_MPEG_VIDC_CSC_CUSTOM_MATRIX                                  \
+#define V4L2_CID_MPEG_VIDC_VIDEO_VPE_CSC_CUSTOM_MATRIX                        \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x12)
 #define V4L2_CID_MPEG_VIDC_METADATA_LTR_MARK_USE_DETAILS                      \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x13)
@@ -86,9 +63,9 @@ enum v4l2_mpeg_vidc_blur_types {
 	(V4L2_CID_MPEG_VIDC_BASE + 0x18)
 #define V4L2_CID_MPEG_VIDC_METADATA_HISTOGRAM_INFO                            \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x19)
-#define V4L2_CID_MPEG_VIDC_METADATA_SEI_MDCV                                  \
+#define V4L2_CID_MPEG_VIDC_METADATA_SEI_MASTERING_DISPLAY_COLOUR              \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x1A)
-#define V4L2_CID_MPEG_VIDC_METADATA_SEI_CLL                                   \
+#define V4L2_CID_MPEG_VIDC_METADATA_SEI_CONTENT_LIGHT_LEVEL                   \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x1B)
 #define V4L2_CID_MPEG_VIDC_METADATA_HDR10PLUS                                 \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x1C)
@@ -121,24 +98,30 @@ enum v4l2_mpeg_vidc_blur_types {
 #define V4L2_CID_MPEG_VIDC_THUMBNAIL_MODE       (V4L2_CID_MPEG_VIDC_BASE + 0x29)
 
 /* Priority control */
+#ifndef V4L2_CID_MPEG_VIDC_PRIORITY
 #define V4L2_CID_MPEG_VIDC_PRIORITY             (V4L2_CID_MPEG_VIDC_BASE + 0x2A)
+#endif
 
 /* Metadata DPB Tag List*/
 #define V4L2_CID_MPEG_VIDC_METADATA_DPB_TAG_LIST                             \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x2B)
 /* Encoder Input Compression Ratio control */
-#define V4L2_CID_MPEG_VIDC_COMPRESSION_RATIO                                 \
+#define V4L2_CID_MPEG_VIDC_ENC_INPUT_COMPRESSION_RATIO                       \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x2C)
-#define V4L2_CID_MPEG_VIDC_METADATA_QP                                        \
+#define V4L2_CID_MPEG_VIDC_METADATA_DEC_QP_METADATA                           \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x2E)
 
 /* Encoder Complexity control */
-#define V4L2_CID_MPEG_VIDC_COMPLEXITY                                         \
+#ifndef V4L2_CID_MPEG_VIDC_VENC_COMPLEXITY
+#define V4L2_CID_MPEG_VIDC_VENC_COMPLEXITY                                   \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x2F)
+#endif
 
 /* Decoder Max Number of Reorder Frames */
+#ifndef V4L2_CID_MPEG_VIDC_METADATA_MAX_NUM_REORDER_FRAMES
 #define V4L2_CID_MPEG_VIDC_METADATA_MAX_NUM_REORDER_FRAMES                   \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x30)
+#endif
 
 /* Control IDs for AV1 */
 #define V4L2_CID_MPEG_VIDC_AV1_PROFILE        (V4L2_CID_MPEG_VIDC_BASE + 0x31)
@@ -185,22 +168,37 @@ enum v4l2_mpeg_vidc_av1_tier {
 /* Decoder Timestamp Reorder control */
 #define V4L2_CID_MPEG_VIDC_TS_REORDER           (V4L2_CID_MPEG_VIDC_BASE + 0x34)
 /* AV1 Decoder Film Grain */
-#define V4L2_CID_MPEG_VIDC_FILM_GRAIN_PRESENT                               \
+#define V4L2_CID_MPEG_VIDC_AV1D_FILM_GRAIN_PRESENT                           \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x35)
 /* Enables Output buffer fence id via input metadata */
-#define V4L2_CID_MPEG_VIDC_METADATA_OUTPUT_TX_FENCE                          \
+#define V4L2_CID_MPEG_VIDC_METADATA_OUTBUF_FENCE                             \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x38)
 /* Control to set fence id to driver in order get corresponding fence fd */
-#define V4L2_CID_MPEG_VIDC_OUTPUT_TX_FENCE_ID                                 \
+#define V4L2_CID_MPEG_VIDC_SW_FENCE_ID                                       \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x39)
 /*
  * Control to get fence fd from driver for the fence id
- * set via V4L2_CID_MPEG_VIDC_OUTPUT_TX_FENCE_ID
+ * set via V4L2_CID_MPEG_VIDC_SW_FENCE_ID
  */
-#define V4L2_CID_MPEG_VIDC_OUTPUT_TX_FENCE_FD                                  \
+#define V4L2_CID_MPEG_VIDC_SW_FENCE_FD                                       \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x3A)
 #define V4L2_CID_MPEG_VIDC_METADATA_PICTURE_TYPE                             \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x3B)
+
+/* Encoder Slice Delivery Mode
+ * set format has a dependency on this control
+ * and gets invoked when this control is updated.
+ */
+#define V4L2_CID_MPEG_VIDC_HEVC_ENCODE_DELIVERY_MODE                          \
+	(V4L2_CID_MPEG_VIDC_BASE + 0x3C)
+
+#define V4L2_CID_MPEG_VIDC_H264_ENCODE_DELIVERY_MODE                          \
+	(V4L2_CID_MPEG_VIDC_BASE + 0x3D)
+
+#define V4L2_CID_MPEG_VIDC_CRITICAL_PRIORITY                                 \
+	(V4L2_CID_MPEG_VIDC_BASE + 0x3E)
+#define V4L2_CID_MPEG_VIDC_RESERVE_DURATION                                  \
+	(V4L2_CID_MPEG_VIDC_BASE + 0x3F)
 
 #define V4L2_CID_MPEG_VIDC_METADATA_DOLBY_RPU                                 \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x40)
@@ -211,8 +209,10 @@ enum v4l2_mpeg_vidc_av1_tier {
 #define V4L2_CID_MPEG_VIDC_LAST_FLAG_EVENT_ENABLE                             \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x42)
 
+#ifndef V4L2_CID_MPEG_VIDC_VUI_TIMING_INFO
 #define V4L2_CID_MPEG_VIDC_VUI_TIMING_INFO                                    \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x43)
+#endif
 
 #define V4L2_CID_MPEG_VIDC_EARLY_NOTIFY_ENABLE                                \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x44)
@@ -255,22 +255,14 @@ enum v4l2_mpeg_vidc_av1_tier {
 #define V4L2_CID_MPEG_VIDC_INTERLACE                                          \
 	(V4L2_CID_MPEG_VIDC_BASE + 0x4B)
 
-#define V4L2_CID_MPEG_VIDC_OPEN_GOP_ENABLE                                    \
-	(V4L2_CID_MPEG_VIDC_BASE + 0x4C)
-
-#define V4L2_CID_MPEG_VIDC_METADATA_HDR10_MAX_RGB_INFO                        \
-	(V4L2_CID_MPEG_VIDC_BASE + 0x4D)
-
-#define V4L2_CID_MPEG_VIDC_CAPTURE_DATA_OFFSET                                \
-	(V4L2_CID_MPEG_VIDC_BASE + 0x4E)
-
-#define V4L2_CID_MPEG_VIDC_METADATA_VIEW_ID                                   \
-	(V4L2_CID_MPEG_VIDC_BASE + 0x64)
-
-#define V4L2_CID_MPEG_VIDC_METADATA_VIEW_PAIR                                 \
-	(V4L2_CID_MPEG_VIDC_BASE + 0x65)
-
-#define V4L2_CID_MPEG_VIDC_METADATA_THREE_DIMENSIONAL_REF_DISP_INFO           \
-	(V4L2_CID_MPEG_VIDC_BASE + 0x66)
+int msm_vidc_adjust_ir_period(void *instance, struct v4l2_ctrl *ctrl);
+int msm_vidc_adjust_dec_frame_rate(void *instance, struct v4l2_ctrl *ctrl);
+int msm_vidc_adjust_dec_operating_rate(void *instance, struct v4l2_ctrl *ctrl);
+int msm_vidc_adjust_delivery_mode(void *instance, struct v4l2_ctrl *ctrl);
+int msm_vidc_set_ir_period(void *instance,
+			   enum msm_vidc_inst_capability_type cap_id);
+int msm_vidc_set_signal_color_info(void *instance,
+				   enum msm_vidc_inst_capability_type cap_id);
+int msm_vidc_adjust_csc(void *instance, struct v4l2_ctrl *ctrl);
 
 #endif

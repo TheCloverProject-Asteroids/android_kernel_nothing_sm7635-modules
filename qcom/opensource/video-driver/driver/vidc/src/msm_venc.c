@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "msm_media_info.h"
@@ -29,6 +29,7 @@ static const u32 msm_venc_input_set_prop[] = {
 static const u32 msm_venc_output_set_prop[] = {
 	HFI_PROP_BITSTREAM_RESOLUTION,
 	HFI_PROP_CROP_OFFSETS,
+	HFI_PROP_CSC,
 };
 
 static const u32 msm_venc_input_subscribe_for_properties[] = {
@@ -387,6 +388,32 @@ static int msm_venc_set_colorspace(struct msm_vidc_inst *inst,
 	return 0;
 }
 
+static int msm_venc_set_csc(struct msm_vidc_inst *inst,
+	enum msm_vidc_port_type port)
+{
+	int rc = 0;
+	u32 csc = 0;
+
+	if (port != OUTPUT_PORT) {
+		i_vpr_e(inst, "%s: invalid port %d\n", __func__, port);
+		return -EINVAL;
+	}
+
+	csc = inst->capabilities[CSC].value;
+	i_vpr_h(inst, "%s: csc: %u\n", __func__, csc);
+	rc = venus_hfi_session_property(inst,
+		HFI_PROP_CSC,
+		HFI_HOST_FLAGS_NONE,
+		get_hfi_port(inst, port),
+		HFI_PAYLOAD_U32,
+		&csc,
+		sizeof(u32));
+	if (rc)
+		return rc;
+
+	return 0;
+}
+
 static int msm_venc_set_quality_mode(struct msm_vidc_inst *inst)
 {
 	int rc = 0;
@@ -472,6 +499,7 @@ static int msm_venc_set_output_properties(struct msm_vidc_inst *inst)
 	static const struct msm_venc_prop_type_handle prop_type_handle_arr[] = {
 		{HFI_PROP_BITSTREAM_RESOLUTION,       msm_venc_set_bitstream_resolution    },
 		{HFI_PROP_CROP_OFFSETS,               msm_venc_set_crop_offsets            },
+		{HFI_PROP_CSC,                        msm_venc_set_csc                     },
 	};
 
 	i_vpr_h(inst, "%s()\n", __func__);
@@ -666,13 +694,12 @@ static int msm_venc_property_subscription(struct msm_vidc_inst *inst,
 		return -EINVAL;
 	}
 
-	rc = msm_vidc_session_command(inst,
+	rc = venus_hfi_session_command(inst,
 			HFI_CMD_SUBSCRIBE_MODE,
 			port,
 			HFI_PAYLOAD_U32_ARRAY,
 			&payload[0],
-			payload_size,
-			__func__);
+			payload_size);
 	if (rc)
 		return rc;
 
@@ -721,13 +748,12 @@ static int msm_venc_metadata_delivery(struct msm_vidc_inst *inst,
 		return -EINVAL;
 	}
 
-	rc = msm_vidc_session_command(inst,
+	rc = venus_hfi_session_command(inst,
 			HFI_CMD_DELIVERY_MODE,
 			port,
 			HFI_PAYLOAD_U32_ARRAY,
 			&payload[0],
-			(count + 1) * sizeof(u32),
-			__func__);
+			(count + 1) * sizeof(u32));
 	if (rc)
 		return rc;
 
@@ -763,13 +789,12 @@ static int msm_venc_dynamic_metadata_delivery(struct msm_vidc_inst *inst,
 		}
 	}
 
-	rc = msm_vidc_session_command(inst,
+	rc = venus_hfi_session_command(inst,
 			HFI_CMD_DELIVERY_MODE,
 			port,
 			HFI_PAYLOAD_U32_ARRAY,
 			&payload[0],
-			(count + 1) * sizeof(u32),
-			__func__);
+			(count + 1) * sizeof(u32));
 	if (rc)
 		return rc;
 
@@ -818,13 +843,12 @@ static int msm_venc_metadata_subscription(struct msm_vidc_inst *inst,
 		return -EINVAL;
 	}
 
-	rc = msm_vidc_session_command(inst,
+	rc = venus_hfi_session_command(inst,
 			HFI_CMD_SUBSCRIBE_MODE,
 			port,
 			HFI_PAYLOAD_U32_ARRAY,
 			&payload[0],
-			(count + 1) * sizeof(u32),
-			__func__);
+			(count + 1) * sizeof(u32));
 	if (rc)
 		return rc;
 
@@ -1518,7 +1542,7 @@ int msm_venc_s_param(struct msm_vidc_inst *inst,
 {
 	int rc = 0;
 	struct v4l2_fract *timeperframe = NULL;
-	u32 input_rate_q16, max_rate_q16, min_rate_q16;
+	u32 input_rate_q16, max_rate_q16;
 	u32 input_rate, default_rate;
 	bool is_frame_rate = false;
 
@@ -1526,7 +1550,6 @@ int msm_venc_s_param(struct msm_vidc_inst *inst,
 		/* operating rate */
 		timeperframe = &s_parm->parm.output.timeperframe;
 		max_rate_q16 = inst->capabilities[OPERATING_RATE].max;
-		min_rate_q16 = inst->capabilities[OPERATING_RATE].min;
 		default_rate = inst->capabilities[OPERATING_RATE].value >> 16;
 		s_parm->parm.output.capability = V4L2_CAP_TIMEPERFRAME;
 	} else {
@@ -1534,7 +1557,6 @@ int msm_venc_s_param(struct msm_vidc_inst *inst,
 		timeperframe = &s_parm->parm.capture.timeperframe;
 		is_frame_rate = true;
 		max_rate_q16 = inst->capabilities[FRAME_RATE].max;
-		min_rate_q16 = inst->capabilities[FRAME_RATE].min;
 		default_rate = inst->capabilities[FRAME_RATE].value >> 16;
 		s_parm->parm.capture.capability = V4L2_CAP_TIMEPERFRAME;
 	}
@@ -1554,13 +1576,7 @@ int msm_venc_s_param(struct msm_vidc_inst *inst,
 		i_vpr_h(inst, "%s: type %s, %s value %u limited to %u\n",
 			__func__, v4l2_type_name(s_parm->type),
 			is_frame_rate ? "frame rate" : "operating rate",
-			input_rate << 16, max_rate_q16);
-	} else if (input_rate < (min_rate_q16 >> 16)) {
-		input_rate_q16 = min_rate_q16;
-		i_vpr_h(inst, "%s: type %s, %s value %u limited to %u\n",
-			__func__, v4l2_type_name(s_parm->type),
-			is_frame_rate ? "frame rate" : "operating rate",
-			input_rate << 16, min_rate_q16);
+			input_rate_q16, max_rate_q16);
 	} else {
 		input_rate_q16 = input_rate << 16;
 		input_rate_q16 |=
@@ -1706,7 +1722,7 @@ int msm_venc_enum_fmt(struct msm_vidc_inst *inst, struct v4l2_fmtdesc *f)
 		if (!f->pixelformat)
 			return -EINVAL;
 		f->flags = V4L2_FMT_FLAG_COMPRESSED;
-		strscpy(f->description, "codec", sizeof(f->description));
+		strlcpy(f->description, "codec", sizeof(f->description));
 	} else if (f->type == INPUT_MPLANE) {
 		u32 formats = inst->capabilities[PIX_FMTS].step_or_mask;
 		u32 idx = 0;
@@ -1725,12 +1741,12 @@ int msm_venc_enum_fmt(struct msm_vidc_inst *inst, struct v4l2_fmtdesc *f)
 				__func__);
 		if (!f->pixelformat)
 			return -EINVAL;
-		strscpy(f->description, "colorformat", sizeof(f->description));
+		strlcpy(f->description, "colorformat", sizeof(f->description));
 	} else if (f->type == INPUT_META_PLANE || f->type == OUTPUT_META_PLANE) {
 		if (!f->index) {
 			f->pixelformat =
 				v4l2_colorformat_from_driver(inst, MSM_VIDC_FMT_META, __func__);
-			strscpy(f->description, "metadata", sizeof(f->description));
+			strlcpy(f->description, "metadata", sizeof(f->description));
 		} else {
 			return -EINVAL;
 		}

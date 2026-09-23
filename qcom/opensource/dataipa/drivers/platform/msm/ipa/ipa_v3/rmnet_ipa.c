@@ -32,8 +32,6 @@
 #include "ipa_qmi_service.h"
 #include <linux/rmnet_ipa_fd_ioctl.h>
 #include "ipa.h"
-#include "ipa_elf_dump.h"
-
 #include <uapi/linux/ip.h>
 #include <uapi/linux/msm_rmnet.h>
 #include <net/ipv6.h>
@@ -1337,10 +1335,8 @@ static int __ipa_wwan_open(struct net_device *dev)
 		reinit_completion(&wwan_ptr->resource_granted_completion);
 	wwan_ptr->device_status = WWAN_DEVICE_ACTIVE;
 
-	if (ipa3_rmnet_res.ipa_napi_enable) {
+	if (ipa3_rmnet_res.ipa_napi_enable)
 		napi_enable(&(wwan_ptr->napi));
-		ipa3_ctx->rmnet_napi_enable = true;
-	}
 	return 0;
 }
 
@@ -3706,7 +3702,6 @@ static int ipa3_wwan_probe(struct platform_device *pdev)
 		egress_pipe_status[j].status = 0;
 	}
 
-	ipa3_ctx->rmnet_napi_enable = false;
 	IPAWANERR("rmnet_ipa completed initialization\n");
 	return 0;
 config_err:
@@ -3948,22 +3943,10 @@ static void rmnet_ipa_send_ssr_notification(bool ssr_done)
 	}
 }
 
-static void ipa3_handle_modem_minidump(void)
-{
-	if (ipa_minidump_enabled()) {
-		if (ipa_retrieve_and_dump())
-			IPADBG("IPA ELF DUMP Failed");
-		else
-			IPADBG("IPA ELF DUMP Success");
-	}
-}
-
 static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 			   unsigned long code,
 			   void *data)
 {
-	struct qcom_ssr_notify_data *notify_data;
-
 	if (!ipa3_rmnet_ctx.ipa_rmnet_ssr)
 		return NOTIFY_DONE;
 
@@ -3994,9 +3977,6 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		/* hold a proxy vote for the modem. */
 		ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
 		/* send SSR before-shutdown notification to IPACM */
-		notify_data = data;
-		if (notify_data->crashed)
-			ipa3_handle_modem_minidump();
 		ipa3_set_modem_up(false);
 		rmnet_ipa_send_ssr_notification(false);
 		atomic_set(&rmnet_ipa3_ctx->is_ssr, 1);
@@ -5766,9 +5746,6 @@ void ipa3_q6_handshake_complete(bool ssr_bootup)
 	ipa3_set_modem_up(true);
 	if (ipa3_ctx->ipa_config_is_mhi)
 		ipa_send_mhi_endp_ind_to_modem();
-
-	if (ipa3_ctx->ipa_wdi_opt_dpath && ipa_wdi_opt_dpath_ctrl_enabled(0))
-		ipa3_setup_wlan_ctrl_ready_req();
 }
 
 static inline bool rmnet_ipa3_check_any_client_inited

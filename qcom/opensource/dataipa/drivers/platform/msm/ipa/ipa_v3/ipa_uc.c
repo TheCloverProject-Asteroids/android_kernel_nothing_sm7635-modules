@@ -778,8 +778,7 @@ static void ipa3_uc_event_handler(enum ipa_irq_type interrupt,
 		ipa3_ctx->uc_ctx.uc_error_timestamp =
 			ipahal_read_reg(IPA_TAG_TIMER);
 		/* Unexpected UC hardware state */
-		if (!ipa3_ctx->is_device_crashed)
-			ipa_assert();
+		ipa_assert();
 	} else if (ipa3_ctx->uc_ctx.uc_sram_mmio->eventOp ==
 		IPA_HW_2_CPU_EVENT_LOG_INFO) {
 		IPADBG("uC evt log info ofst=0x%x\n",

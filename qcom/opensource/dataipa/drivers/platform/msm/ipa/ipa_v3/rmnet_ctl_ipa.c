@@ -450,8 +450,8 @@ int ipa3_teardown_apps_low_lat_pipes(void)
 		ret = ipa_teardown_sys_pipe(
 			rmnet_ctl_ipa3_ctx->apps_to_ipa3_low_lat_hdl);
 		if (ret < 0) {
-			IPAERR("Failed to teardown APPS->IPA low lat pipe\n");
 			return ret;
+			IPAERR("Failed to teardown APPS->IPA low lat pipe\n");
 		}
 		rmnet_ctl_ipa3_ctx->apps_to_ipa3_low_lat_hdl = -1;
 		rmnet_ctl_ipa3_ctx->pipe_state &= ~IPA_RMNET_CTL_PIPE_TX_READY;

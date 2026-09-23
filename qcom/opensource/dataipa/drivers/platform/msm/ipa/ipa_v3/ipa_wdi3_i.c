@@ -601,43 +601,6 @@ fail_smmu_mapping:
 	return result;
 }
 
-void ipa3_setup_wlan_ctrl_ready_req(void)
-{
-	struct ipa_wlan_opt_dp_set_wlan_ctrl_ready_req_msg_v01 wlan_ctrl_ready_req;
-	int ipa_ep_idx_rx;
-	int ipa_ep_idx_tx;
-	uint32_t q6_rtng_table_index;
-
-	ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
-	ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_CONS);
-
-	memset(&wlan_ctrl_ready_req, 0,
-			sizeof(struct ipa_wlan_opt_dp_set_wlan_ctrl_ready_req_msg_v01));
-
-	spin_lock(&ipa3_ctx->disconnect_lock);
-	if (ipa3_ctx->ep[ipa_ep_idx_rx].valid && ipa3_ctx->ep[ipa_ep_idx_tx].valid
-		&& !atomic_read(&ipa3_ctx->ep[ipa_ep_idx_rx].disconnect_in_progress)
-		&& !atomic_read(&ipa3_ctx->ep[ipa_ep_idx_tx].disconnect_in_progress)) {
-		/* setup qmi message for ctrl wlan ready*/
-		wlan_ctrl_ready_req.wlan_ready = true;
-		wlan_ctrl_ready_req.dest_wlan_endp_id = ipa_ep_idx_tx;
-		wlan_ctrl_ready_req.src_wlan_endp_id = ipa_ep_idx_rx;
-		wlan_ctrl_ready_req.dest_apps_endp_id =
-			ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
-	}
-	spin_unlock(&ipa3_ctx->disconnect_lock);
-	if (ipa3_ctx->ep[ipa_ep_idx_rx].valid && ipa3_ctx->ep[ipa_ep_idx_tx].valid
-		&& !atomic_read(&ipa3_ctx->ep[ipa_ep_idx_rx].disconnect_in_progress)
-		&& !atomic_read(&ipa3_ctx->ep[ipa_ep_idx_tx].disconnect_in_progress)
-		&& wlan_ctrl_ready_req.wlan_ready) {
-		ipa3_handle_ipa_wlan_opt_dp_set_wlan_ctrl_ready_req(
-			&wlan_ctrl_ready_req, &q6_rtng_table_index);
-		/* Install default filter rules.*/
-		ipa3_install_dl_opt_wdi_dpath_flt_rules(ipa_ep_idx_rx, q6_rtng_table_index);
-	}
-}
-EXPORT_SYMBOL_GPL(ipa3_setup_wlan_ctrl_ready_req);
-
 int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 	struct ipa_wdi_conn_out_params *out,
 	ipa_wdi_meter_notifier_cb wdi_notify)
@@ -648,7 +611,6 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 	struct ipa3_ep_context *ep_rx;
 	struct ipa3_ep_context *ep_tx;
 	struct ipa3_ep_context *ep_tx1;
-	struct ipa_wlan_opt_dp_set_wlan_ctrl_ready_req_msg_v01 wlan_ctrl_ready_req;
 	int ipa_ep_idx_rx;
 	int ipa_ep_idx_tx;
 	int ipa_ep_idx_tx1 = IPA_EP_NOT_ALLOCATED;
@@ -657,7 +619,6 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 	void __iomem *db_addr;
 	u32 evt_ring_db_addr_low, evt_ring_db_addr_high, db_val = 0;
 	u8 rx_dir, tx_dir;
-	uint32_t q6_rtng_table_index;
 
 	/* wdi3 only support over gsi */
 	if (ipa_get_wdi_version() < IPA_WDI_3) {
@@ -898,21 +859,6 @@ int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 		evt_ring_db_addr_low,
 		ep_tx->gsi_mem_info.evt_ring_base_addr, db_val);
 
-	if (ipa3_ctx->ipa_wdi_opt_dpath && ipa_wdi_opt_dpath_ctrl_enabled(0)) {
-		/* setup qmi message for ctrl wlan ready*/
-		memset(&wlan_ctrl_ready_req, 0,
-			sizeof(struct ipa_wlan_opt_dp_set_wlan_ctrl_ready_req_msg_v01));
-		wlan_ctrl_ready_req.wlan_ready = true;
-		wlan_ctrl_ready_req.dest_wlan_endp_id = ipa_ep_idx_tx;
-		wlan_ctrl_ready_req.src_wlan_endp_id = ipa_ep_idx_rx;
-		wlan_ctrl_ready_req.dest_apps_endp_id =
-			ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
-		ipa3_handle_ipa_wlan_opt_dp_set_wlan_ctrl_ready_req(
-			&wlan_ctrl_ready_req, &q6_rtng_table_index);
-		/* Install default filter rules.*/
-		ipa3_install_dl_opt_wdi_dpath_flt_rules(ipa_ep_idx_rx, q6_rtng_table_index);
-	}
-
 	/* setup tx1 ep cfg */
 	if (in->is_tx1_used &&
 		ipa3_ctx->is_wdi3_tx1_needed && (ipa_ep_idx_tx1 !=
@@ -1002,7 +948,6 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	int ipa_ep_idx_tx1)
 {
 	struct ipa3_ep_context *ep_tx, *ep_rx, *ep_tx1;
-	struct ipa_wlan_opt_dp_set_wlan_ctrl_ready_req_msg_v01 wlan_ctrl_ready_req;
 	enum ipa_client_type rx_client;
 	enum ipa_client_type tx_client;
 	int result = 0;
@@ -1030,7 +975,6 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 	rx_client = ipa3_get_client_mapping(ipa_ep_idx_rx);
 	tx_client = ipa3_get_client_mapping(ipa_ep_idx_tx);
 	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(ipa_ep_idx_tx));
-
 	/* tear down tx1 pipe */
 	if (ipa_ep_idx_tx1 >= 0) {
 		ep_tx1 = &ipa3_ctx->ep[ipa_ep_idx_tx1];
@@ -1054,6 +998,7 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 		memset(ep_tx1, 0, sizeof(struct ipa3_ep_context));
 		IPADBG("tx client (ep: %d) disconnected\n", ipa_ep_idx_tx1);
 	}
+
 	/* tear down tx pipe */
 	result = ipa3_reset_gsi_channel(ipa_ep_idx_tx);
 	if (result != GSI_STATUS_SUCCESS) {
@@ -1077,10 +1022,6 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 
 	memset(ep_tx, 0, sizeof(struct ipa3_ep_context));
 	IPADBG("tx client (ep: %d) disconnected\n", ipa_ep_idx_tx);
-
-	/* Delete default filter rules.*/
-	if (ipa3_ctx->ipa_wdi_opt_dpath && ipa_wdi_opt_dpath_ctrl_enabled(0))
-		ipa3_delete_dl_opt_wdi_dpath_flt_rules(ipa_ep_idx_rx);
 
 	/* tear down rx pipe */
 	result = ipa3_reset_gsi_channel(ipa_ep_idx_rx);
@@ -1107,17 +1048,13 @@ int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 		&& ipa3_ctx->platform_type != IPA_PLAT_TYPE_XR)
 		ipa3_uc_debug_stats_dealloc(IPA_HW_PROTOCOL_WDI3);
 
+	if (ipa3_ctx->ipa_wdi_opt_dpath)
+		ipa3_disable_wdi3_opt_dpath(ipa_ep_idx_rx, ipa_ep_idx_tx);
+
 	ipa3_delete_dflt_flt_rules(ipa_ep_idx_rx);
 	memset(ep_rx, 0, sizeof(struct ipa3_ep_context));
 	IPADBG("rx client (ep: %d) disconnected\n", ipa_ep_idx_rx);
 
-	if (ipa3_ctx->ipa_wdi_opt_dpath && ipa_wdi_opt_dpath_ctrl_enabled(0)) {
-		/*send disconnect qmi message for ctrl wlan*/
-		memset(&wlan_ctrl_ready_req, 0,
-			sizeof(struct ipa_wlan_opt_dp_set_wlan_ctrl_ready_req_msg_v01));
-		wlan_ctrl_ready_req.wlan_ready = false;
-		ipa3_handle_ipa_wlan_opt_dp_set_wlan_ctrl_ready_req(&wlan_ctrl_ready_req, NULL);
-	}
 exit:
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_by_pipe(ipa_ep_idx_tx));
 	return result;
@@ -1228,9 +1165,6 @@ int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 		IPAERR("failed to start gsi rx channel\n");
 		goto fail_start_channel3;
 	}
-
-	ipa3_check_wdi_opt_chn_empty(ipa_ep_idx_rx);
-
 	/* start uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 && ipa3_ctx->ipa_hw_type != IPA_HW_v5_2
 		&& ipa3_ctx->platform_type != IPA_PLAT_TYPE_XR) {
@@ -1360,8 +1294,6 @@ int ipa3_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 		result = -EFAULT;
 		goto fail;
 	}
-
-	ipa3_check_wdi_opt_chn_empty(ipa_ep_idx_rx);
 
 	/* stop gsi tx channel */
 	result = ipa_stop_gsi_channel(ipa_ep_idx_tx);
@@ -1508,8 +1440,7 @@ int ipa3_enable_wdi3_opt_dpath(int ipa_ep_idx_rx, int ipa_ep_idx_tx,
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 
 	/* Install default filter rules.*/
-	if (!ipa_wdi_opt_dpath_ctrl_enabled(0))
-		ipa3_install_dl_opt_wdi_dpath_flt_rules(ipa_ep_idx_rx, rt_tbl_idx);
+	ipa3_install_dl_opt_wdi_dpath_flt_rules(ipa_ep_idx_rx, rt_tbl_idx);
 
 	result = ipa3_enable_data_path(ipa_ep_idx_tx);
 	if (result) {
@@ -1544,9 +1475,8 @@ int ipa3_disable_wdi3_opt_dpath(int ipa_ep_idx_rx, int ipa_ep_idx_tx)
 
 	IPADBG("ep_rx = %d, ep_tx = %d\n", ipa_ep_idx_rx, ipa_ep_idx_tx);
 
-	/* Delete default filter rules.*/
-	if (!ipa_wdi_opt_dpath_ctrl_enabled(0))
-		ipa3_delete_dl_opt_wdi_dpath_flt_rules(ipa_ep_idx_rx);
+	/* Install default filter rules.*/
+	ipa3_delete_dl_opt_wdi_dpath_flt_rules(ipa_ep_idx_rx);
 
 	/* disable tx data path */
 	result = ipa3_disable_data_path(ipa_ep_idx_tx);
@@ -1571,39 +1501,3 @@ fail:
 }
 EXPORT_SYMBOL(ipa3_disable_wdi3_opt_dpath);
 
-bool ipa3_check_wdi_opt_chn_empty(int ipa_ep_idx_rx)
-{
-	int ch_id, i;
-	bool is_empty;
-#define MAX_POLL 5
-	ch_id = ipa3_ctx->ep[ipa_ep_idx_rx].gsi_chan_hdl;
-	for (i = 0; i < MAX_POLL; i++) {
-		gsi_is_teth_channel_empty(ch_id, &is_empty);
-		if (!is_empty) {
-			IPADBG_LOW("Sleep and check again channel empty or not\n");
-			usleep_range(IPA_GSI_CHANNEL_STOP_SLEEP_MIN_USEC,
-					IPA_GSI_CHANNEL_STOP_SLEEP_MAX_USEC);
-		} else {
-			return true;
-		}
-	}
-	IPADBG("WDI RX Pipe=%d not empty.\n", ipa_ep_idx_rx);
-	return false;
-}
-EXPORT_SYMBOL_GPL(ipa3_check_wdi_opt_chn_empty);
-
-int ipa3_get_outstanding_buffers_wdi3(int ipa_ep_idx_rx,
-	int ipa_ep_idx_tx, struct ipa_wdi_outstanding_buffs *out)
-{
-	if (out == NULL) {
-		IPADBG("invalid params out\n");
-		return -EINVAL;
-	}
-
-	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
-	out->no_tx_outstanding_buffs = gsi_get_outstanding_buffers(ipa_ep_idx_tx);
-	out->no_rx_outstanding_buffs = gsi_get_outstanding_buffers(ipa_ep_idx_rx);
-	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
-	return 0;
-}
-EXPORT_SYMBOL_GPL(ipa3_get_outstanding_buffers_wdi3);

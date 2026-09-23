@@ -92,7 +92,6 @@ typedef enum {
 #define WRAPPER_IRIS_CPU_NOC_LPI_CONTROL	(WRAPPER_BASE_OFFS_IRIS33 + 0x5C)
 #define WRAPPER_IRIS_CPU_NOC_LPI_STATUS		(WRAPPER_BASE_OFFS_IRIS33 + 0x60)
 #define WRAPPER_CORE_POWER_STATUS		(WRAPPER_BASE_OFFS_IRIS33 + 0x80)
-#define WRAPPER_CORE_POWER_CONTROL                    (WRAPPER_BASE_OFFS_IRIS33 + 0x84)
 #define WRAPPER_CORE_CLOCK_CONFIG_IRIS33		(WRAPPER_BASE_OFFS_IRIS33 + 0x88)
 
 /*
@@ -181,22 +180,25 @@ static int __interrupt_init_iris33(struct msm_vidc_core *core)
 static int __get_device_region_info(struct msm_vidc_core *core,
 	u32 *min_dev_addr, u32 *dev_reg_size)
 {
+	struct device_region_set *dev_set;
 	u32 min_addr, max_addr, count = 0;
 	int rc = 0;
 
-	if (!core->device_region_tbl_count) {
+	dev_set = &core->resource->device_region_set;
+
+	if (!dev_set->count) {
 		d_vpr_h("%s: device region not available\n", __func__);
 		return 0;
 	}
 
 	min_addr = 0xFFFFFFFF;
 	max_addr = 0x0;
-	for (count = 0; count < core->device_region_tbl_count; count++) {
-		if (core->device_region_tbl[count].dev_addr > max_addr)
-			max_addr = core->device_region_tbl[count].dev_addr +
-				core->device_region_tbl[count].size;
-		if (core->device_region_tbl[count].dev_addr < min_addr)
-			min_addr = core->device_region_tbl[count].dev_addr;
+	for (count = 0; count < dev_set->count; count++) {
+		if (dev_set->device_region_tbl[count].dev_addr > max_addr)
+			max_addr = dev_set->device_region_tbl[count].dev_addr +
+				dev_set->device_region_tbl[count].size;
+		if (dev_set->device_region_tbl[count].dev_addr < min_addr)
+			min_addr = dev_set->device_region_tbl[count].dev_addr;
 	}
 	if (min_addr == 0xFFFFFFFF || max_addr == 0x0) {
 		d_vpr_e("%s: invalid device region\n", __func__);
@@ -805,7 +807,7 @@ static int __power_off_iris33(struct msm_vidc_core *core)
 		d_vpr_e("%s: failed to unvote buses\n", __func__);
 
 	if (!call_venus_op(core, watchdog, core, core->intr_status))
-		disable_irq_nosync(core->irq);
+		disable_irq_nosync(core->resource->irq);
 
 	msm_vidc_change_core_sub_state(core, CORE_SUBSTATE_POWER_ENABLE, 0, __func__);
 
@@ -863,26 +865,9 @@ static int __power_on_iris33_hardware(struct msm_vidc_core *core)
 {
 	int rc = 0;
 
-	/* When the vcodec GDSC is powered on and then moves into HW control. As it moves into HW
-	 * control, vcodec is initiated with power down sequence then driver requests for migrating
-	 * GDSC into sw control, which implies power up sequence for GDSC. Due to b2b switch of
-	 * power off and on for video hardware, it ends up in transient state and hungs eventually.
-	 * So Writing the register explicitly to avoid power off sequence when HW control is set.
-	 */
-	writel_relaxed(0x0, (u8 *)core->register_base_addr + WRAPPER_CORE_POWER_CONTROL);
-
 	rc = call_res_op(core, gdsc_on, core, "vcodec");
 	if (rc)
 		goto fail_regulator;
-
-	/* video controller and hardware powered on successfully */
-	rc = msm_vidc_change_core_sub_state(core, 0, CORE_SUBSTATE_POWER_ENABLE, __func__);
-	if (rc)
-		goto fail_power_on_substate;
-
-	rc = call_res_op(core, gdsc_sw_ctrl, core);
-	if (rc)
-		goto fail_sw_ctrl;
 
 	rc = call_res_op(core, clk_enable, core, "video_cc_mvs0_clk");
 	if (rc)
@@ -891,9 +876,6 @@ static int __power_on_iris33_hardware(struct msm_vidc_core *core)
 	return 0;
 
 fail_clk_controller:
-	call_res_op(core, gdsc_hw_ctrl, core);
-fail_sw_ctrl:
-fail_power_on_substate:
 	call_res_op(core, gdsc_off, core, "vcodec");
 fail_regulator:
 	return rc;
@@ -932,8 +914,12 @@ static int __power_on_iris33(struct msm_vidc_core *core)
 		d_vpr_e("%s: failed to power on iris33 hardware\n", __func__);
 		goto fail_power_on_hardware;
 	}
+	/* video controller and hardware powered on successfully */
+	rc = msm_vidc_change_core_sub_state(core, 0, CORE_SUBSTATE_POWER_ENABLE, __func__);
+	if (rc)
+		goto fail_power_on_substate;
 
-	freq_tbl = core->freq_tbl;
+	freq_tbl = core->resource->freq_set.freq_tbl;
 	freq = core->power.clk_freq ? core->power.clk_freq :
 				      freq_tbl[0].freq;
 
@@ -1027,7 +1013,7 @@ static int __power_on_iris33(struct msm_vidc_core *core)
 
 	__interrupt_init_iris33(core);
 	core->intr_status = 0;
-	enable_irq(core->irq);
+	enable_irq(core->resource->irq);
 
 	return rc;
 
@@ -1035,6 +1021,8 @@ fail_program_noc_regs:
 	call_res_op(core, reset_control_release, core, "video_xo_reset");
 fail_deassert_xo_reset:
 fail_assert_xo_reset:
+fail_power_on_substate:
+	__power_off_iris33_hardware(core);
 fail_power_on_hardware:
 	__power_off_iris33_controller(core);
 fail_power_on_controller:
@@ -1388,37 +1376,6 @@ static int __boot_firmware_iris33(struct msm_vidc_core *core)
 	return rc;
 }
 
-static int __switch_gdsc_mode_iris33(struct msm_vidc_core *core, bool sw_mode)
-{
-	int rc;
-
-	if (sw_mode) {
-		rc = __write_register(core, WRAPPER_CORE_POWER_CONTROL, 0x0);
-		if (rc)
-			return rc;
-		rc = __read_register_with_poll_timeout(core, WRAPPER_CORE_POWER_STATUS,
-						       BIT(1), 0x2, 200, 2000);
-		if (rc) {
-			d_vpr_e("%s: Failed to read WRAPPER_CORE_POWER_STATUS register to 0x1\n",
-				__func__);
-			return rc;
-		}
-	} else {
-		rc = __write_register(core, WRAPPER_CORE_POWER_CONTROL, 0x1);
-		if (rc)
-			return rc;
-		rc = __read_register_with_poll_timeout(core, WRAPPER_CORE_POWER_STATUS,
-						       BIT(1), 0x0, 200, 2000);
-		if (rc) {
-			d_vpr_e("%s: Failed to read WRAPPER_CORE_POWER_STATUS register to 0x0\n",
-				__func__);
-			return rc;
-		}
-	}
-
-	return 0;
-}
-
 int msm_vidc_decide_work_mode_iris33(struct msm_vidc_inst *inst)
 {
 	u32 work_mode;
@@ -1468,7 +1425,7 @@ int msm_vidc_decide_work_mode_iris33(struct msm_vidc_inst *inst)
 	}
 
 exit:
-	i_vpr_h(inst, "Configuring work mode = %u low latency = %llu, gop size = %llu\n",
+	i_vpr_h(inst, "Configuring work mode = %u low latency = %u, gop size = %u\n",
 		work_mode, inst->capabilities[LOWLATENCY_MODE].value,
 		inst->capabilities[GOP_SIZE].value);
 	msm_vidc_update_cap_value(inst, STAGE, work_mode, __func__);
@@ -1562,7 +1519,7 @@ int msm_vidc_adjust_bitrate_boost_iris33(void *instance, struct v4l2_ctrl *ctrl)
 {
 	s32 adjusted_value;
 	struct msm_vidc_inst *inst = (struct msm_vidc_inst *)instance;
-	s64 rc_type = -1;
+	s32 rc_type = -1;
 	u32 width, height, frame_rate;
 	struct v4l2_format *f;
 	u32 max_bitrate = 0, bitrate = 0;
@@ -1633,7 +1590,6 @@ static struct msm_vidc_venus_ops iris33_ops = {
 	.prepare_pc = __prepare_pc_iris33,
 	.watchdog = __watchdog_iris33,
 	.noc_error_info = __noc_error_info_iris33,
-	.switch_gdsc_mode = __switch_gdsc_mode_iris33,
 };
 
 static struct msm_vidc_session_ops msm_session_ops = {

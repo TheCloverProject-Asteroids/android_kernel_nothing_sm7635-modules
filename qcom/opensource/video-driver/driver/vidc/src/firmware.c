@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include <linux/types.h>
 #include <linux/list.h>
@@ -41,17 +41,15 @@ enum tzbsp_video_state {
 static int protect_cp_mem(struct msm_vidc_core *core)
 {
 	struct tzbsp_memprot memprot;
-	struct context_bank_info *cb;
-	u32 cnt = 0;
 	int rc = 0;
+	struct context_bank_info *cb;
 
 	memprot.cp_start = 0x0;
 	memprot.cp_size = 0x0;
 	memprot.cp_nonpixel_start = 0x0;
 	memprot.cp_nonpixel_size = 0x0;
 
-	for (cnt = 0; cnt < core->context_bank_tbl_count; ++cnt) {
-		cb = &core->context_bank_tbl[cnt];
+	venus_hfi_for_each_context_bank(core, cb) {
 		if (cb->region == MSM_VIDC_NON_SECURE) {
 			memprot.cp_size = cb->addr_range.start;
 
@@ -189,12 +187,13 @@ int fw_load(struct msm_vidc_core *core)
 {
 	int rc;
 
-	if (!core->fw_cookie) {
-		core->fw_cookie = __load_fw_to_memory(core->pdev,
+	if (!core->resource->fw_cookie) {
+		core->resource->fw_cookie = __load_fw_to_memory(core->pdev,
 								core->platform->data.fwname);
-		if (core->fw_cookie <= 0) {
-			d_vpr_e("%s: firmware download failed %d\n", __func__, core->fw_cookie);
-			core->fw_cookie = 0;
+		if (core->resource->fw_cookie <= 0) {
+			d_vpr_e("%s: firmware download failed %d\n",
+				__func__, core->resource->fw_cookie);
+			core->resource->fw_cookie = 0;
 			return -ENOMEM;
 		}
 	}
@@ -208,9 +207,9 @@ int fw_load(struct msm_vidc_core *core)
 	return rc;
 
 fail_protect_mem:
-	if (core->fw_cookie)
-		qcom_scm_pas_shutdown(core->fw_cookie);
-	core->fw_cookie = 0;
+	if (core->resource->fw_cookie)
+		qcom_scm_pas_shutdown(core->resource->fw_cookie);
+	core->resource->fw_cookie = 0;
 	return rc;
 }
 
@@ -218,15 +217,14 @@ int fw_unload(struct msm_vidc_core *core)
 {
 	int ret;
 
-	if (!core->fw_cookie)
+	if (!core->resource->fw_cookie)
 		return -EINVAL;
 
-	d_vpr_h("%s: unloading video firmware\n", __func__);
-	ret = qcom_scm_pas_shutdown(core->fw_cookie);
+	ret = qcom_scm_pas_shutdown(core->resource->fw_cookie);
 	if (ret)
 		d_vpr_e("Firmware unload failed rc=%d\n", ret);
 
-	core->fw_cookie = 0;
+	core->resource->fw_cookie = 0;
 
 	return ret;
 }

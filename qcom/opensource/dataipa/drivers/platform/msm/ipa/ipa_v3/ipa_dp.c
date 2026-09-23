@@ -469,19 +469,12 @@ static int ipa3_aux_napi_poll_tx_complete(struct napi_struct *napi_tx,
 	if (tx_done < budget) {
 		napi_complete(napi_tx);
 		ret = ipa3_tx_switch_to_intr_mode(sys);
-#if (KERNEL_VERSION(6, 7, 0) > LINUX_VERSION_CODE)
+
 		/* if we got an EOT while we marked NAPI as complete */
 		if (ret == -GSI_STATUS_PENDING_IRQ && napi_reschedule(napi_tx)) {
-			/* reschedule will perform poll again, don't dec vote twice*/
+			/* rescheduale will perform poll again, don't dec vote twice*/
 			napi_rescheduled = true;
 		}
-#else
-		/* if we got an EOT while we marked NAPI as complete */
-		if (ret == -GSI_STATUS_PENDING_IRQ && napi_schedule(napi_tx)) {
-			/* reschedule will perform poll again, don't dec vote twice*/
-			napi_rescheduled = true;
-		}
-#endif
 
 		if(!napi_rescheduled)
 			IPA_ACTIVE_CLIENTS_DEC_EP_NO_BLOCK(sys->ep->client);
@@ -526,21 +519,13 @@ poll_tx:
 	if (tx_done < budget) {
 		napi_complete(napi_tx);
 		atomic_set(&sys->in_napi_context, 0);
-#if (KERNEL_VERSION(6, 7, 0) > LINUX_VERSION_CODE)
+
 		/*if we got an EOT while we marked NAPI as complete*/
 		if (atomic_read(&sys->xmit_eot_cnt) > 0 &&
 		    !atomic_cmpxchg(&sys->in_napi_context, 0, 1)
 		    && napi_reschedule(napi_tx)) {
 			goto poll_tx;
 		}
-#else
-		/*if we got an EOT while we marked NAPI as complete*/
-		if (atomic_read(&sys->xmit_eot_cnt) > 0 &&
-		    !atomic_cmpxchg(&sys->in_napi_context, 0, 1)
-		    && napi_schedule(napi_tx)) {
-			goto poll_tx;
-		}
-#endif
 	}
 	IPADBG_LOW("the number of tx completions is: %d", tx_done);
 	return min(tx_done, budget);
@@ -1439,19 +1424,6 @@ static void ipa3_tasklet_find_freepage(unsigned long data)
 
 }
 
-static int ipa3_rmnet_mem_notifier(struct notifier_block *this,
-	unsigned long pool_size, void *ptr)
-{
-	IPADBG("New pool size: %lu\n", pool_size);
-	atomic_set(&ipa3_ctx->ipa_temp_pool_capacity, pool_size);
-	return NOTIFY_DONE;
-}
-
-static struct notifier_block ipa3_rmnet_mem_blk = {
-	.notifier_call = ipa3_rmnet_mem_notifier,
-	.priority = INT_MAX,
-};
-
 /**
  * ipa_setup_sys_pipe() - Setup an IPA GPI pipe and perform
  * IPA EP configuration
@@ -1476,7 +1448,6 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 	char buff[IPA_RESOURCE_NAME_MAX];
 	struct ipa_ep_cfg ep_cfg_copy;
 	int (*tx_completion_func)(struct napi_struct *, int);
-	int pool_capacity = 0;
 
 	if (sys_in == NULL || clnt_hdl == NULL) {
 		IPAERR(
@@ -1816,18 +1787,6 @@ int ipa_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 				ep->sys->repl->capacity = (ep->sys->rx_pool_sz + 1);
 			IPADBG("Repl capacity for client:%d, value:%d\n",
 					   sys_in->client, ep->sys->repl->capacity);
-			if (sys_in->client == IPA_CLIENT_APPS_WAN_COAL_CONS ||
-				sys_in->client == IPA_CLIENT_APPS_WAN_CONS) {
-				pool_capacity =
-					rmnet_mem_get_pool_size(ep->sys->page_order);
-				int temp_pool_capacity = (pool_capacity > 0) ?
-					pool_capacity : (ep->sys->repl->capacity / 2);
-				atomic_set(&ipa3_ctx->ipa_temp_pool_capacity, temp_pool_capacity);
-				IPADBG("Temp pool capacity for client:%d, value:%u\n",
-						sys_in->client,
-						atomic_read(&ipa3_ctx->ipa_temp_pool_capacity));
-				rmnet_mem_register_notifier(&ipa3_rmnet_mem_blk);
-			}
 			atomic_set(&ep->sys->repl->pending, 0);
 			ep->sys->repl->cache = kcalloc(ep->sys->repl->capacity,
 					sizeof(void *), GFP_KERNEL);
@@ -2042,11 +2001,14 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		/* Delete NAPI TX object. For WAN_PROD, it is deleted
 		 * in rmnet_ipa driver.
 		 */
-		if (ep->sys->napi_tx_enable &&
-			(ep->client != IPA_CLIENT_APPS_WAN_PROD)) {
-			napi_disable(&ep->sys->napi_tx);
+		if (ipa3_ctx->tx_napi_enable &&
+			(ep->client != IPA_CLIENT_APPS_WAN_PROD))
 			netif_napi_del(&ep->sys->napi_tx);
-		}
+	}
+
+	if(ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
+		napi_disable(&ep->sys->napi_rx);
+		netif_napi_del(&ep->sys->napi_rx);
 	}
 
 	if ( ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS ) {
@@ -2085,14 +2047,6 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 	flush_workqueue(ep->sys->wq);
 	if (IPA_CLIENT_IS_PROD(ep->client))
 		atomic_set(&ep->sys->workqueue_flushed, 1);
-
-	if (ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS) {
-		napi_disable(&ep->sys->napi_rx);
-		netif_napi_del(&ep->sys->napi_rx);
-	}
-
-	if (ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_CONS && ep->sys)
-		tasklet_kill(&ep->sys->tasklet);
 
 	/*
 	 * Tear down the default pipe before we reset the channel
@@ -2786,15 +2740,14 @@ static struct page *ipa3_rmnet_alloc_page(
 			flag, p_order, &rc, &porder, IPA_ID);
 
 		if (unlikely(!page)) {
-			if (try_lower && p_order > 0) {
+			if (p_order > 0) {
 				p_order = p_order - 1;
 				continue;
 			}
 			break;
 		}
 
-		if (likely(page) && (p_order < *page_order) && try_lower)
-			ipa3_ctx->stats.lower_order++;
+		ipa3_ctx->stats.lower_order++;
 		break;
 	}
 
@@ -2917,12 +2870,6 @@ begin:
 		/* ensure write is done before setting tail index */
 		mb();
 		atomic_set(&sys->repl->tail_idx, next);
-		if ((sys->ep->client == IPA_CLIENT_APPS_WAN_CONS ||
-			sys->ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS) &&
-			((atomic_read(&sys->repl->tail_idx) -
-			atomic_read(&sys->repl->head_idx)) % sys->repl->capacity) >
-			atomic_read(&ipa3_ctx->ipa_temp_pool_capacity))
-			break;
 	}
 
 	return;
@@ -2945,7 +2892,6 @@ fail_kmem_cache_alloc:
 static inline void __trigger_repl_work(struct ipa3_sys_context *sys)
 {
 	int tail, head, avail;
-	u32 thrshld = 0;
 
 	if (atomic_read(&sys->repl->pending))
 		return;
@@ -2954,13 +2900,7 @@ static inline void __trigger_repl_work(struct ipa3_sys_context *sys)
 	head = atomic_read(&sys->repl->head_idx);
 	avail = (tail - head) % sys->repl->capacity;
 
-	thrshld = (sys->ep->client == IPA_CLIENT_APPS_WAN_CONS ||
-				sys->ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS) &&
-				(ipa3_ctx->ipa_wan_skb_page) ?
-				atomic_read(&ipa3_ctx->ipa_temp_pool_capacity) / 2 :
-				sys->repl->capacity / 2;
-
-	if (avail < thrshld) {
+	if (avail < sys->repl->capacity / 2) {
 		atomic_set(&sys->repl->pending, 1);
 		queue_work(sys->repl_wq, &sys->repl_work);
 	}
@@ -3861,9 +3801,9 @@ static void free_rx_page(void *chan_user_data, void *xfer_user_data)
 		xfer_user_data;
 
 	if (!rx_pkt->page_data.is_tmp_alloc) {
-		spin_lock_bh(&rx_pkt->sys->common_sys->spinlock);
 		list_del_init(&rx_pkt->link);
 		page_ref_dec(rx_pkt->page_data.page);
+		spin_lock_bh(&rx_pkt->sys->common_sys->spinlock);
 		/* Add the element to head. */
 		list_add(&rx_pkt->link,
 			&rx_pkt->sys->page_recycle_repl->page_repl_head);
@@ -3932,10 +3872,6 @@ static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 		kfree(sys->repl->cache);
 		kfree(sys->repl);
 		sys->repl = NULL;
-		if (sys->ep->client == IPA_CLIENT_APPS_WAN_CONS ||
-			sys->ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS) {
-			rmnet_mem_unregister_notifier(&ipa3_rmnet_mem_blk);
-		}
 	}
 }
 
@@ -4549,11 +4485,6 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 	src_pipe = status.endp_src_idx;
 	metadata = status.metadata;
 	ucp = status.ucp;
-	/* Special handling for opt_dpath_ctrl traffic when not in SSR. */
-	if (ipa3_ctx->ipa_wdi_opt_dpath && ipa_wdi_opt_dpath_ctrl_enabled(0) &&
-		!atomic_read(&ipa3_ctx->is_ssr))
-		if (src_pipe == ipa_get_ep_mapping(IPA_CLIENT_Q6_WAN_PROD))
-			src_pipe = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
 	ep = &ipa3_ctx->ep[src_pipe];
 	if (unlikely(src_pipe >= ipa3_ctx->ipa_num_pipes) ||
 		unlikely(atomic_read(&ep->disconnect_in_progress))) {
@@ -7299,15 +7230,10 @@ start_poll:
 	if (cnt < weight) {
 		napi_complete(ep->sys->napi_obj);
 		ret = ipa3_rx_switch_to_intr_mode(ep->sys);
-#if (KERNEL_VERSION(6, 7, 0) > LINUX_VERSION_CODE)
 		if (ret == -GSI_STATUS_PENDING_IRQ &&
 				napi_reschedule(ep->sys->napi_obj))
 			goto start_poll;
-#else
-		if (ret == -GSI_STATUS_PENDING_IRQ &&
-				napi_schedule(ep->sys->napi_obj))
-			goto start_poll;
-#endif
+
 		IPA_ACTIVE_CLIENTS_DEC_EP_NO_BLOCK(ep->client);
 	}
 
@@ -7408,15 +7334,9 @@ start_poll:
 		wan_def_sys->len > IPA_DEFAULT_SYS_YELLOW_WM) {
 		napi_complete(ep->sys->napi_obj);
 		ret = ipa3_rx_switch_to_intr_mode(ep->sys);
-#if (KERNEL_VERSION(6, 7, 0) > LINUX_VERSION_CODE)
 		if (ret == -GSI_STATUS_PENDING_IRQ &&
 				napi_reschedule(ep->sys->napi_obj))
 			goto start_poll;
-#else
-		if (ret == -GSI_STATUS_PENDING_IRQ &&
-				napi_schedule(ep->sys->napi_obj))
-			goto start_poll;
-#endif
 		IPA_ACTIVE_CLIENTS_DEC_EP_NO_BLOCK(ep->client);
 	} else {
 		cnt = weight;
@@ -7643,15 +7563,9 @@ start_poll:
 	if (cnt < budget && (sys->len > IPA_DEFAULT_SYS_YELLOW_WM)) {
 		napi_complete(napi_rx);
 		ret = ipa3_rx_switch_to_intr_mode(sys);
-#if (KERNEL_VERSION(6, 7, 0) > LINUX_VERSION_CODE)
 		if (ret == -GSI_STATUS_PENDING_IRQ &&
 				napi_reschedule(napi_rx))
 			goto start_poll;
-#else
-		if (ret == -GSI_STATUS_PENDING_IRQ &&
-				napi_schedule(napi_rx))
-			goto start_poll;
-#endif
 		IPA_ACTIVE_CLIENTS_DEC_EP_NO_BLOCK(sys->ep->client);
 	} else {
 		cnt = budget;

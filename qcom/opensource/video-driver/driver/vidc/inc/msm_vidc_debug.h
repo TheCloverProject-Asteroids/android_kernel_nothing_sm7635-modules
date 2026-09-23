@@ -47,7 +47,7 @@ extern bool msm_vidc_synx_fence_enable;
 
 /* do not modify the log message as it is used in test scripts */
 #define FMT_STRING_SET_CTRL \
-	"%s: state %s, name %s, id 0x%x value32 %d/value64 %lld\n"
+	"%s: state %s, name %s, id 0x%x value %d\n"
 #define FMT_STRING_STATE_CHANGE \
 	"%s: state changed to %s from %s\n"
 #define FMT_STRING_MSG_SFR \
@@ -186,7 +186,6 @@ enum msm_vidc_bug_on_error {
 	MSM_VIDC_BUG_ON_FATAL             = BIT(0),
 	MSM_VIDC_BUG_ON_NOC               = BIT(1),
 	MSM_VIDC_BUG_ON_WD_TIMEOUT        = BIT(2),
-	MSM_VIDC_BUG_ON_DMA_MAP_FAILURE   = BIT(3),
 };
 
 struct dentry *msm_vidc_debugfs_init_drv(void);

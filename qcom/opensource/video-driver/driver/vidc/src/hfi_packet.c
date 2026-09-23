@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "hfi_packet.h"
@@ -594,7 +594,7 @@ err_sys_pc:
 }
 
 int hfi_packet_sys_debug_config(struct msm_vidc_core *core,
-		u8 *pkt, u32 pkt_size, u32 debug_level)
+				 u8 *pkt, u32 pkt_size, u32 debug_config)
 {
 	int rc = 0;
 	u32 payload = 0;
@@ -606,7 +606,7 @@ int hfi_packet_sys_debug_config(struct msm_vidc_core *core,
 		goto err_debug;
 
 	/* HFI_PROP_DEBUG_CONFIG */
-	payload = core->hfi_debug_config;
+	payload = 0; /*TODO:Change later*/
 	rc = hfi_create_packet(pkt, pkt_size,
 			       HFI_PROP_DEBUG_CONFIG,
 			       HFI_HOST_FLAGS_NONE,
@@ -619,7 +619,7 @@ int hfi_packet_sys_debug_config(struct msm_vidc_core *core,
 		goto err_debug;
 
 	/* HFI_PROP_DEBUG_LOG_LEVEL */
-	payload = debug_level;
+	payload = debug_config; /*TODO:Change later*/
 	rc = hfi_create_packet(pkt, pkt_size,
 			       HFI_PROP_DEBUG_LOG_LEVEL,
 			       HFI_HOST_FLAGS_NONE,
@@ -635,6 +635,41 @@ err_debug:
 	if (rc)
 		d_vpr_e("%s: create packet failed\n", __func__);
 
+	return rc;
+}
+
+int hfi_packet_session_command(struct msm_vidc_inst *inst,
+				u32 pkt_type, u32 flags, u32 port, u32 session_id,
+				u32 payload_type, void *payload, u32 payload_size)
+{
+	int rc = 0;
+	struct msm_vidc_core *core;
+
+	core = inst->core;
+
+	rc = hfi_create_header(inst->packet, inst->packet_size,
+				   session_id,
+				   core->header_id++);
+	if (rc)
+		goto err_cmd;
+
+	rc = hfi_create_packet(inst->packet,
+				inst->packet_size,
+				pkt_type,
+				flags,
+				payload_type,
+				port,
+				core->packet_id++,
+				payload,
+				payload_size);
+	if (rc)
+		goto err_cmd;
+
+	i_vpr_h(inst, "Command packet 0x%x created\n", pkt_type);
+	return rc;
+
+err_cmd:
+	i_vpr_e(inst, "%s: create packet failed\n", __func__);
 	return rc;
 }
 

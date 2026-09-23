@@ -97,11 +97,12 @@ u64 msm_vidc_max_freq(struct msm_vidc_inst *inst)
 
 	core = inst->core;
 
-	if (!core->freq_tbl || !core->freq_tbl_count) {
+	if (!core->resource || !core->resource->freq_set.freq_tbl ||
+		!core->resource->freq_set.count) {
 		i_vpr_e(inst, "%s: invalid frequency table\n", __func__);
 		return freq;
 	}
-	freq_tbl = core->freq_tbl;
+	freq_tbl = core->resource->freq_set.freq_tbl;
 	freq = freq_tbl[0].freq;
 
 	i_vpr_l(inst, "%s: rate = %llu\n", __func__, freq);
@@ -114,7 +115,7 @@ static int fill_dynamic_stats(struct msm_vidc_inst *inst,
 	struct msm_vidc_input_cr_data *temp, *next;
 	u32 cf = MSM_VIDC_MAX_UBWC_COMPLEXITY_FACTOR;
 	u32 cr = MSM_VIDC_MIN_UBWC_COMPRESSION_RATIO;
-	u32 input_cr = MSM_VIDC_MAX_UBWC_COMPRESSION_RATIO;
+	u32 input_cr = MSM_VIDC_MIN_UBWC_COMPRESSION_RATIO;
 	u32 frame_size;
 
 	if (inst->power.fw_cr)
@@ -142,16 +143,6 @@ static int fill_dynamic_stats(struct msm_vidc_inst *inst,
 	input_cr = clamp_t(u32, input_cr, MSM_VIDC_MIN_UBWC_COMPRESSION_RATIO,
 			MSM_VIDC_MAX_UBWC_COMPRESSION_RATIO);
 
-	/*
-	 * CR = MIN means UBWC didn't compress at all,
-	 * which is impossible unless the input yuv is pure while noise,
-	 * so MIN means there is no valid CR info,
-	 * set zero will let the bw calculation function use a predefined CR value instead,
-	 * to avoid overvoting.
-	 */
-	if (input_cr == MSM_VIDC_MIN_UBWC_COMPRESSION_RATIO)
-		input_cr = 0;
-
 	vote_data->compression_ratio = cr;
 	vote_data->complexity_factor = cf;
 	vote_data->input_cr = input_cr;
@@ -170,18 +161,22 @@ static int msm_vidc_set_buses(struct msm_vidc_inst *inst)
 	struct msm_vidc_core *core;
 	struct msm_vidc_inst *temp;
 	u64 total_bw_ddr = 0, total_bw_llcc = 0;
+	u64 curr_time_ns;
 
 	core = inst->core;
 
 	mutex_lock(&core->lock);
+	curr_time_ns = ktime_get_ns();
 	list_for_each_entry(temp, &core->instances, list) {
 		/* skip for session where no input is there to process */
 		if (!temp->max_input_data_size)
 			continue;
 
 		/* skip inactive session bus bandwidth */
-		if (!temp->active)
+		if (!is_active_session(temp->last_qbuf_time_ns, curr_time_ns)) {
+			temp->active = false;
 			continue;
+		}
 
 		if (temp->power.power_mode == VIDC_POWER_TURBO) {
 			total_bw_ddr = total_bw_llcc = INT_MAX;
@@ -224,6 +219,10 @@ int msm_vidc_scale_buses(struct msm_vidc_inst *inst)
 	u32 operating_rate, frame_rate;
 
 	core = inst->core;
+	if (!core->resource) {
+		i_vpr_e(inst, "%s: invalid resource params\n", __func__);
+		return -EINVAL;
+	}
 	vote_data = &inst->bus_data;
 
 	vote_data->power_mode = VIDC_POWER_NORMAL;
@@ -300,7 +299,7 @@ int msm_vidc_scale_buses(struct msm_vidc_inst *inst)
 		}
 	}
 	vote_data->work_mode = inst->capabilities[STAGE].value;
-	if (core->is_subcache_set_to_fw)
+	if (core->resource->subcache_set.set_to_fw)
 		vote_data->use_sys_cache = true;
 	vote_data->num_vpp_pipes = core->capabilities[NUM_VPP_PIPE].value;
 	fill_dynamic_stats(inst, vote_data);
@@ -339,11 +338,13 @@ int msm_vidc_set_clocks(struct msm_vidc_inst *inst)
 	u64 freq;
 	u64 rate = 0;
 	bool increment, decrement;
+	u64 curr_time_ns;
 	int i = 0;
 
 	core = inst->core;
 
-	if (!core->freq_tbl || !core->freq_tbl_count) {
+	if (!core->resource || !core->resource->freq_set.freq_tbl ||
+		!core->resource->freq_set.count) {
 		d_vpr_e("%s: invalid frequency table\n", __func__);
 		return -EINVAL;
 	}
@@ -352,15 +353,17 @@ int msm_vidc_set_clocks(struct msm_vidc_inst *inst)
 	increment = false;
 	decrement = true;
 	freq = 0;
+	curr_time_ns = ktime_get_ns();
 	list_for_each_entry(temp, &core->instances, list) {
 		/* skip for session where no input is there to process */
 		if (!temp->max_input_data_size)
 			continue;
 
 		/* skip inactive session clock rate */
-		if (!temp->active)
+		if (!is_active_session(temp->last_qbuf_time_ns, curr_time_ns)) {
+			temp->active = false;
 			continue;
-
+		}
 		freq += temp->power.min_freq;
 
 		if (msm_vidc_clock_voting) {
@@ -381,8 +384,8 @@ int msm_vidc_set_clocks(struct msm_vidc_inst *inst)
 	 * keep checking from lowest to highest rate until
 	 * table rate >= requested rate
 	 */
-	for (i = core->freq_tbl_count - 1; i >= 0; i--) {
-		rate = core->freq_tbl[i].freq;
+	for (i = core->resource->freq_set.count - 1; i >= 0; i--) {
+		rate = core->resource->freq_set.freq_tbl[i].freq;
 		if (rate >= freq)
 			break;
 	}
@@ -390,10 +393,10 @@ int msm_vidc_set_clocks(struct msm_vidc_inst *inst)
 		i = 0;
 	if (increment) {
 		if (i > 0)
-			rate = core->freq_tbl[i - 1].freq;
+			rate = core->resource->freq_set.freq_tbl[i - 1].freq;
 	} else if (decrement) {
 		if (i < (int)(core->platform->data.freq_tbl_size - 1))
-			rate = core->freq_tbl[i + 1].freq;
+			rate = core->resource->freq_set.freq_tbl[i + 1].freq;
 	}
 	core->power.clk_freq = (u32)rate;
 
@@ -515,11 +518,8 @@ int msm_vidc_scale_power(struct msm_vidc_inst *inst, bool scale_buses)
 	u32 fps;
 	u32 frame_rate, operating_rate;
 	u32 timestamp_rate = 0, input_rate = 0;
-	struct msm_vidc_inst *temp;
-	u64 curr_time_ns;
 
 	core = inst->core;
-	curr_time_ns = ktime_get_ns();
 
 	if (!inst->active) {
 		/* scale buses for inactive -> active session */
@@ -582,24 +582,9 @@ int msm_vidc_scale_power(struct msm_vidc_inst *inst, bool scale_buses)
 	}
 	inst->max_rate = fps;
 
-	/* update current session last active ts */
-	inst->last_active_time_ns = curr_time_ns;
-
 	/* no pending inputs - skip scale power */
 	if (!inst->max_input_data_size)
 		return 0;
-
-	core_lock(core, __func__);
-	/* detect inactive session */
-	list_for_each_entry(temp, &core->instances, list) {
-		/* skip current(active) session  */
-		if (temp == inst)
-			continue;
-
-		if (!is_active_session(temp->last_active_time_ns, curr_time_ns))
-			temp->active = false;
-	}
-	core_unlock(core, __func__);
 
 	if (msm_vidc_scale_clocks(inst))
 		i_vpr_e(inst, "failed to scale clock\n");
