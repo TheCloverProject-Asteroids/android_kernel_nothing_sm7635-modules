@@ -69,7 +69,7 @@ struct ring_util_stats {
 
 /* calculate the register address offset from bar0 of shadow register x */
 #if defined(QCA_WIFI_QCA6390) || defined(QCA_WIFI_QCA6490) || \
-    defined(QCA_WIFI_KIWI)
+    defined(QCA_WIFI_KIWI) || defined(QCA_WIFI_QCC2072)
 #define SHADOW_REGISTER_START_ADDRESS_OFFSET 0x000008FC
 #define SHADOW_REGISTER_END_ADDRESS_OFFSET \
 	((SHADOW_REGISTER_START_ADDRESS_OFFSET) + (4 * (MAX_SHADOW_REGISTERS)))
@@ -79,7 +79,7 @@ struct ring_util_stats {
 #define SHADOW_REGISTER_END_ADDRESS_OFFSET \
 	((SHADOW_REGISTER_START_ADDRESS_OFFSET) + (4 * (MAX_SHADOW_REGISTERS)))
 #define SHADOW_REGISTER(x) ((SHADOW_REGISTER_START_ADDRESS_OFFSET) + (4 * (x)))
-#elif defined(QCA_WIFI_QCA6750)
+#elif defined(QCA_WIFI_QCA6750) || defined(QCA_WIFI_WCN7750)
 #define SHADOW_REGISTER_START_ADDRESS_OFFSET 0x00000504
 #define SHADOW_REGISTER_END_ADDRESS_OFFSET \
 	((SHADOW_REGISTER_START_ADDRESS_OFFSET) + (4 * (MAX_SHADOW_REGISTERS)))
@@ -272,7 +272,8 @@ static inline void hal_tx_init_cmd_credit_ring(hal_soc_handle_t hal_soc_hdl,
  */
 #if !defined(QCA_WIFI_QCA6390) && !defined(QCA_WIFI_QCA6490) && \
     !defined(QCA_WIFI_QCA6750) && !defined(QCA_WIFI_KIWI) && \
-    !defined(QCA_WIFI_WCN6450)
+    !defined(QCA_WIFI_WCN6450) && !defined(QCA_WIFI_WCN7750) && \
+    !defined(QCA_WIFI_QCC2072)
 static inline void hal_write32_mb(struct hal_soc *hal_soc, uint32_t offset,
 				  uint32_t value)
 {
@@ -498,7 +499,6 @@ void hal_write_address_32_mb(struct hal_soc *hal_soc,
 		hal_write32_mb(hal_soc, offset, value);
 }
 
-
 #ifdef DP_HAL_MULTIWINDOW_DIRECT_ACCESS
 static inline void hal_srng_write_address_32_mb(struct hal_soc *hal_soc,
 						struct hal_srng *srng,
@@ -529,7 +529,8 @@ static inline void hal_srng_write_address_32_mb(struct hal_soc *hal_soc,
 
 #if !defined(QCA_WIFI_QCA6390) && !defined(QCA_WIFI_QCA6490) && \
     !defined(QCA_WIFI_QCA6750) && !defined(QCA_WIFI_KIWI) && \
-    !defined(QCA_WIFI_WCN6450)
+    !defined(QCA_WIFI_WCN6450) && !defined(QCA_WIFI_WCN7750) && \
+    !defined(QCA_WIFI_QCC2072)
 /**
  * hal_read32_mb() - Access registers to read configuration
  * @hal_soc: hal soc handle
@@ -2641,6 +2642,17 @@ hal_srng_rtpm_access_end(hal_soc_handle_t hal_soc_hdl,
 #define hal_le_srng_access_end_in_cpu_order \
 	hal_srng_access_end
 
+static inline void
+hal_srng_update_hp_direct(void *hal_soc, hal_ring_handle_t hal_ring_hdl)
+{
+	struct hal_srng *srng = (struct hal_srng *)hal_ring_hdl;
+
+	if (srng->ring_dir == HAL_SRNG_SRC_RING)
+		hal_write_address_32_mb(hal_soc, srng->u.src_ring.hp_addr,
+					srng->u.src_ring.hp, false);
+	SRNG_UNLOCK(&srng->lock);
+}
+
 /**
  * hal_srng_access_end_reap() - Unlock ring access
  * @hal_soc: Opaque HAL SOC handle
@@ -3455,6 +3467,48 @@ void hal_update_ring_util(void *hal_soc, hal_ring_handle_t hal_ring_hdl,
 }
 
 /**
+ * hal_umac_reset_read() - To check if the interrupt reset is successful
+ * @hal_soc_hdl: HAL SoC context
+ * @offset: Physical address of PCIE
+ * @addr: IOremapped address
+ *
+ * Return: void
+ */
+static inline
+uint32_t hal_umac_reset_read(hal_soc_handle_t hal_soc_hdl,
+			     uint32_t offset, void __iomem *addr)
+{
+	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
+
+	if (hal_soc->ops->hal_umac_reset_read)
+		return hal_soc->ops->hal_umac_reset_read(hal_soc_hdl,
+							 offset, addr);
+
+	return 0;
+}
+
+/**
+ * hal_umac_reset_intr() - function to reset the interrupt
+ * @hal_soc_hdl: HAL SOC handle
+ * @offset: Physical address of PCIE
+ * @value: (Reset) value to write
+ * @addr: IOremapped address
+ *
+ * Return: None.
+ */
+static inline
+void hal_umac_reset_intr(hal_soc_handle_t hal_soc_hdl,
+			 uint32_t offset, uint32_t value,
+			 void __iomem *addr)
+{
+	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
+
+	if (hal_soc->ops->hal_umac_reset_intr)
+		hal_soc->ops->hal_umac_reset_intr(hal_soc_hdl, offset,
+						  value, addr);
+}
+
+/**
  * hal_cmem_write() - function for CMEM buffer writing
  * @hal_soc_hdl: HAL SOC handle
  * @offset: CMEM address
@@ -3642,6 +3696,48 @@ void hal_srng_dst_set_tp(hal_ring_handle_t hal_ring_hdl, uint16_t idx)
 }
 
 /**
+ * hal_srng_src_get_hp() - get head idx.
+ * @hal_ring_hdl: srng handle
+ *
+ * Return: head idx
+ */
+static inline
+uint32_t hal_srng_src_get_hp(hal_ring_handle_t hal_ring_hdl)
+{
+	struct hal_srng *srng = (struct hal_srng *)hal_ring_hdl;
+
+	return srng->u.src_ring.hp;
+}
+
+/**
+ * hal_srng_src_get_cached_tp() - get cached tp idx.
+ * @hal_ring_hdl: srng handle
+ *
+ * Return: Cached tail idx
+ */
+static inline
+uint32_t hal_srng_src_get_cached_tp(hal_ring_handle_t hal_ring_hdl)
+{
+	struct hal_srng *srng = (struct hal_srng *)hal_ring_hdl;
+
+	return srng->u.src_ring.cached_tp;
+}
+
+/**
+ * hal_srng_dst_get_tp() - get tail idx.
+ * @hal_ring_hdl: srng handle
+ *
+ * Return: head idx
+ */
+static inline
+uint32_t hal_srng_dst_get_tp(hal_ring_handle_t hal_ring_hdl)
+{
+	struct hal_srng *srng = (struct hal_srng *)hal_ring_hdl;
+
+	return srng->u.dst_ring.tp;
+}
+
+/**
  * hal_srng_src_get_tpidx() - get tail idx
  * @hal_ring_hdl: srng handle
  *
@@ -3717,4 +3813,29 @@ hal_srng_set_msi_irq_config(hal_soc_handle_t hal_soc_hdl,
 	return QDF_STATUS_E_NOSUPPORT;
 }
 #endif
+
+/**
+ * hal_srng_dst_get_num_avail_words() - Get num available words in dst ring
+ *
+ * @hal_soc_hdl: hal soc handle
+ * @hal_ring_hdl: srng handle
+ * @num_avail: Num available words
+ *
+ * Return: QDF status
+ */
+static inline QDF_STATUS
+hal_srng_dst_get_num_avail_words(hal_soc_handle_t hal_soc_hdl,
+				 hal_ring_handle_t hal_ring_hdl,
+				 uint16_t *num_avail)
+{
+	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
+
+	if (!hal_soc->ops->hal_srng_dst_get_num_avail_words)
+		return QDF_STATUS_E_NOSUPPORT;
+
+	*num_avail =
+		hal_soc->ops->hal_srng_dst_get_num_avail_words(hal_ring_hdl);
+
+	return QDF_STATUS_SUCCESS;
+}
 #endif /* _HAL_APIH_ */

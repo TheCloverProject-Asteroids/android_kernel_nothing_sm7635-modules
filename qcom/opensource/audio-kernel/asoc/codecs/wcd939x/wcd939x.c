@@ -31,11 +31,13 @@
 #include "asoc/bolero-slave-internal.h"
 #include "wcd939x-reg-masks.h"
 #include "wcd939x-reg-shifts.h"
+#include <linux/proc_fs.h>
+
 #if IS_ENABLED(CONFIG_QCOM_WCD_USBSS_I2C)
 #include <linux/soc/qcom/wcd939x-i2c.h>
 #endif
 
-
+#define REGDUMP_PRINT_LEN 8
 #define NUM_SWRS_DT_PARAMS 5
 #define WCD939X_VARIANT_ENTRY_SIZE 32
 
@@ -147,6 +149,7 @@ static const DECLARE_TLV_DB_SCALE(analog_gain, 0, 25, 1);
 /* Will be set by reading the registers during bind()*/
 static int wcd939x_version = WCD939X_VERSION_2_0;
 
+static int wcd939x_wakeup(void *handle, bool enable);
 static int wcd939x_handle_post_irq(void *data);
 static int wcd939x_reset(struct device *dev);
 static int wcd939x_reset_low(struct device *dev);
@@ -266,7 +269,8 @@ static int wcd939x_hph_xtalk_put(struct snd_kcontrol *kcontrol,
 
 	int value = ucontrol->value.integer.value[0];
 
-	if (value < WCD939X_HPH_MAX && value >= 0)
+	if (value < WCD939X_HPH_MAX && value >= 0 && xtalk < WCD939X_HPH_MAX &&
+			xtalk >= 0)
 		wcd939x->xtalk_enabled[xtalk] = value;
 	else {
 		dev_err(component->dev, "%s: Invalid xtalk value = %d\n", __func__, value);
@@ -289,6 +293,11 @@ static int wcd939x_hph_xtalk_get(struct snd_kcontrol *kcontrol,
 
 	int xtalk = ((struct soc_mixer_control *)
 			kcontrol->private_value)->shift;
+
+	if (xtalk >= WCD939X_HPH_MAX || xtalk < 0) {
+		dev_err(component->dev, "%s: Invalid xtalk value = %d\n", __func__, xtalk);
+		return -EINVAL;
+	}
 
 	ucontrol->value.integer.value[0] = wcd939x->xtalk_enabled[xtalk];
 
@@ -989,13 +998,17 @@ static int wcd939x_config_compander(struct snd_soc_component *component,
 	if (!wcd939x->hph_pcm_enabled)
 		return 0;
 
-	dev_dbg(component->dev, "%s compander_index = %d\n", __func__, compander_indx);
+	dev_dbg(component->dev, "%s compander_enabled[%d]: %d\n", __func__,
+			compander_indx, wcd939x->compander_enabled[compander_indx]);
 
 	if (!wcd939x->compander_enabled[compander_indx]) {
-		if (SND_SOC_DAPM_EVENT_ON(event))
-			gain_source_sel = 0x01;
-		else
-			gain_source_sel = 0x00;
+		gain_source_sel = 0x01;
+
+		/* gain setting to mixer control value (typically 0db) */
+		snd_soc_component_update_bits(component, WCD939X_PA_GAIN_CTL_L, 0x1F,
+				(snd_soc_component_read(component, WCD939X_PA_GAIN_CTL_L) & 0x1F));
+		snd_soc_component_update_bits(component, WCD939X_PA_GAIN_CTL_R, 0x1F,
+				(snd_soc_component_read(component, WCD939X_PA_GAIN_CTL_R) & 0x1F));
 
 		if (compander_indx == WCD939X_HPHL) {
 			snd_soc_component_update_bits(component,
@@ -1006,6 +1019,16 @@ static int wcd939x_config_compander(struct snd_soc_component *component,
 		}
 		wcd939x_config_2Vpk_mode(component, wcd939x, SET_HPH_GAIN_2VPK);
 		return 0;
+	}
+
+	if (wcd939x->compander_enabled[compander_indx]) {
+		if (compander_indx == WCD939X_HPHL) {
+			snd_soc_component_update_bits(component,
+				REG_FIELD_VALUE(L_EN, GAIN_SOURCE_SEL, 0)); /* AUTO */
+		} else if (compander_indx == WCD939X_HPHR) {
+			snd_soc_component_update_bits(component,
+				REG_FIELD_VALUE(R_EN, GAIN_SOURCE_SEL, 0));
+		}
 	}
 
 	if (compander_indx == WCD939X_HPHL)
@@ -1038,16 +1061,23 @@ static int wcd939x_config_compander(struct snd_soc_component *component,
 				WCD939X_CDC_COMP_CTL_0, comp_en_mask_val, comp_en_mask_val);
 
 	} else if (SND_SOC_DAPM_EVENT_OFF(event)) {
-			snd_soc_component_update_bits(component,
-				WCD939X_CDC_COMP_CTL_0, comp_en_mask_val, 0x00);
-			snd_soc_component_update_bits(component,
-				comp_ctl0_reg , 0x01, 0x00);
-			if (compander_indx == WCD939X_HPHL)
-				snd_soc_component_update_bits(component,
-						REG_FIELD_VALUE(L_EN, GAIN_SOURCE_SEL, 0x0));
-			if (compander_indx == WCD939X_HPHR)
-				snd_soc_component_update_bits(component,
-						REG_FIELD_VALUE(R_EN, GAIN_SOURCE_SEL, 0x0));
+		/* disable both companders whichever(L/R) power down comes first */
+		snd_soc_component_update_bits(component,
+				WCD939X_CDC_COMP_CTL_0, 0x03, 0x00);
+
+		/* gain setting to 0db */
+		snd_soc_component_update_bits(component, WCD939X_PA_GAIN_CTL_L,
+				0x1F, 0x04);
+		snd_soc_component_update_bits(component, WCD939X_PA_GAIN_CTL_R,
+				0x1F, 0x04);
+
+		/* set gain source selection to REGISTER */
+		snd_soc_component_update_bits(component,
+				REG_FIELD_VALUE(L_EN, GAIN_SOURCE_SEL, 0x1)); /* REGISTER */
+		snd_soc_component_update_bits(component,
+				REG_FIELD_VALUE(R_EN, GAIN_SOURCE_SEL, 0x1)); /* REGISTER */
+
+		snd_soc_component_update_bits(component, comp_ctl0_reg, 0x03, 0x02);
 	}
 
 	return 0;
@@ -1540,7 +1570,8 @@ static int wcd939x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 					REG_FIELD_VALUE(PDM_WD_CTL1, PDM_WD_EN, 0x00));
 #if IS_ENABLED(CONFIG_QCOM_WCD_USBSS_I2C)
 		if (wcd939x->mbhc->wcd_mbhc.mbhc_cfg->enable_usbc_analog &&
-			!(snd_soc_component_read(component, WCD939X_HPH) & 0XC0))
+			(!(snd_soc_component_read(component, WCD939X_HPH) & 0XC0)) &&
+			wcd939x->adc_count == 0)
 			wcd_usbss_audio_config(NULL, WCD_USBSS_CONFIG_TYPE_POWER_MODE, 1);
 #endif
 		wcd_cls_h_fsm(component, &wcd939x->clsh_info,
@@ -1695,7 +1726,8 @@ static int wcd939x_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 					REG_FIELD_VALUE(PDM_WD_CTL0, PDM_WD_EN, 0x00));
 #if IS_ENABLED(CONFIG_QCOM_WCD_USBSS_I2C)
 		if (wcd939x->mbhc->wcd_mbhc.mbhc_cfg->enable_usbc_analog &&
-			!(snd_soc_component_read(component, WCD939X_HPH) & 0XC0))
+			(!(snd_soc_component_read(component, WCD939X_HPH) & 0XC0)) &&
+			wcd939x->adc_count == 0)
 			wcd_usbss_audio_config(NULL, WCD_USBSS_CONFIG_TYPE_POWER_MODE, 1);
 #endif
 		wcd_cls_h_fsm(component, &wcd939x->clsh_info,
@@ -2134,27 +2166,27 @@ static int wcd939x_tx_swr_ctrl(struct snd_soc_dapm_widget *w,
 	/* power mode is applicable only to analog mics */
 	if (strnstr(w->name, "ADC", sizeof("ADC"))) {
 		/* Get channel rate */
-		rate = wcd939x_get_clk_rate(wcd939x->tx_mode[w->shift - ADC1]);
+		rate = wcd939x_get_clk_rate(wcd939x->tx_mode[w->shift]);
 	}
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
 		/* Check AMIC2 is connected to ADC2 to take an action on BCS */
-		if (w->shift == ADC2 &&
-			(((snd_soc_component_read(component, WCD939X_TX_CH12_MUX) &
-				   0x38) >> 3)  == 0x2)) {
-			if (!wcd939x->bcs_dis) {
-				wcd939x_tx_connect_port(component, MBHC,
-					SWR_CLK_RATE_4P8MHZ, true);
-				set_bit(AMIC2_BCS_ENABLE, &wcd939x->status_mask);
-			}
-		}
 		if (strnstr(w->name, "ADC", sizeof("ADC"))) {
-			set_bit(w->shift - ADC1, &wcd939x->status_mask);
-			wcd939x_tx_connect_port(component, w->shift, rate,
+			if (w->shift == WCD_ADC2 &&
+				(((snd_soc_component_read(component, WCD939X_TX_CH12_MUX) &
+					   0x38) >> 3)  == 0x2)) {
+				if (!wcd939x->bcs_dis) {
+					wcd939x_tx_connect_port(component, MBHC,
+						SWR_CLK_RATE_4P8MHZ, true);
+					set_bit(AMIC2_BCS_ENABLE, &wcd939x->status_mask);
+				}
+			}
+			set_bit(w->shift, &wcd939x->status_mask);
+			wcd939x_tx_connect_port(component, w->shift + ADC1, rate,
 					true);
 		} else {
-			wcd939x_tx_connect_port(component, w->shift,
+			wcd939x_tx_connect_port(component, w->shift + DMIC0,
 					SWR_CLK_RATE_2P4MHZ, true);
 		}
 		break;
@@ -2413,6 +2445,12 @@ static int wcd939x_enable_req(struct snd_soc_dapm_widget *w,
 				REG_FIELD_VALUE(CDC_DIG_CLK_CTL, TXD0_CLK_EN, 0x01));
 			break;
 		case 1:
+#if IS_ENABLED(CONFIG_QCOM_WCD_USBSS_I2C)
+		/* update USBSS power mode for AATC */
+		if (wcd939x->mbhc->wcd_mbhc.mbhc_cfg->enable_usbc_analog)
+			wcd_usbss_audio_config(NULL, WCD_USBSS_CONFIG_TYPE_POWER_MODE,
+				4);
+#endif
 			snd_soc_component_update_bits(component,
 				WCD939X_CDC_TX_ANA_MODE_0_1, 0xF0,
 				mode << 4);
@@ -2472,9 +2510,43 @@ static int wcd939x_enable_req(struct snd_soc_dapm_widget *w,
 					REG_FIELD_VALUE(CDC_ANA_CLK_CTL, ANA_TX_DIV2_CLK_EN, 0x00));
 			snd_soc_component_update_bits(component,
 					REG_FIELD_VALUE(CDC_ANA_CLK_CTL, ANA_TX_CLK_EN, 0x00));
+#if IS_ENABLED(CONFIG_QCOM_WCD_USBSS_I2C)
+			if (wcd939x->mbhc->wcd_mbhc.mbhc_cfg->enable_usbc_analog &&
+				(!(snd_soc_component_read(component, WCD939X_HPH) & 0XC0)) &&
+				wcd939x->adc_count == 0)
+				wcd_usbss_audio_config(NULL, WCD_USBSS_CONFIG_TYPE_POWER_MODE, 1);
+#endif
 		}
 		break;
 	};
+	return ret;
+}
+
+int wcd939x_micb_external_event(struct device *dev, int micb_num, bool req)
+{
+	struct wcd939x_priv *wcd939x;
+	int ret = 0;
+
+	if (!dev)
+		return -EINVAL;
+
+	if ((micb_num <= 0) || (micb_num > WCD939X_MAX_MICBIAS))
+		return -EINVAL;
+
+	wcd939x = dev_get_drvdata(dev);
+	if (!wcd939x)
+		return -EINVAL;
+
+	if (req) {
+		wcd939x_wakeup(wcd939x, true);
+		ret = wcd939x_micbias_control(wcd939x->component, micb_num, MICB_ENABLE, false);
+		wcd939x_wakeup(wcd939x, false);
+	} else {
+		wcd939x_wakeup(wcd939x, true);
+		ret = wcd939x_micbias_control(wcd939x->component, micb_num, MICB_DISABLE, false);
+		wcd939x_wakeup(wcd939x, false);
+	}
+
 	return ret;
 }
 
@@ -3182,6 +3254,11 @@ static int wcd939x_tx_mode_put(struct snd_kcontrol *kcontrol,
 		return ret;
 
 	mode_val = ucontrol->value.enumerated.item[0];
+	if (wcd939x->tx_mode[path] == ADC_MODE_HIFI && mode_val != ADC_MODE_INVALID) {
+		dev_dbg(component->dev, "%s: mode: %d not set, tx mode: %d retained for HDR\n",
+					__func__, mode_val, wcd939x->tx_mode[path]);
+		return 0;
+	}
 
 	dev_dbg(component->dev, "%s: mode: %d\n", __func__, mode_val);
 
@@ -3984,18 +4061,18 @@ static const struct snd_soc_dapm_widget wcd939x_dapm_widgets[] = {
 	SND_SOC_DAPM_MUX("ADC4 MUX", SND_SOC_NOPM, 0, 0,
 				&tx_adc4_mux),
 	/*tx mixers*/
-	SND_SOC_DAPM_MIXER_E("ADC1_MIXER", SND_SOC_NOPM, ADC1, 0,
+	SND_SOC_DAPM_MIXER_E("ADC1_MIXER", SND_SOC_NOPM, WCD_ADC1, 0,
 				adc1_switch, ARRAY_SIZE(adc1_switch),
 				wcd939x_tx_swr_ctrl, SND_SOC_DAPM_PRE_PMU |
 				SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_MIXER_E("ADC2_MIXER", SND_SOC_NOPM, ADC2, 0,
+	SND_SOC_DAPM_MIXER_E("ADC2_MIXER", SND_SOC_NOPM, WCD_ADC2, 0,
 				adc2_switch, ARRAY_SIZE(adc2_switch),
 				wcd939x_tx_swr_ctrl, SND_SOC_DAPM_PRE_PMU |
 				SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_MIXER_E("ADC3_MIXER", SND_SOC_NOPM, ADC3, 0, adc3_switch,
+	SND_SOC_DAPM_MIXER_E("ADC3_MIXER", SND_SOC_NOPM, WCD_ADC3, 0, adc3_switch,
 				ARRAY_SIZE(adc3_switch), wcd939x_tx_swr_ctrl,
 				SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_MIXER_E("ADC4_MIXER", SND_SOC_NOPM, ADC4, 0, adc4_switch,
+	SND_SOC_DAPM_MIXER_E("ADC4_MIXER", SND_SOC_NOPM, WCD_ADC4, 0, adc4_switch,
 				ARRAY_SIZE(adc4_switch), wcd939x_tx_swr_ctrl,
 				SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
 	SND_SOC_DAPM_MIXER_E("DMIC0_MIXER", SND_SOC_NOPM, DMIC0,
@@ -4006,27 +4083,27 @@ static const struct snd_soc_dapm_widget wcd939x_dapm_widgets[] = {
 				0, dmic1_switch, ARRAY_SIZE(dmic1_switch),
 				wcd939x_tx_swr_ctrl, SND_SOC_DAPM_PRE_PMU |
 				SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_MIXER_E("DMIC2_MIXER", SND_SOC_NOPM, DMIC2,
+	SND_SOC_DAPM_MIXER_E("DMIC2_MIXER", SND_SOC_NOPM, 1,
 				0, dmic2_switch, ARRAY_SIZE(dmic2_switch),
 				wcd939x_tx_swr_ctrl, SND_SOC_DAPM_PRE_PMU |
 				SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_MIXER_E("DMIC3_MIXER", SND_SOC_NOPM, DMIC3,
+	SND_SOC_DAPM_MIXER_E("DMIC3_MIXER", SND_SOC_NOPM, 2,
 				0, dmic3_switch, ARRAY_SIZE(dmic3_switch),
 				wcd939x_tx_swr_ctrl, SND_SOC_DAPM_PRE_PMU |
 				SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_MIXER_E("DMIC4_MIXER", SND_SOC_NOPM, DMIC4,
+	SND_SOC_DAPM_MIXER_E("DMIC4_MIXER", SND_SOC_NOPM, 3,
 				0, dmic4_switch, ARRAY_SIZE(dmic4_switch),
 				wcd939x_tx_swr_ctrl, SND_SOC_DAPM_PRE_PMU |
 				SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_MIXER_E("DMIC5_MIXER", SND_SOC_NOPM, DMIC5,
+	SND_SOC_DAPM_MIXER_E("DMIC5_MIXER", SND_SOC_NOPM, 4,
 				0, dmic5_switch, ARRAY_SIZE(dmic5_switch),
 				wcd939x_tx_swr_ctrl, SND_SOC_DAPM_PRE_PMU |
 				SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_MIXER_E("DMIC6_MIXER", SND_SOC_NOPM, DMIC6,
+	SND_SOC_DAPM_MIXER_E("DMIC6_MIXER", SND_SOC_NOPM, 5,
 				0, dmic6_switch, ARRAY_SIZE(dmic6_switch),
 				wcd939x_tx_swr_ctrl, SND_SOC_DAPM_PRE_PMU |
 				SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_MIXER_E("DMIC7_MIXER", SND_SOC_NOPM, DMIC7,
+	SND_SOC_DAPM_MIXER_E("DMIC7_MIXER", SND_SOC_NOPM, 6,
 				0, dmic7_switch, ARRAY_SIZE(dmic7_switch),
 				wcd939x_tx_swr_ctrl, SND_SOC_DAPM_PRE_PMU |
 				SND_SOC_DAPM_POST_PMD),
@@ -4498,8 +4575,85 @@ done:
 	return rc;
 }
 
+static int regdump_read(struct regmap *map, int baseReg, int endReg,
+		char __user *user_buf, size_t count, loff_t *ppos)
+{
+	int i = 0, ret = 0;
+	size_t pos = 0;
+	char *buf;
+	unsigned int reg_val = 0, reg_len = 0;
+	unsigned int reg_val_len = 0, regdump_wr_len = 0;
+
+	i  = ((int) *ppos + baseReg);
+
+	buf = kzalloc(count, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	reg_len = scnprintf(buf, count, "%x", endReg);
+	reg_val_len = 2 * DIV_ROUND_UP(REGDUMP_PRINT_LEN, 8);
+	regdump_wr_len = reg_len + reg_val_len + 3;
+
+	/* Disable reading/writing from regmap-cache */
+	regcache_cache_bypass(map, true);
+	for (; i >= 0 && i <= endReg; i++) {
+
+		scnprintf(buf+pos, count-pos, "%.*x: ", reg_len, i);
+		pos += reg_len + 2;
+		ret = regmap_read(map, i, &reg_val);
+		if (ret == 0)
+			scnprintf(buf+pos, count-pos, "%.*x", reg_val_len, reg_val);
+		else
+			memset(buf+pos, 'X', reg_val_len);
+
+		pos +=  reg_val_len;
+		buf[pos++] = '\n';
+		*ppos += 1;
+
+		/*
+		 * Check not to overwrite the buffer, by ensuring we have
+		 * space for writing next register data
+		 *
+		 * this is scalable if we use proc or any other fs interface
+		 * as count would take the buf_size passed from userspace
+		 */
+		if ((pos + regdump_wr_len) >= count)
+			break;
+	}
+	/* Enable reading/writing from regmap-cache */
+	regcache_cache_bypass(map, false);
+
+	ret = pos;
+	if (copy_to_user(user_buf, buf, pos))
+		ret = -EFAULT;
+
+	kfree(buf);
+	return ret;
+}
+
+static ssize_t wcd939x_proc_read(struct file *filep, char __user *buf, size_t size, loff_t *ppos)
+{
+	ssize_t ret = 0;
+	struct wcd939x_priv *wcd939x = NULL;
+
+	if (!size || !filep || !ppos || !buf || *ppos < 0)
+		return -EINVAL;
+
+	wcd939x = pde_data(file_inode(filep));
+	if (!wcd939x)
+		return -EINVAL;
+
+	ret = regdump_read(wcd939x->regmap, WCD939X_BASE, WCD939X_MAX_REGISTER, buf, size, ppos);
+	return ret;
+}
+
+static const struct proc_ops wcd939x_proc_ops = {
+	.proc_read = wcd939x_proc_read,
+};
+
 static int wcd939x_soc_codec_probe(struct snd_soc_component *component)
 {
+	struct proc_dir_entry *wcd939x_proc_regdump_file = NULL;
 	struct wcd939x_priv *wcd939x = snd_soc_component_get_drvdata(component);
 	struct snd_soc_dapm_context *dapm =
 			snd_soc_component_get_dapm(component);
@@ -4515,6 +4669,21 @@ static int wcd939x_soc_codec_probe(struct snd_soc_component *component)
 	snd_soc_component_init_regmap(component, wcd939x->regmap);
 
 	devm_regmap_qti_debugfs_register(&wcd939x->tx_swr_dev->dev, wcd939x->regmap);
+
+	wcd939x->wcd939x_proc_entry = proc_mkdir("wcd939x_reginfo", NULL);
+	if (wcd939x->wcd939x_proc_entry) {
+		wcd939x_proc_regdump_file = proc_create_data("wcd939x_regdump", 0444,
+				wcd939x->wcd939x_proc_entry, &wcd939x_proc_ops, wcd939x);
+		if (!wcd939x_proc_regdump_file) {
+			dev_err(component->dev,
+					"%s: error creating proc reg read interface\n",
+					__func__);
+			proc_remove(wcd939x->wcd939x_proc_entry);
+			wcd939x->wcd939x_proc_entry = NULL;
+		}
+	} else {
+		dev_err(component->dev, "%s: error creating proc dir interface\n", __func__);
+	}
 
 	/*Harmonium contains only one variant i.e wcd9395*/
 	wcd939x->variant = WCD9395;
@@ -4624,6 +4793,10 @@ static void wcd939x_soc_codec_remove(struct snd_soc_component *component)
 			__func__);
 		return;
 	}
+
+	if (wcd939x->wcd939x_proc_entry)
+		proc_remove(wcd939x->wcd939x_proc_entry);
+
 	if (wcd939x->register_notifier)
 		wcd939x->register_notifier(wcd939x->handle,
 						&wcd939x->nblock,
@@ -5218,6 +5391,29 @@ static void wcd939x_update_regmap_cache(struct wcd939x_priv *wcd939x)
 	}
 }
 
+static int wcd939x_handle_swrslv_reset(void *handle)
+{
+	struct wcd939x_priv *wcd939x = (struct wcd939x_priv *)handle;
+
+	u32 sts1 = 0, sts2 = 0, sts3 = 0;
+
+	if (!wcd939x) {
+		pr_err("%s: slave device is not available\n", __func__);
+		return -EINVAL;
+	}
+	regmap_read(wcd939x->regmap, WCD939X_INTR_STATUS_0, &sts1);
+	regmap_read(wcd939x->regmap, WCD939X_INTR_STATUS_1, &sts2);
+	regmap_read(wcd939x->regmap, WCD939X_INTR_STATUS_2, &sts3);
+
+	pr_debug("%s: Interrupt status: STATUS_0 0x%X, STATUS_1 0x%X, STATUS_2 0x%X\n",
+		       __func__, sts1, sts2, sts3);
+	regmap_write(wcd939x->regmap, WCD939X_INTR_CLEAR_0, 0);
+	regmap_write(wcd939x->regmap, WCD939X_INTR_CLEAR_1, 0);
+	regmap_write(wcd939x->regmap, WCD939X_INTR_CLEAR_2, 0);
+
+	return 0;
+}
+
 static int wcd939x_bind(struct device *dev)
 {
 	int ret = 0, i = 0;
@@ -5332,6 +5528,19 @@ static int wcd939x_bind(struct device *dev)
 	}
 	wcd939x->dev_up = true;
 
+	/* Register notifier with wcd939x slave. */
+	if (wcd939x_slave_register_notify(wcd939x->tx_swr_dev,
+		wcd939x_handle_swrslv_reset, wcd939x))
+		dev_dbg(dev, "%s: wcd939x_slave_register_notify register Success!!\n", __func__);
+
+
+	/* Register Micbias regulator */
+	ret = wcd_init_mb_regulator(dev);
+	if (ret < 0) {
+		dev_err(dev, "Initialize wcd mb regulator failed, rc = %d\n",
+				ret);
+		ret = 0;
+	}
 	return ret;
 err_irq:
 	wcd_irq_exit(&wcd939x->irq_info, wcd939x->virq);
@@ -5478,7 +5687,7 @@ static int wcd939x_probe(struct platform_device *pdev)
 		if (ret) {
 			dev_err(dev, "%s: vdd px supply enable failed!\n",
 				__func__);
-			return ret;
+			goto err_static_supplies;
 		}
 	}
 
@@ -5489,13 +5698,13 @@ static int wcd939x_probe(struct platform_device *pdev)
 
 	if (ret) {
 		dev_err(dev, "Failed to read port mapping\n");
-		goto err;
+		goto err_supplies;
 	}
 	ret = wcd939x_parse_port_params(dev, "qcom,swr-tx-port-params",
 					CODEC_TX);
 	if (ret) {
 		dev_err(dev, "Failed to read port params\n");
-		goto err;
+		goto err_supplies;
 	}
 
 	mutex_init(&wcd939x->wakeup_lock);
@@ -5518,7 +5727,19 @@ static int wcd939x_probe(struct platform_device *pdev)
 err_lock_init:
 	mutex_destroy(&wcd939x->micb_lock);
 	mutex_destroy(&wcd939x->wakeup_lock);
-err:
+err_supplies:
+	if (msm_cdc_is_ondemand_supply(wcd939x->dev, wcd939x->supplies,
+			pdata->regulator, pdata->num_supplies, "cdc-vdd-px")) {
+		msm_cdc_disable_ondemand_supply(wcd939x->dev,
+				wcd939x->supplies, pdata->regulator,
+				pdata->num_supplies, "cdc-vdd-px");
+	}
+err_static_supplies:
+	msm_cdc_release_supplies(&pdev->dev, wcd939x->supplies,
+				     pdata->regulator,
+				     pdata->num_supplies);
+	pdata->regulator = NULL;
+	pdata->num_supplies = 0;
 	return ret;
 }
 

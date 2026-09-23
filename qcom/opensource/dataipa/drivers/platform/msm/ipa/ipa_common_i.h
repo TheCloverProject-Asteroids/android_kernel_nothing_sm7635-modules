@@ -636,6 +636,8 @@ int ipa3_ntn_uc_reg_rdyCB(void (*ipauc_ready_cb)(void *user_data),
 			      void *user_data);
 void ipa3_ntn_uc_dereg_rdyCB(void);
 
+void ipa3_setup_wlan_ctrl_ready_req(void);
+
 int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
 	struct ipa_wdi_conn_out_params *out,
 	ipa_wdi_meter_notifier_cb wdi_notify);
@@ -651,7 +653,10 @@ int ipa3_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx,
 
 int ipa3_enable_wdi3_opt_dpath(int ipa_ep_idx_rx, int ipa_ep_idx_tx,
 	u32 rt_tbl_idx);
+
 int ipa3_disable_wdi3_opt_dpath(int ipa_ep_idx_rx, int ipa_ep_idx_tx);
+
+bool ipa3_check_wdi_opt_chn_empty(int ipa_ep_idx_rx);
 
 const char *ipa_get_version_string(enum ipa_hw_type ver);
 int ipa3_start_gsi_channel(u32 clnt_hdl);
@@ -659,6 +664,9 @@ int ipa3_start_gsi_channel(u32 clnt_hdl);
 int ipa_smmu_store_sgt(struct sg_table **out_ch_ptr,
 		struct sg_table *in_sgt_ptr);
 int ipa_smmu_free_sgt(struct sg_table **out_sgt_ptr);
+
+int ipa3_get_outstanding_buffers_wdi3(int ipa_ep_idx_rx,
+	int ipa_ep_idx_tx, struct ipa_wdi_outstanding_buffs *out);
 
 #ifdef CONFIG_IPA_UT
 int ipa_ut_module_init(void);

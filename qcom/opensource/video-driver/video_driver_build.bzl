@@ -56,12 +56,12 @@ def video_module_entry(hdrs = []):
 
 def define_target_variant_modules(target, variant, registry, modules, config_options = []):
     kernel_build = "{}_{}".format(target, variant)
-    kernel_build_label = "//msm-kernel:{}".format(kernel_build)
+    kernel_build_label = "//vendor/qcom/kernel:{}".format(kernel_build)
     modules = [registry.get(module_name) for module_name in modules]
     options = _get_kernel_build_options(modules, config_options)
     build_print = lambda message : print("{}: {}".format(kernel_build, message))
     formatter = lambda s : s.replace("%b", kernel_build).replace("%t", target)
-    headers = ["//msm-kernel:all_headers"] +  registry.hdrs + [":{}_headers".format(target)]
+    headers = ["//vendor/qcom/kernel:all_headers"] +  registry.hdrs + [":{}_headers".format(target)]
     print(headers)
     all_module_rules = []
 
@@ -103,7 +103,7 @@ def define_lunch_target_variant_modules(target, variant, registry, modules, lunc
     kernel_build = "{}_{}".format(target, variant)
     print("kernel_build: "+ kernel_build)
 
-    kernel_build_label = "//msm-kernel:{}".format(kernel_build)
+    kernel_build_label = "//vendor/qcom/kernel:{}".format(kernel_build)
     print(kernel_build_label)
 
     if lunch_target != None:
@@ -113,15 +113,20 @@ def define_lunch_target_variant_modules(target, variant, registry, modules, lunc
         print("ddk_mod_name : " + ddk_mod_name)
         dist_target_name = "{}_video_driver_modules_dist".format(kernel_build)
         data = [":{}_video_driver_modules".format(kernel_build)]
-        config_options = ["CONFIG_MSM_VIDC_{}".format(lunch_target.upper())]
+        config_options = [
+            "CONFIG_MSM_MMRM",
+            "CONFIG_MSM_VIDC_{}".format(lunch_target.upper())
+        ]
     else:
         ddk_mod_name = "{}_video_driver_modules".format(kernel_build)
         print("ddk_mod_name: " + ddk_mod_name)
         dist_target_name = "{}_video_driver_modules_dist".format(kernel_build)
         print("dist_target_name: " + dist_target_name)
         data = [":{}_video_driver_modules".format(kernel_build)]
-        config_options = ["CONFIG_MSM_VIDC_{}".format(target.upper())]
-
+        config_options = [
+            "CONFIG_MSM_MMRM",
+            "CONFIG_MSM_VIDC_{}".format(target.upper())
+        ]
 
     modules = [registry.get(module_name) for module_name in modules]
 
@@ -131,7 +136,7 @@ def define_lunch_target_variant_modules(target, variant, registry, modules, lunc
 
     formatter = lambda s : s.replace("%b", kernel_build).replace("%t", target)
 
-    headers = ["//msm-kernel:all_headers"] +  registry.hdrs + [":{}_headers".format(target)]
+    headers = ["//vendor/qcom/kernel:all_headers"] +  registry.hdrs + [":{}_headers".format(target)]
     print(headers)
 
     all_module_rules = []

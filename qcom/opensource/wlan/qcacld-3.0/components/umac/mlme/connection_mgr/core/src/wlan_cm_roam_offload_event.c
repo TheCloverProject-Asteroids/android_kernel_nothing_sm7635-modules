@@ -39,8 +39,6 @@
 #include "wlan_roam_debug.h"
 #include "wlan_mlo_mgr_roam.h"
 
-#define FW_ROAM_SYNC_TIMEOUT 7000
-
 static QDF_STATUS
 cm_fw_roam_ser_cb(struct wlan_serialization_command *cmd,
 		  enum wlan_serialization_cb_reason reason)
@@ -639,4 +637,40 @@ QDF_STATUS cm_roam_sync_event_handler_cb(struct wlan_objmgr_vdev *vdev,
 					     sync_ind);
 
 	return status;
+}
+
+QDF_STATUS cm_roam_abort_event(struct wlan_objmgr_vdev *vdev)
+{
+	struct wlan_objmgr_psoc *psoc;
+	struct wlan_objmgr_pdev *pdev;
+	uint8_t vdev_id;
+	uint8_t rso_stop_req_bitmap;
+
+	if (!vdev) {
+		mlme_debug("Vdev is NULL");
+		return QDF_STATUS_E_NULL_VALUE;
+	}
+
+	psoc = wlan_vdev_get_psoc(vdev);
+	if (!psoc) {
+		mlme_debug("Psoc is NULL");
+		return QDF_STATUS_E_NULL_VALUE;
+	}
+
+	pdev = wlan_vdev_get_pdev(vdev);
+	if (!pdev) {
+		mlme_debug("Pdev is NULL");
+		return QDF_STATUS_E_NULL_VALUE;
+	}
+
+	vdev_id = wlan_vdev_get_id(vdev);
+	rso_stop_req_bitmap = mlme_get_rso_pending_disable_req_bitmap(psoc,
+								      vdev_id);
+	if (rso_stop_req_bitmap) {
+		mlme_clear_rso_pending_disable_req_bitmap(psoc, vdev_id);
+		wlan_cm_disable_rso(pdev, vdev_id, rso_stop_req_bitmap,
+				    REASON_DRIVER_DISABLED);
+	}
+
+	return QDF_STATUS_SUCCESS;
 }

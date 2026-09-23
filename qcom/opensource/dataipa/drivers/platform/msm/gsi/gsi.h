@@ -2237,6 +2237,20 @@ int gsi_query_channel_info(unsigned long chan_hdl,
 int gsi_is_channel_empty(unsigned long chan_hdl, bool *is_empty);
 
 /**
+ * gsi_is_teth_channel_empty - Teth client can call this function to query if
+ * the channel is empty. This is only applicable to GPI. "Empty" means
+ * GSI has consumed all descriptors for a TO_GSI channel and SW has
+ * processed all completed descriptors for a FROM_GSI channel.
+ *
+ * @chan_hdl:  Client handle previously obtained from gsi_alloc_channel
+ * @is_empty:  set by GSI based on channel emptiness
+ *
+ * @Return gsi_status
+ */
+int gsi_is_teth_channel_empty(unsigned long chan_hdl, bool *is_empty);
+
+
+/**
  * gsi_is_event_pending - Returns true if there is at least one event in the
  * provided event ring which wasn't processed.
  *
@@ -2595,5 +2609,7 @@ uint32_t gsi_get_evt_ring_len(int evt_hdl);
 int gsi_get_peripheral_ee(void);
 
 uint32_t gsi_get_chan_stop_stm(int chan_id, int ee);
+
+uint32_t gsi_get_outstanding_buffers(int ep_idx);
 
 #endif

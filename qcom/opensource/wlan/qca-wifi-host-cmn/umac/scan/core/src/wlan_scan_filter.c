@@ -293,9 +293,11 @@ static bool scm_check_rsn(struct scan_filter *filter,
 	bool is_adaptive_11r;
 	QDF_STATUS status;
 	struct wlan_crypto_params *ap_crypto;
-	bool match;
+	bool match = false;
+	uint8_t *rsn = NULL;
+	uint8_t mrsn_gen = filter->mrsno_gen;
 
-	if (!util_scan_entry_rsn(db_entry)) {
+	if (!util_scan_entry_rsn_by_gen(db_entry, RSN_LEGACY)) {
 		scm_debug(QDF_MAC_ADDR_FMT" : doesn't have RSN IE",
 			  QDF_MAC_ADDR_REF(db_entry->bssid.bytes));
 		return false;
@@ -304,24 +306,54 @@ static bool scm_check_rsn(struct scan_filter *filter,
 	ap_crypto = qdf_mem_malloc(sizeof(*ap_crypto));
 	if (!ap_crypto)
 		return false;
-	status = wlan_crypto_rsnie_check(ap_crypto,
-					 util_scan_entry_rsn(db_entry));
-	if (QDF_IS_STATUS_ERROR(status)) {
-		scm_err(QDF_MAC_ADDR_FMT": failed to parse RSN IE, status %d",
-			QDF_MAC_ADDR_REF(db_entry->bssid.bytes), status);
-		qdf_mem_free(ap_crypto);
-		return false;
+
+	if (mrsn_gen < RSN_LEGACY || mrsn_gen > RSNO_GEN_MAX) {
+		scm_debug("Invalid mrsn gen %d", mrsn_gen);
+		mrsn_gen = RSN_LEGACY;
 	}
 
-	is_adaptive_11r = db_entry->adaptive_11r_ap &&
-				filter->enable_adaptive_11r;
+	do {
+		qdf_mem_zero(ap_crypto, sizeof(*ap_crypto));
+		rsn = util_scan_entry_rsn_by_gen(db_entry, mrsn_gen);
+		if (!rsn) {
+			mrsn_gen--;
+			continue;
+		}
 
-	/* If adaptive 11r is enabled set the FT AKM for AP */
-	if (is_adaptive_11r)
-		scm_check_and_update_adaptive_11r_key_mgmt_support(ap_crypto);
+		status = wlan_crypto_rsnie_check(ap_crypto, rsn);
+		if (QDF_IS_STATUS_ERROR(status)) {
+			scm_err(QDF_MAC_ADDR_FMT ": failed to parse RSN IE gen %d, status %d",
+				QDF_MAC_ADDR_REF(db_entry->bssid.bytes),
+				mrsn_gen, status);
+			match = false;
+			mrsn_gen--;
+			continue;
+		}
 
-	match = scm_chk_crypto_params(filter, ap_crypto, is_adaptive_11r,
-				      db_entry, security);
+		is_adaptive_11r = db_entry->adaptive_11r_ap &&
+					filter->enable_adaptive_11r;
+
+		/* If adaptive 11r is enabled set the FT AKM for AP */
+		if (is_adaptive_11r)
+			scm_check_and_update_adaptive_11r_key_mgmt_support(ap_crypto);
+
+		match = scm_chk_crypto_params(filter, ap_crypto,
+					      is_adaptive_11r, db_entry,
+					      security);
+		if (!match) {
+			mrsn_gen--;
+			continue;
+		}
+
+		security->rsn_gen_selected = mrsn_gen;
+		if (mrsn_gen > RSN_LEGACY)
+			scm_debug(QDF_MAC_ADDR_FMT " RSN gen selected %d",
+				  QDF_MAC_ADDR_REF(db_entry->bssid.bytes),
+				  security->rsn_gen_selected);
+
+		/* match is true */
+	} while (!match && mrsn_gen >= RSN_LEGACY);
+
 	qdf_mem_free(ap_crypto);
 
 	return match;
@@ -765,6 +797,34 @@ static bool scm_mlo_filter_match(struct wlan_objmgr_pdev *pdev,
 				  partner_link->freq);
 			continue;
 		}
+
+		if (partner_link->link_id == db_entry->ml_info.self_link_id) {
+			scm_debug(QDF_MAC_ADDR_FMT " dup link id %d",
+				  QDF_MAC_ADDR_REF(partner_link->link_addr.bytes),
+				  partner_link->link_id);
+			partner_link->is_valid_link = false;
+			continue;
+		}
+
+		if (qdf_is_macaddr_equal(&partner_link->link_addr,
+					 &db_entry->bssid)) {
+			scm_debug(QDF_MAC_ADDR_FMT " link id %d dup mac",
+				  QDF_MAC_ADDR_REF(partner_link->link_addr.bytes),
+				  partner_link->link_id);
+			partner_link->is_valid_link = false;
+			continue;
+		}
+
+		if (db_entry->mbssid_info.profile_num &&
+		    qdf_is_macaddr_equal((struct qdf_mac_addr *)db_entry->mbssid_info.trans_bssid,
+					 &partner_link->link_addr)) {
+			scm_debug(QDF_MAC_ADDR_FMT " link (%d) dup mac with tx mbssid",
+				  QDF_MAC_ADDR_REF(partner_link->link_addr.bytes),
+				  partner_link->freq);
+			partner_link->is_valid_link = false;
+			continue;
+		}
+
 		if (band_bitmap & BIT(band))
 			partner_link->is_valid_link = true;
 	}
@@ -881,6 +941,15 @@ bool scm_filter_match(struct wlan_objmgr_psoc *psoc,
 	bool match = false;
 	struct scan_default_params *def_param;
 	struct wlan_objmgr_pdev *pdev;
+
+	/* skip connected scan entry and return true for all other */
+	if (filter->flush_all_except_conn_entry) {
+		if (db_entry->mlme_info.assoc_state ==
+				SCAN_ENTRY_CON_STATE_ASSOC)
+			return false;
+		else
+			return true;
+	}
 
 	def_param = wlan_scan_psoc_get_def_params(psoc);
 	if (!def_param)

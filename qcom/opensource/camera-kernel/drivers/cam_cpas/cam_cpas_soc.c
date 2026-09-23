@@ -18,6 +18,8 @@
 #include "cam_cpas_hw.h"
 #include "cam_cpas_soc.h"
 #include "cam_compat.h"
+#include "cam_vmrm_interface.h"
+#include "cam_mem_mgr_api.h"
 
 static uint cpas_dump;
 module_param(cpas_dump, uint, 0644);
@@ -167,6 +169,40 @@ void cam_cpas_dump_full_tree_state(struct cam_hw_info *cpas_hw, const char *iden
 	CAM_INFO(CAM_CPAS, "Dumping cpas tree full state end ============== %s", identifier);
 }
 
+void cam_cpas_dump_cons_axi_vote_info(
+	const struct cam_cpas_client *cpas_client,
+	const char *identifier,
+	struct cam_axi_consolidate_vote *axi_vote)
+{
+	int i;
+
+	if ((cpas_dump & BIT(0)) == 0)
+		return;
+
+	if (!axi_vote || (axi_vote->num_paths >
+		CAM_CPAS_MAX_PATHS_PER_CLIENT)) {
+		CAM_ERR(CAM_PERF, "Invalid num_paths %d",
+			axi_vote ? axi_vote->num_paths : -1);
+		return;
+	}
+
+	for (i = 0; i < axi_vote->num_paths; i++) {
+		CAM_INFO(CAM_PERF,
+		"Client [%s][%d] : [%s], Path=[%d] [%d],[HIGH LOW] camnoc[%llu %llu], mnoc_ab[%llu %llu], mnoc_ib[%llu %llu]",
+		cpas_client->data.identifier, cpas_client->data.cell_index,
+		identifier,
+		axi_vote->axi_path[i].path_data_type,
+		axi_vote->axi_path[i].transac_type,
+		axi_vote->axi_path[i].drv_vote.high.camnoc,
+		axi_vote->axi_path[i].drv_vote.low.camnoc,
+		axi_vote->axi_path[i].drv_vote.high.ab,
+		axi_vote->axi_path[i].drv_vote.low.ab,
+		axi_vote->axi_path[i].drv_vote.high.ib,
+		axi_vote->axi_path[i].drv_vote.low.ib);
+	}
+
+}
+
 void cam_cpas_dump_axi_vote_info(
 	const struct cam_cpas_client *cpas_client,
 	const char *identifier,
@@ -245,12 +281,12 @@ int cam_cpas_node_tree_cleanup(struct cam_cpas *cpas_core,
 
 	for (i = 0; i < CAM_CPAS_MAX_TREE_NODES; i++) {
 		if (soc_private->tree_node[i]) {
-			kfree(soc_private->tree_node[i]->bw_info);
-			kfree(soc_private->tree_node[i]->axi_port_idx_arr);
+			CAM_MEM_FREE(soc_private->tree_node[i]->bw_info);
+			CAM_MEM_FREE(soc_private->tree_node[i]->axi_port_idx_arr);
 			soc_private->tree_node[i]->bw_info = NULL;
 			soc_private->tree_node[i]->axi_port_idx_arr = NULL;
 			of_node_put(soc_private->tree_node[i]->tree_dev_node);
-			kfree(soc_private->tree_node[i]);
+			CAM_MEM_FREE(soc_private->tree_node[i]);
 			soc_private->tree_node[i] = NULL;
 		}
 	}
@@ -336,13 +372,14 @@ static int cam_cpas_parse_mnoc_node(struct cam_cpas *cpas_core,
 	struct device_node *mnoc_node, int *mnoc_idx)
 {
 	int rc = 0, count, i;
-	bool ib_voting_needed = false, is_rt_port = false;
+	bool ib_voting_needed = false;
 	struct of_phandle_args src_args = {0}, dst_args = {0};
 	struct cam_cpas_axi_port *curr_axi_port;
 
 	ib_voting_needed = of_property_read_bool(curr_node_ptr->tree_dev_node,
 		"ib-bw-voting-needed");
-	is_rt_port = of_property_read_bool(curr_node_ptr->tree_dev_node, "rt-axi-port");
+	curr_node_ptr->is_rt_node = of_property_read_bool(curr_node_ptr->tree_dev_node,
+		"rt-axi-port");
 
 	if (soc_private->bus_icc_based) {
 		if (soc_private->use_cam_icc_path_str)
@@ -505,6 +542,7 @@ static int cam_cpas_parse_node_tree(struct cam_cpas *cpas_core,
 	struct cam_cpas_client *curr_client = NULL;
 	const char *client_name = NULL;
 	uint32_t client_idx = 0, cell_idx = 0;
+	uint32_t auto_path_incr[CAM_CPAS_MAX_CLIENTS] = {0};
 	uint8_t niu_idx = 0;
 	int rc = 0, count = 0, i, j, num_drv_ports;
 
@@ -538,8 +576,7 @@ static int cam_cpas_parse_node_tree(struct cam_cpas *cpas_core,
 	else
 		num_drv_ports = 1;
 
-	for (level_idx = (CAM_CPAS_MAX_TREE_LEVELS - 1); level_idx >= 0;
-		level_idx--) {
+	for (level_idx = (CAM_CPAS_MAX_TREE_LEVELS - 1); level_idx >= 0; level_idx--) {
 		level_node = soc_private->level_node[level_idx];
 		if (!level_node)
 			continue;
@@ -548,7 +585,8 @@ static int cam_cpas_parse_node_tree(struct cam_cpas *cpas_core,
 
 		camnoc_max_needed = of_property_read_bool(level_node, "camnoc-max-needed");
 		for_each_available_child_of_node(level_node, curr_node) {
-			curr_node_ptr = kzalloc(sizeof(struct cam_cpas_tree_node), GFP_KERNEL);
+			curr_node_ptr = CAM_MEM_ZALLOC(sizeof(struct cam_cpas_tree_node),
+							GFP_KERNEL);
 			if (!curr_node_ptr)
 				return -ENOMEM;
 
@@ -579,14 +617,16 @@ static int cam_cpas_parse_node_tree(struct cam_cpas *cpas_core,
 				return rc;
 			}
 
-			curr_node_ptr->bw_info = kzalloc((sizeof(struct cam_cpas_axi_bw_info) *
+			curr_node_ptr->bw_info =
+				CAM_MEM_ZALLOC((sizeof(struct cam_cpas_axi_bw_info) *
 				num_drv_ports), GFP_KERNEL);
 			if (!curr_node_ptr->bw_info) {
 				CAM_ERR(CAM_CPAS, "Failed in allocating memory for bw info");
 				return -ENOMEM;
 			}
 
-			curr_node_ptr->axi_port_idx_arr = kzalloc((sizeof(int) * num_drv_ports),
+			curr_node_ptr->axi_port_idx_arr =
+				CAM_MEM_ZALLOC((sizeof(int) * num_drv_ports),
 				GFP_KERNEL);
 			if (!curr_node_ptr->axi_port_idx_arr) {
 				CAM_ERR(CAM_CPAS, "Failed in allocating memory for port indices");
@@ -669,15 +709,61 @@ static int cam_cpas_parse_node_tree(struct cam_cpas *cpas_core,
 				}
 			}
 
-			rc = of_property_read_string(curr_node, "client-name", &client_name);
-			if (!rc) {
-				rc = of_property_read_u32(curr_node, "traffic-data",
-					&curr_node_ptr->path_data_type);
-				if (rc) {
+			if (level_idx == 0) {
+				bool traffic_data_found = false, constituent_path_found = false;
+
+				traffic_data_found =
+					(of_find_property(curr_node, "traffic-data",
+						NULL) ? true : false);
+				constituent_path_found =
+					(of_find_property(curr_node, "constituent-paths",
+						NULL) ? true : false);
+
+				if (!traffic_data_found && !constituent_path_found) {
 					CAM_ERR(CAM_CPAS,
-						"Path Data type not found");
+						"Essential path identifier property missing, traffic-data:%s constituent-paths:%s",
+						CAM_BOOL_TO_YESNO(traffic_data_found),
+						CAM_BOOL_TO_YESNO(constituent_path_found));
+					return -EINVAL;
+				}
+
+				rc = of_property_read_string(curr_node, "client-name",
+					&client_name);
+				if (rc) {
+					CAM_ERR(CAM_CPAS, "Client name not found");
+					return -EINVAL;
+				}
+
+				rc = cam_common_util_get_string_index(soc_private->client_name,
+					soc_private->num_clients, client_name, &client_idx);
+				if (rc) {
+					CAM_ERR(CAM_CPAS, "client name not found in list: %s",
+						client_name);
 					return rc;
 				}
+
+				if (client_idx >= CAM_CPAS_MAX_CLIENTS) {
+					CAM_ERR(CAM_ISP, "Client idx:%d exceeds max:%d", client_idx,
+						CAM_CPAS_MAX_CLIENTS);
+					return -EINVAL;
+				}
+
+				rc = of_property_read_u32(curr_node, "traffic-data",
+					&curr_node_ptr->path_data_type);
+				if (rc && !constituent_path_found) {
+					CAM_ERR(CAM_CPAS, "Path Data type not found");
+					return rc;
+				}
+
+				/*
+				 * If constituent path found for a node, update path_data_type such
+				 * that it always has a unique path type value for a particular
+				 * client
+				 */
+				if (constituent_path_found)
+					curr_node_ptr->path_data_type =
+						(CAM_CPAS_PATH_DATA_CONSO_OFFSET +
+							(++auto_path_incr[client_idx]));
 
 				rc = cam_cpas_util_path_type_to_idx(&curr_node_ptr->path_data_type);
 				if (rc) {
@@ -714,17 +800,6 @@ static int cam_cpas_parse_node_tree(struct cam_cpas *cpas_core,
 
 					curr_node_ptr->constituent_paths[path_idx] = true;
 				}
-
-				rc = cam_common_util_get_string_index(soc_private->client_name,
-					soc_private->num_clients, client_name, &client_idx);
-				if (rc) {
-					CAM_ERR(CAM_CPAS, "client name not found in list: %s",
-						client_name);
-					return rc;
-				}
-
-				if (client_idx >= CAM_CPAS_MAX_CLIENTS)
-					return -EINVAL;
 
 				curr_client = cpas_core->cpas_client[client_idx];
 				curr_client->tree_node_valid = true;
@@ -765,6 +840,7 @@ static int cam_cpas_parse_node_tree(struct cam_cpas *cpas_core,
 			if (parent_node) {
 				of_property_read_u32(parent_node, "cell-index", &cell_idx);
 				curr_node_ptr->parent_node = soc_private->tree_node[cell_idx];
+				curr_node_ptr->is_rt_node = curr_node_ptr->parent_node->is_rt_node;
 			} else {
 				CAM_DBG(CAM_CPAS, "no parent node at this level");
 			}
@@ -925,7 +1001,8 @@ end:
 	return 0;
 }
 
-static inline enum cam_sys_cache_config_types cam_cpas_find_type_from_string(
+static inline int
+	cam_cpas_find_type_from_string(
 	const char *cache_name)
 {
 	if (strcmp(cache_name, "small-1") == 0)
@@ -940,20 +1017,56 @@ static inline enum cam_sys_cache_config_types cam_cpas_find_type_from_string(
 		return CAM_LLCC_LARGE_3;
 	else if (strcmp(cache_name, "large-4") == 0)
 		return CAM_LLCC_LARGE_4;
+	else if (strcmp(cache_name, "ofe_ip") == 0)
+		return CAM_LLCC_OFE_IP;
+	else if (strcmp(cache_name, "ipe_rt_ip") == 0)
+		return CAM_LLCC_IPE_RT_IP;
+	else if (strcmp(cache_name, "ipe_srt_ip") == 0)
+		return CAM_LLCC_IPE_SRT_IP;
+	else if (strcmp(cache_name, "ipe_rt_rf") == 0)
+		return CAM_LLCC_IPE_RT_RF;
+	else if (strcmp(cache_name, "ipe_srt_rf") == 0)
+		return CAM_LLCC_IPE_SRT_RF;
 	else
-		return CAM_LLCC_MAX;
+		return -1;
+}
+
+static inline bool cam_cpas_is_valid_fw_based_scid(
+	uint32_t type)
+{
+	bool rc;
+
+	switch (type) {
+	case CAM_LLCC_OFE_IP:
+	case CAM_LLCC_IPE_RT_IP:
+	case CAM_LLCC_IPE_SRT_IP:
+	case CAM_LLCC_IPE_RT_RF:
+	case CAM_LLCC_IPE_SRT_RF:
+		rc = true;
+		break;
+	default:
+		rc = false;
+		break;
+	}
+
+	return rc;
 }
 
 static int cam_cpas_parse_sys_cache_uids(
 	struct device_node          *of_node,
 	struct cam_cpas_private_soc *soc_private)
 {
-	enum cam_sys_cache_config_types type = CAM_LLCC_MAX;
+	int type = -1;
 	int num_caches, i, rc;
 	uint32_t scid;
 
 	soc_private->llcc_info = NULL;
 	soc_private->num_caches = 0;
+
+	if (cam_presil_mode_enabled()) {
+		CAM_INFO(CAM_CPAS, "PRESIL parse syscache uids is DISABLED");
+		return 0;
+	}
 
 	num_caches = of_property_count_strings(of_node, "sys-cache-names");
 	if (num_caches <= 0) {
@@ -961,14 +1074,7 @@ static int cam_cpas_parse_sys_cache_uids(
 		return 0;
 	}
 
-	if (num_caches > CAM_LLCC_MAX) {
-		CAM_ERR(CAM_CPAS,
-			"invalid number of cache-names found: 0x%x",
-			num_caches);
-		return -EINVAL;
-	}
-
-	soc_private->llcc_info = kcalloc(num_caches,
+	soc_private->llcc_info = CAM_MEM_ZALLOC_ARRAY(num_caches,
 		sizeof(struct cam_sys_cache_info), GFP_KERNEL);
 	if (!soc_private->llcc_info)
 		return -ENOMEM;
@@ -983,7 +1089,7 @@ static int cam_cpas_parse_sys_cache_uids(
 
 		type = cam_cpas_find_type_from_string(
 			soc_private->llcc_info[i].name);
-		if (type == CAM_LLCC_MAX) {
+		if (type < 0) {
 			CAM_ERR(CAM_CPAS, "Unsupported cache found: %s",
 				soc_private->llcc_info[i].name);
 			rc = -EINVAL;
@@ -998,6 +1104,21 @@ static int cam_cpas_parse_sys_cache_uids(
 			CAM_ERR(CAM_CPAS,
 				"unable to read sys cache uid at index %d", i);
 			goto end;
+		}
+		rc = of_property_read_u32_index(of_node,
+				"sys-cache-concur", i,
+				&soc_private->llcc_info[i].concur);
+		if ((rc < 0) && cam_cpas_is_valid_fw_based_scid(type)) {
+			CAM_ERR(CAM_CPAS,
+				"unable to read sys cache concur at index %d cache type = %d",
+				i, type);
+			goto end;
+		} else if (rc < 0) {
+			/* This to make SFE sHDR exposure scid also concurrent type */
+			soc_private->llcc_info[i].concur = 1;
+			CAM_DBG(CAM_CPAS,
+				"read sys cache concur at index %d cache type = %d",
+				i, type);
 		}
 
 		soc_private->llcc_info[i].slic_desc =
@@ -1030,7 +1151,7 @@ static int cam_cpas_parse_sys_cache_uids(
 	return 0;
 
 end:
-	kfree(soc_private->llcc_info);
+	CAM_MEM_FREE(soc_private->llcc_info);
 	soc_private->llcc_info = NULL;
 	return rc;
 }
@@ -1069,7 +1190,7 @@ static int cam_cpas_parse_domain_id_mapping(struct device_node *of_node,
 	}
 
 	soc_private->domain_id_info.domain_id_entries =
-		kcalloc(soc_private->domain_id_info.num_domain_ids,
+		CAM_MEM_ZALLOC_ARRAY(soc_private->domain_id_info.num_domain_ids,
 			sizeof(struct cam_cpas_domain_id_mapping), GFP_KERNEL);
 	if (!soc_private->domain_id_info.domain_id_entries) {
 		CAM_ERR(CAM_CPAS,
@@ -1116,7 +1237,7 @@ static int cam_cpas_parse_domain_id_mapping(struct device_node *of_node,
 
 err:
 	soc_private->domain_id_info.num_domain_ids = 0;
-	kfree(soc_private->domain_id_info.domain_id_entries);
+	CAM_MEM_FREE(soc_private->domain_id_info.domain_id_entries);
 	soc_private->domain_id_info.domain_id_entries = NULL;
 	return rc;
 }
@@ -1128,7 +1249,7 @@ static int cam_cpas_get_domain_id_support_clks(struct device_node *of_node,
 	int rc = 0, count, i;
 	struct cam_cpas_domain_id_support_clks *domain_id_clks;
 
-	soc_private->domain_id_clks = kzalloc(sizeof(struct cam_cpas_domain_id_support_clks),
+	soc_private->domain_id_clks = CAM_MEM_ZALLOC(sizeof(struct cam_cpas_domain_id_support_clks),
 		GFP_KERNEL);
 	if (!soc_private->domain_id_clks) {
 		CAM_ERR(CAM_CPAS, "Failed in allocating memory for domain_id_clk");
@@ -1181,7 +1302,7 @@ static int cam_cpas_get_domain_id_support_clks(struct device_node *of_node,
 	return rc;
 
 err:
-	kfree(domain_id_clks);
+	CAM_MEM_FREE(domain_id_clks);
 	return rc;
 }
 
@@ -1381,7 +1502,7 @@ parse_ahb_table:
 		}
 
 		cpas_core->cpas_client[i] =
-			kzalloc(sizeof(struct cam_cpas_client), GFP_KERNEL);
+			CAM_MEM_ZALLOC(sizeof(struct cam_cpas_client), GFP_KERNEL);
 		if (!cpas_core->cpas_client[i]) {
 			rc = -ENOMEM;
 			goto cleanup_clients;
@@ -1470,7 +1591,7 @@ parse_ahb_table:
 	if (soc_private->enable_smart_qos) {
 		uint32_t value;
 
-		soc_private->smart_qos_info = kzalloc(sizeof(struct cam_cpas_smart_qos_info),
+		soc_private->smart_qos_info = CAM_MEM_ZALLOC(sizeof(struct cam_cpas_smart_qos_info),
 			GFP_KERNEL);
 		if (!soc_private->smart_qos_info) {
 			rc = -ENOMEM;
@@ -1758,7 +1879,7 @@ int cam_cpas_soc_init_resources(struct cam_hw_soc_info *soc_info,
 		return -EINVAL;
 	}
 
-	soc_info->soc_private = kzalloc(sizeof(struct cam_cpas_private_soc),
+	soc_info->soc_private = CAM_MEM_ZALLOC(sizeof(struct cam_cpas_private_soc),
 		GFP_KERNEL);
 	if (!soc_info->soc_private) {
 		CAM_ERR(CAM_CPAS, "Failed to allocate soc private");
@@ -1772,8 +1893,9 @@ int cam_cpas_soc_init_resources(struct cam_hw_soc_info *soc_info,
 		goto free_soc_private;
 	}
 
-	soc_private->irq_data = kcalloc(soc_info->irq_count, sizeof(struct cam_cpas_soc_irq_data),
-		GFP_KERNEL);
+	soc_private->irq_data = CAM_MEM_ZALLOC_ARRAY(soc_info->irq_count,
+					sizeof(struct cam_cpas_soc_irq_data),
+					GFP_KERNEL);
 	if (!soc_private->irq_data) {
 		CAM_ERR(CAM_CPAS, "Failed to allocate irq data");
 		rc = -ENOMEM;
@@ -1812,16 +1934,22 @@ int cam_cpas_soc_init_resources(struct cam_hw_soc_info *soc_info,
 			goto release_res;
 	}
 
+	rc = cam_soc_util_get_reset_resource(soc_info);
+	if (rc) {
+		CAM_DBG(CAM_CPAS, "Reset resource get failed rc %d", rc);
+		rc = 0;
+	}
+
 	return rc;
 
 release_res:
 	cam_soc_util_release_platform_resource(soc_info);
 free_irq_data:
-	kfree(soc_private->irq_data);
+	CAM_MEM_FREE(soc_private->irq_data);
 free_soc_private:
-	kfree(soc_private->llcc_info);
-	kfree(soc_private->smart_qos_info);
-	kfree(soc_info->soc_private);
+	CAM_MEM_FREE(soc_private->llcc_info);
+	CAM_MEM_FREE(soc_private->smart_qos_info);
+	CAM_MEM_FREE(soc_info->soc_private);
 	soc_info->soc_private = NULL;
 	return rc;
 }
@@ -1840,18 +1968,22 @@ int cam_cpas_soc_deinit_resources(struct cam_hw_soc_info *soc_info)
 			CAM_ERR(CAM_CPAS, "Error Put optional clk failed rc=%d", rc);
 	}
 
-	kfree(soc_private->domain_id_info.domain_id_entries);
+	CAM_MEM_FREE(soc_private->domain_id_info.domain_id_entries);
 
-	kfree(soc_private->domain_id_clks);
+	CAM_MEM_FREE(soc_private->domain_id_clks);
 
 	rc = cam_soc_util_release_platform_resource(soc_info);
 	if (rc)
 		CAM_ERR(CAM_CPAS, "release platform failed, rc=%d", rc);
 
-	kfree(soc_private->irq_data);
-	kfree(soc_private->llcc_info);
-	kfree(soc_private->smart_qos_info);
-	kfree(soc_info->soc_private);
+	rc = cam_soc_util_put_reset_resource(soc_info);
+	if (rc)
+		CAM_ERR(CAM_CPAS, "release put reset failed, rc=%d", rc);
+
+	CAM_MEM_FREE(soc_private->irq_data);
+	CAM_MEM_FREE(soc_private->llcc_info);
+	CAM_MEM_FREE(soc_private->smart_qos_info);
+	CAM_MEM_FREE(soc_info->soc_private);
 	soc_info->soc_private = NULL;
 
 	return rc;
@@ -1894,6 +2026,177 @@ int cam_cpas_soc_disable_irq(struct cam_hw_soc_info *soc_info)
 	rc = cam_soc_util_irq_disable(soc_info);
 	if (rc)
 		CAM_ERR(CAM_CPAS, "disable irq failed, rc=%d", rc);
+
+	return rc;
+}
+
+int cam_cpas_vmrm_callback_handler(void *cb_data, void *msg, uint32_t size)
+{
+	int rc = 0, i;
+	uint32_t msg_type;
+	struct cam_hw_intf *cpas_hw_intf = NULL;
+	struct cam_hw_info *cpas_hw = NULL;
+	struct cam_hw_soc_info *soc_info = NULL;
+	struct cam_cpas *cpas_core = NULL;
+	struct cam_soc_bus_client *bus_client = NULL;
+	struct cam_vmrm_msg *cpas_msg = NULL;
+	unsigned long cesta_clk_rate_high = 0, cesta_clk_rate_low = 0;
+	int32_t clk_level_high, clk_level_low, clk_lvl, highest_level;
+	bool do_not_set_src_clk;
+	int cesta_client_idx = -1;
+	int64_t applied_rate = 0;
+	struct cam_msg_set_clk_rate *msg_set_clk_rate = NULL;
+	struct cam_msg_set_clk_rate_level *msg_set_clk_rate_level = NULL;
+	struct cam_msg_icc_vote *msg_icc_vote = NULL;
+	char name[CAM_ICC_CLIENT_NAME_MAX];
+	uint64_t ab, ib;
+
+	cpas_hw_intf = (struct cam_hw_intf *)cb_data;
+	cpas_hw = cpas_hw_intf->hw_priv;
+	soc_info = &cpas_hw->soc_info;
+	cpas_core = cpas_hw->core_info;
+
+	cpas_msg = msg;
+	msg_type = cpas_msg->msg_type;
+
+	CAM_DBG(CAM_CPAS, "msg type %d", msg_type);
+
+	switch (msg_type) {
+	case CAM_SOC_ENABLE_RESOURCE:
+		rc = cam_soc_util_enable_platform_resource(soc_info, CAM_CLK_SW_CLIENT_IDX, true,
+			cpas_hw->soc_info.lowest_clk_level, false);
+		if (rc)
+			CAM_ERR(CAM_CPAS, "cpas soc enable resource failed %d", rc);
+		break;
+
+	case CAM_SOC_DISABLE_RESOURCE:
+		rc = cam_soc_util_disable_platform_resource(soc_info, CAM_CLK_SW_CLIENT_IDX,
+			true, false);
+		if (rc)
+			CAM_ERR(CAM_CPAS, "cpas soc disable resource failed %d", rc);
+		break;
+
+	case CAM_CLK_SET_RATE:
+		msg_set_clk_rate = (struct cam_msg_set_clk_rate *)&cpas_msg->data[0];
+		cesta_client_idx = msg_set_clk_rate->cesta_client_idx;
+		cesta_clk_rate_high = msg_set_clk_rate->clk_rate_high;
+		cesta_clk_rate_low = msg_set_clk_rate->clk_rate_low;
+
+		CAM_DBG(CAM_CPAS, "set %s, cesta_client_idx %d rate [%ld %ld] dev_name %s",
+				soc_info->clk_name[soc_info->src_clk_idx], cesta_client_idx,
+				cesta_clk_rate_high, cesta_clk_rate_low, soc_info->dev_name);
+
+		rc = cam_soc_util_set_src_clk_rate(soc_info, cesta_client_idx,
+			cesta_clk_rate_high, cesta_clk_rate_low);
+		if (rc)
+			CAM_ERR(CAM_CPAS, "set %s, cesta_client_idx %d rate [%ld %ld] dev_name %s",
+				soc_info->clk_name[soc_info->src_clk_idx], cesta_client_idx,
+				cesta_clk_rate_high, cesta_clk_rate_low, soc_info->dev_name);
+		break;
+
+	case CAM_CLK_SET_RATE_LEVEL:
+		msg_set_clk_rate_level = (struct cam_msg_set_clk_rate_level *)&cpas_msg->data[0];
+		cesta_client_idx = msg_set_clk_rate_level->cesta_client_idx;
+		clk_level_high = msg_set_clk_rate_level->clk_level_high;
+		clk_level_low = msg_set_clk_rate_level->clk_level_low;
+		cesta_clk_rate_high = msg_set_clk_rate_level->clk_rate;
+		do_not_set_src_clk = msg_set_clk_rate_level->do_not_set_src_clk;
+
+		CAM_DBG(CAM_CPAS,
+			"set %s, cesta_client_idx %d level [%d %d] rate %ld dev_name %s do_not_set_src_clk %d",
+			soc_info->clk_name[soc_info->src_clk_idx], cesta_client_idx,
+			clk_level_high, clk_level_low, cesta_clk_rate_high, soc_info->dev_name);
+
+		if (cesta_clk_rate_high) {
+			rc = cam_soc_util_get_clk_level(soc_info, cesta_clk_rate_high,
+				soc_info->src_clk_idx, &clk_lvl);
+			if (rc) {
+				CAM_ERR(CAM_CPAS,
+					"failed to get clk lvl: %d, src clk idx: %d, hlos clk rate %lld",
+					rc, soc_info->src_clk_idx, cesta_clk_rate_high);
+				return rc;
+			}
+
+			highest_level = max(clk_level_high, clk_lvl);
+			rc = cam_soc_util_get_valid_clk_rate(soc_info, highest_level,
+				&applied_rate);
+			if (rc) {
+				CAM_ERR(CAM_CPAS,
+					"Failed in getting valid clk rate to apply rc: %d", rc);
+				return rc;
+			}
+
+			CAM_DBG(CAM_CPAS,
+				"Highest valid lvl: %d, applying corresponding rate %lld",
+				highest_level, applied_rate);
+			rc = cam_soc_util_set_src_clk_rate(soc_info, CAM_CLK_SW_CLIENT_IDX,
+				applied_rate, 0);
+			if (rc) {
+				CAM_ERR(CAM_CPAS,
+					"Failed in setting camnoc axi clk applied rate:[%lld] rc:%d",
+					applied_rate, rc);
+				return rc;
+			}
+		} else {
+			rc = cam_soc_util_set_clk_rate_level(soc_info, cesta_client_idx,
+				clk_level_high, clk_level_low, do_not_set_src_clk);
+			if (rc) {
+				CAM_ERR(CAM_CPAS,
+					"Failed in scaling clock rate level %d for cpas",
+					clk_level_high);
+				return rc;
+			}
+		}
+		break;
+
+	case CAM_ICC_VOTE:
+		msg_icc_vote = (struct cam_msg_icc_vote *)&cpas_msg->data[0];
+		scnprintf(name, sizeof(name), "%s", msg_icc_vote->name);
+		ab = msg_icc_vote->ab;
+		ib = msg_icc_vote->ib;
+
+		CAM_DBG(CAM_CPAS, "name %s, ab %llu ib %llu", name, ab, ib);
+
+		if (!strcmp(name, cpas_core->ahb_bus_client.common_data.name)) {
+			bus_client = (struct cam_soc_bus_client *)
+				cpas_core->ahb_bus_client.soc_bus_client;
+			goto update_bw;
+		}
+
+		for (i = 0; i < cpas_core->num_axi_ports; i++) {
+			if (!strcmp(name, cpas_core->axi_port[i].bus_client.common_data.name)) {
+				bus_client = (struct cam_soc_bus_client *)
+					cpas_core->axi_port[i].bus_client.soc_bus_client;
+				goto update_bw;
+			}
+		}
+
+		for (i = 0; i < cpas_core->num_camnoc_axi_ports; i++) {
+			if (!strcmp(name,
+				cpas_core->camnoc_axi_port[i].bus_client.common_data.name)) {
+				bus_client = (struct cam_soc_bus_client *)
+					cpas_core->camnoc_axi_port[i].bus_client.soc_bus_client;
+				break;
+			}
+		}
+
+update_bw:
+		if (bus_client == NULL) {
+			CAM_ERR(CAM_CPAS, "Invalid bus client name %s", name);
+			return -EINVAL;
+		}
+
+		rc = cam_soc_bus_client_update_bw(bus_client, ab, ib, CAM_SOC_BUS_PATH_DATA_HLOS);
+		if (rc)
+			CAM_ERR(CAM_CPAS, "bus client %s ab %llu ib %llu update bw failed %d",
+				name, ab, ib, rc);
+		break;
+
+	default:
+		rc = -EINVAL;
+		CAM_ERR(CAM_CPAS, "Invalid msg type:%d", msg_type);
+		break;
+	}
 
 	return rc;
 }

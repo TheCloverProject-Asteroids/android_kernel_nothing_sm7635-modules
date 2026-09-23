@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/ioctl.h>
-#include <linux/ktime.h>
 #include <linux/types.h>
 #include <linux/sync_file.h>
 
@@ -14,6 +13,7 @@
 #include "hw_fence_drv_utils.h"
 #include "hw_fence_drv_ipc.h"
 #include "hw_fence_drv_debug.h"
+#include "hw_fence_drv_fence.h"
 
 #define HW_SYNC_IOCTL_COUNT		ARRAY_SIZE(hw_sync_debugfs_ioctls)
 #define HW_FENCE_ARRAY_SIZE		10
@@ -35,8 +35,6 @@
 		.func = _func,			\
 		.name = #ioctl			\
 	}
-
-#define ktime_compare_safe(A, B) ktime_compare(ktime_sub((A), (B)), ktime_set(0, 0))
 
 /**
  * struct hw_sync_obj - per client hw sync object.
@@ -229,7 +227,7 @@ static long hw_sync_ioctl_create_fence(struct hw_sync_obj *obj, unsigned long ar
 	struct msm_hw_fence_create_params params;
 	struct hw_fence_sync_create_data data;
 	struct hw_dma_fence *fence;
-	spinlock_t *fence_lock;
+	struct dma_fence *dma_fence;
 	u64 hash;
 	struct sync_file *sync_file;
 	int fd, ret;
@@ -244,10 +242,10 @@ static long hw_sync_ioctl_create_fence(struct hw_sync_obj *obj, unsigned long ar
 	if (copy_from_user(&data, (void __user *)arg, sizeof(data)))
 		return -EFAULT;
 
-	/* create dma fence */
-	fence_lock = kzalloc(sizeof(*fence_lock), GFP_KERNEL);
-	if (!fence_lock)
-		return -ENOMEM;
+	dma_fence = hw_dma_fence_init(obj->client_handle, obj->context, data.seqno);
+	if (IS_ERR_OR_NULL(dma_fence))
+		return -EINVAL;
+	fence = (struct hw_dma_fence *)dma_fence;
 
 	fence = kzalloc(sizeof(*fence), GFP_KERNEL);
 	if (!fence) {
@@ -442,7 +440,7 @@ static long hw_sync_ioctl_reg_for_wait(struct hw_sync_obj *obj, unsigned long ar
 		return -EINVAL;
 	}
 
-	ret = msm_hw_fence_wait_update_v2(obj->client_handle, &fence, NULL, NULL, num_fences, 1);
+	ret = msm_hw_fence_wait_update(obj->client_handle, &fence, num_fences, 1);
 
 	/* Decrement the refcount that hw_sync_get_fence increments */
 	dma_fence_put(fence);
@@ -496,11 +494,10 @@ static long hw_sync_ioctl_fence_signal(struct hw_sync_obj *obj, unsigned long ar
 static long hw_sync_ioctl_fence_wait(struct hw_sync_obj *obj, unsigned long arg)
 {
 	struct msm_hw_fence_client *hw_fence_client;
-	struct msm_hw_fence_queue_payload payload;
 	struct hw_fence_sync_wait_data data;
 	struct dma_fence *fence;
-	ktime_t cur_ktime, exp_ktime;
-	int fd, ret, read = 1, queue_type = HW_FENCE_RX_QUEUE - 1;  /* rx queue index */
+	int fd, ret;
+	u32 error;
 
 	if (!_is_valid_client(obj))
 		return -EINVAL;

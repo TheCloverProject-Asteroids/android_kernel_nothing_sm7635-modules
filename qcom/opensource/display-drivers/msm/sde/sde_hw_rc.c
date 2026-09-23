@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -71,9 +71,13 @@ static int _sde_hw_rc_program_enable_bits(
 	if (r2_enable)
 		val |= BIT(4);
 
-	/*corner case for partial update in R2 region*/
-	if (!r1_enable && r2_enable)
-		ystart = rc_roi->y;
+	/*ROI should include complete top region when top region is enabled*/
+	if (r1_enable &&
+		(rc_roi->y || ((rc_roi->y + rc_roi->h) < rc_mask_cfg->cfg_param_01))) {
+		SDE_EVT32(0x1111, RC_IDX(hw_dspp), r1_enable, rc_roi->y, rc_roi->h,
+				rc_mask_cfg->cfg_param_01);
+		return -EINVAL;
+	}
 
 	SDE_DEBUG("idx:%d w:%llu h:%lld flags:%llx, R1:%d, R2:%d, PU R1:%d, PU R2:%d, Y_START:%d\n",
 			RC_IDX(hw_dspp), mask_w, mask_h, flags, r1_valid, r2_valid, pu_in_r1,
@@ -367,7 +371,8 @@ int sde_hw_rc_check_mask(struct sde_hw_dspp *hw_dspp, void *cfg)
 	}
 
 	rc_mask_cfg = hw_cfg->payload;
-	if (hw_cfg->num_of_mixers != 1 && hw_cfg->num_of_mixers != 2) {
+	if (hw_cfg->num_of_mixers != 1 && hw_cfg->num_of_mixers != 2 &&
+			hw_cfg->num_of_mixers != 4) {
 		SDE_ERROR("invalid number of mixers:%d\n",
 				hw_cfg->num_of_mixers);
 		return -EINVAL;
@@ -637,12 +642,12 @@ int sde_hw_rc_init(struct sde_hw_dspp *hw_dspp)
 {
 	int rc = 0;
 
-	hw_dspp->rc_state.last_roi_list = kzalloc(
+	hw_dspp->rc_state.last_roi_list = kvzalloc(
 			sizeof(struct msm_roi_list), GFP_KERNEL);
 	if (!hw_dspp->rc_state.last_roi_list)
 		return -ENOMEM;
 
-	hw_dspp->rc_state.last_rc_mask_cfg = kzalloc(
+	hw_dspp->rc_state.last_rc_mask_cfg = kvzalloc(
 			sizeof(struct drm_msm_rc_mask_cfg), GFP_KERNEL);
 	if (!hw_dspp->rc_state.last_rc_mask_cfg)
 		return -ENOMEM;

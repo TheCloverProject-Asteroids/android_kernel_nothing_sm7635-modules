@@ -42,7 +42,7 @@
 #include "mp_dev.h"
 #if defined(QCA_WIFI_QCA8074) || defined(QCA_WIFI_QCA6018) || \
 	defined(QCA_WIFI_QCA5018) || defined(QCA_WIFI_QCA9574) || \
-	defined(QCA_WIFI_QCA5332)
+	defined(QCA_WIFI_QCA5332) || defined(QCA_WIFI_QCA5424)
 #include "hal_api.h"
 #endif
 #include "hif_napi.h"
@@ -119,6 +119,13 @@ void hif_shutdown_notifier_cb(void *hif_ctx)
 	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
 
 	scn->recovery = true;
+}
+
+bool hif_target_recovery_in_progress(struct hif_opaque_softc *hif_ctx)
+{
+	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
+
+	return scn->recovery;
 }
 #endif
 
@@ -384,7 +391,11 @@ static const struct qwlan_hw qwlan_hw_list[] = {
 		.subid = 0,
 		.name = "PEACH_V1",
 	},
-
+	{
+		.id = PEACH_V2,
+		.subid = 0,
+		.name = "PEACH_V2",
+	},
 	{
 		.id = KIWI_V1,
 		.subid = 0,
@@ -406,6 +417,16 @@ static const struct qwlan_hw qwlan_hw_list[] = {
 		.name = "WCN6750_V2",
 	},
 	{
+		.id = WCN7750_V1,
+		.subid = 0,
+		.name = "WCN7750_V1",
+	},
+	{
+		.id = QCC2072_V1,
+		.subid = 0,
+		.name = "QCC2072_V1",
+	},
+	{
 		.id = WCN6450_V1,
 		.subid = 0,
 		.name = "WCN6450_V1",
@@ -417,6 +438,11 @@ static const struct qwlan_hw qwlan_hw_list[] = {
 	},
 	{
 		.id = QCA6490_v2,
+		.subid = 0,
+		.name = "QCA6490",
+	},
+	{
+		.id = QCA6490_V2_2,
 		.subid = 0,
 		.name = "QCA6490",
 	},
@@ -1232,6 +1258,13 @@ hif_affinity_mgr_init(struct hif_softc *scn, struct wlan_objmgr_psoc *psoc)
 			qdf_cpumask_set_cpu(cpus, &allowed_mask);
 	qdf_cpumask_copy(&scn->allowed_mask, &allowed_mask);
 }
+
+bool hif_affinity_mgr_supported(struct hif_opaque_softc *hif_ctx)
+{
+	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
+
+	return scn->affinity_mgr_supported;
+}
 #else
 static inline void
 hif_affinity_mgr_init(struct hif_softc *scn, struct wlan_objmgr_psoc *psoc)
@@ -1369,7 +1402,6 @@ void hif_close(struct hif_opaque_softc *hif_ctx)
 	}
 
 	hif_uninit_rri_on_ddr(scn);
-	hif_cleanup_static_buf_to_target(scn);
 	hif_cpuhp_unregister(scn);
 	hif_rtpm_lock_deinit(scn);
 
@@ -1395,8 +1427,9 @@ static inline int hif_get_num_active_grp_tasklets(struct hif_softc *scn)
 	defined(QCA_WIFI_QCN9000) || defined(QCA_WIFI_QCA6490) || \
 	defined(QCA_WIFI_QCA6750) || defined(QCA_WIFI_QCA5018) || \
 	defined(QCA_WIFI_KIWI) || defined(QCA_WIFI_QCN9224) || \
-	defined(QCA_WIFI_QCN6432) || \
-	defined(QCA_WIFI_QCA9574)) || defined(QCA_WIFI_QCA5332)
+	defined(QCA_WIFI_QCN6432) || defined(QCA_WIFI_QCA5424) || \
+	defined(QCA_WIFI_QCA9574)) || defined(QCA_WIFI_QCA5332) || \
+	defined(QCA_WIFI_WCN7750) || defined(QCA_WIFI_QCC2072)
 /**
  * hif_get_num_pending_work() - get the number of entries in
  *		the workqueue pending to be completed.
@@ -1534,10 +1567,11 @@ QDF_STATUS hif_try_prevent_ep_vote_access(struct hif_opaque_softc *hif_ctx)
 	return QDF_STATUS_SUCCESS;
 }
 
-void hif_set_ep_intermediate_vote_access(struct hif_opaque_softc *hif_ctx)
+QDF_STATUS hif_set_ep_intermediate_vote_access(struct hif_opaque_softc *hif_ctx)
 {
 	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
 	uint8_t vote_access;
+	QDF_STATUS status;
 
 	vote_access = qdf_atomic_read(&scn->ep_vote_access);
 
@@ -1545,11 +1579,12 @@ void hif_set_ep_intermediate_vote_access(struct hif_opaque_softc *hif_ctx)
 		hif_info("EP vote changed from:%u to intermediate state",
 			 vote_access);
 
-	if (QDF_IS_STATUS_ERROR(hif_try_prevent_ep_vote_access(hif_ctx)))
-		QDF_BUG(0);
+	status = hif_try_prevent_ep_vote_access(hif_ctx);
+	if (QDF_IS_STATUS_SUCCESS(status))
+		qdf_atomic_set(&scn->ep_vote_access,
+			       HIF_EP_VOTE_INTERMEDIATE_ACCESS);
 
-	qdf_atomic_set(&scn->ep_vote_access,
-		       HIF_EP_VOTE_INTERMEDIATE_ACCESS);
+	return status;
 }
 
 void hif_allow_ep_vote_access(struct hif_opaque_softc *hif_ctx)
@@ -1741,6 +1776,9 @@ static void hif_reg_write_work(void *arg)
 
 	if (hif_prevent_link_low_power_states(GET_HIF_OPAQUE_HDL(scn))) {
 		scn->wstats.prevent_l1_fails++;
+		dp_err_rl("prevent l1 fail %d 0x%llx",
+			  scn->wstats.prevent_l1_fails,
+			  qdf_get_log_timestamp());
 		return;
 	}
 
@@ -1974,7 +2012,9 @@ static QDF_STATUS hif_hal_detach(struct hif_softc *scn)
 	defined(QCA_WIFI_QCN9000) || defined(QCA_WIFI_QCA6490) || \
 	defined(QCA_WIFI_QCA6750) || defined(QCA_WIFI_QCA5018) || \
 	defined(QCA_WIFI_KIWI) || defined(QCA_WIFI_QCN9224) || \
-	defined(QCA_WIFI_QCA9574)) || defined(QCA_WIFI_QCA5332)
+	defined(QCA_WIFI_QCA9574)) || defined(QCA_WIFI_QCA5332) || \
+	defined(QCA_WIFI_WCN7750) || defined(QCA_WIFI_QCA5424) || \
+	defined(QCA_WIFI_QCC2072)
 static QDF_STATUS hif_hal_attach(struct hif_softc *scn)
 {
 	if (ce_srng_based(scn)) {
@@ -2371,6 +2411,12 @@ int hif_get_device_type(uint32_t device_id,
 		hif_info(" *********** QCN6432 *************");
 		break;
 
+	case QCA5424_DEVICE_ID:
+		*hif_type = HIF_TYPE_QCA5424;
+		*target_type = TARGET_TYPE_QCA5424;
+		hif_info(" *********** QCA5424 *************");
+		break;
+
 	case QCN7605_DEVICE_ID:
 	case QCN7605_COMPOSITE:
 	case QCN7605_STANDALONE:
@@ -2400,6 +2446,18 @@ int hif_get_device_type(uint32_t device_id,
 		*hif_type = HIF_TYPE_QCA6750;
 		*target_type = TARGET_TYPE_QCA6750;
 		hif_info(" *********** QCA6750 *************");
+		break;
+
+	case WCN7750_DEVICE_ID:
+		*hif_type = HIF_TYPE_WCN7750;
+		*target_type = TARGET_TYPE_WCN7750;
+		hif_info(" *********** WCN7750 *************");
+		break;
+
+	case QCC2072_DEVICE_ID:
+		*hif_type = HIF_TYPE_QCC2072;
+		*target_type = TARGET_TYPE_QCC2072;
+		hif_info(" *********** QCC2072 *************");
 		break;
 
 	case KIWI_DEVICE_ID:
@@ -2984,7 +3042,7 @@ irqreturn_t hif_wake_interrupt_handler(int irq, void *context)
 {
 	struct hif_softc *scn = context;
 
-	hif_info("wake interrupt received on irq %d", irq);
+	hif_alert("wake interrupt received on irq %d", irq);
 
 	hif_rtpm_set_monitor_wake_intr(0);
 	hif_rtpm_request_resume();
@@ -3423,4 +3481,13 @@ void hif_config_irq_set_perf_affinity_hint(
 }
 
 qdf_export_symbol(hif_config_irq_set_perf_affinity_hint);
+#endif
+
+#ifdef WLAN_DP_LOAD_BALANCE_SUPPORT
+void hif_set_load_balance_enabled_flag(struct hif_opaque_softc *hif_ctx)
+{
+	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
+
+	scn->is_load_balance_enabled = true;
+}
 #endif

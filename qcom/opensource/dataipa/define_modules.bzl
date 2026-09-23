@@ -4,7 +4,7 @@ load("//build/kernel/kleaf:kernel.bzl", "ddk_module")
 
 def define_modules(target, variant):
     kernel_build_variant = "{}_{}".format(target, variant)
-    include_base = "../../../{}".format(native.package_name())
+    include_base = "../../../../../{}".format(native.package_name())
 
     #The below will take care of the defconfig
     include_defconfig = ":{}_defconfig".format(variant)
@@ -62,11 +62,11 @@ def define_modules(target, variant):
         local_defines = [
             "GSI_TRACE_INCLUDE_PATH={}/drivers/platform/msm/gsi".format(include_base),
         ],
-        kernel_build = "//msm-kernel:{}".format(kernel_build_variant),
+        kernel_build = "//vendor/qcom/kernel:{}".format(kernel_build_variant),
         deps = [
             ":gsi_headers",
             ":include_headers",
-            "//msm-kernel:all_headers",
+            "//vendor/qcom/kernel:all_headers",
         ],
     )
     mod_list.append("{}_gsim".format(kernel_build_variant))
@@ -78,6 +78,7 @@ def define_modules(target, variant):
             "drivers/platform/msm/ipa/ipa_v3/ipa.c",
             "drivers/platform/msm/ipa/ipa_v3/ipa_client.c",
             "drivers/platform/msm/ipa/ipa_v3/ipa_debugfs.c",
+            "drivers/platform/msm/ipa/ipa_v3/ipa_elf_dump.c",
             "drivers/platform/msm/ipa/ipa_v3/ipa_defs.h",
             "drivers/platform/msm/ipa/ipa_v3/ipa_dma.c",
             "drivers/platform/msm/ipa/ipa_v3/ipa_dp.c",
@@ -87,12 +88,15 @@ def define_modules(target, variant):
             "drivers/platform/msm/ipa/ipa_v3/ipa_hdr.c",
             "drivers/platform/msm/ipa/ipa_v3/ipa_hw_stats.c",
             "drivers/platform/msm/ipa/ipa_v3/ipa_i.h",
+            "drivers/platform/msm/ipa/ipa_v3/ipa_elf_dump.h",
             "drivers/platform/msm/ipa/ipa_v3/ipa_interrupts.c",
             "drivers/platform/msm/ipa/ipa_v3/ipa_intf.c",
             "drivers/platform/msm/ipa/ipa_v3/ipa_mhi.c",
             "drivers/platform/msm/ipa/ipa_v3/ipa_nat.c",
             "drivers/platform/msm/ipa/ipa_v3/ipa_odl.c",
             "drivers/platform/msm/ipa/ipa_v3/ipa_odl.h",
+            "drivers/platform/msm/ipa/ipa_v3/ipa_opt_log.c",
+            "drivers/platform/msm/ipa/ipa_v3/ipa_opt_log.h",
             "drivers/platform/msm/ipa/ipa_v3/ipa_pm.c",
             "drivers/platform/msm/ipa/ipa_v3/ipa_pm.h",
             "drivers/platform/msm/ipa/ipa_v3/ipa_qdss.c",
@@ -177,12 +181,12 @@ def define_modules(target, variant):
                     "drivers/platform/msm/ipa/ipa_v3/ipa_mpm.c",
                 ],
             },
-	    "CONFIG_IPA3_MHI_PROXY": {
-		True: [
-		    "drivers/platform/msm/ipa/ipa_v3/ipa_mhi_proxy.h",
-		    "drivers/platform/msm/ipa/ipa_v3/ipa_mhi_proxy.c",
-		],
-	    },
+            "CONFIG_IPA3_MHI_PROXY": {
+                True: [
+                    "drivers/platform/msm/ipa/ipa_v3/ipa_mhi_proxy.h",
+                    "drivers/platform/msm/ipa/ipa_v3/ipa_mhi_proxy.c",
+                ],
+            },
             "CONFIG_IPA_TSP": {
                 True: [
                     "drivers/platform/msm/ipa/ipa_v3/ipahal/ipahal_tsp.c",
@@ -240,7 +244,7 @@ def define_modules(target, variant):
             ":include_headers",
             ":ipa_headers",
             ":ipa_clients",
-            "//msm-kernel:all_headers",
+            "//vendor/qcom/kernel:all_headers",
             ":{}_gsim".format(kernel_build_variant),
         ] + ipam_deps_list,
     )
@@ -254,7 +258,7 @@ def define_modules(target, variant):
         ],
         kconfig = "config/Kconfig",
         defconfig = include_defconfig,
-        kernel_build = "//msm-kernel:{}".format(kernel_build_variant),
+        kernel_build = "//vendor/qcom/kernel:{}".format(kernel_build_variant),
         local_defines = [
             "RNDIS_TRACE_INCLUDE_PATH={}/drivers/platform/msm/ipa/ipa_clients".format(include_base),
         ],
@@ -265,7 +269,7 @@ def define_modules(target, variant):
             ":include_headers",
             ":ipa_headers",
             ":ipa_clients",
-            "//msm-kernel:all_headers",
+            "//vendor/qcom/kernel:all_headers",
         ],
     )
     mod_list.append("{}_ipanetm".format(kernel_build_variant))
@@ -283,7 +287,7 @@ def define_modules(target, variant):
             ],
             kconfig = "config/Kconfig",
             defconfig = include_defconfig,
-            kernel_build = "//msm-kernel:{}".format(kernel_build_variant),
+            kernel_build = "//vendor/qcom/kernel:{}".format(kernel_build_variant),
             deps = [
                 ":consolidate_config_headers",
                 ":{}_ipam".format(kernel_build_variant),
@@ -291,7 +295,7 @@ def define_modules(target, variant):
                 ":include_headers",
                 ":ipa_headers",
                 ":ipa_clients",
-                "//msm-kernel:all_headers",
+                "//vendor/qcom/kernel:all_headers",
                 ":{}_gsim".format(kernel_build_variant),
             ],
         )

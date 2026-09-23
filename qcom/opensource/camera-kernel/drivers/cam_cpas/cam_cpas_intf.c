@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/of.h>
@@ -26,6 +26,16 @@
 
 #include <linux/soc/qcom/llcc-qcom.h>
 #include "cam_req_mgr_interface.h"
+#include "cam_vmrm_interface.h"
+#include "cam_mem_mgr_api.h"
+#include "cam_req_mgr_dev.h"
+
+#if defined(CONFIG_DYNAMIC_FD_PORT_CONFIG) || defined(CONFIG_SPECTRA_SECURE_DYN_PORT_CFG)
+#include <linux/IClientEnv.h>
+#include <linux/ITrustedCameraDriver.h>
+#include <linux/CTrustedCameraDriver.h>
+#define CAM_CPAS_MIN_DPC_LEN 1
+#endif
 
 #ifdef CONFIG_DYNAMIC_FD_PORT_CONFIG
 #include <linux/IClientEnv.h>
@@ -86,6 +96,26 @@ const char *cam_cpas_axi_util_path_type_to_string(
 		return "IFE_PDAF";
 	case CAM_AXI_PATH_DATA_IFE_PIXEL_RAW:
 		return "IFE_PIXEL_RAW";
+	case CAM_AXI_PATH_DATA_IFE_FULL:
+		return "IFE_FULL";
+	case CAM_AXI_PATH_DATA_IFE_DS2:
+		return "IFE_DS2";
+	case CAM_AXI_PATH_DATA_IFE_DS4:
+		return "IFE_DS4";
+	case CAM_AXI_PATH_DATA_IFE_DS16:
+		return "IFE_DS16";
+	case CAM_AXI_PATH_DATA_IFE_RDI4:
+		return "IFE_RDI4";
+	case CAM_AXI_PATH_DATA_IFE_PDAF_1:
+		return "IFE_PDAF_1";
+	case CAM_AXI_PATH_DATA_IFE_PDAF_2:
+		return "IFE_PDAF_2";
+	case CAM_AXI_PATH_DATA_IFE_PDAF_3:
+		return "IFE_PDAF_3";
+	case CAM_AXI_PATH_DATA_IFE_IR:
+		return "IFE_IR";
+	case CAM_AXI_PATH_DATA_IFE_FD:
+		return "IFE_FD";
 
 	/* IPE Paths */
 	case CAM_AXI_PATH_DATA_IPE_RD_IN:
@@ -503,6 +533,42 @@ static inline enum cam_cpas_reg_base __cam_cpas_get_internal_reg_base(
 	}
 }
 
+int cam_cpas_set_addr_trans(uint32_t client_handle,
+	struct cam_cpas_addr_trans_data *addr_trans_data)
+{
+	int rc;
+
+	if (!CAM_CPAS_INTF_INITIALIZED()) {
+		CAM_ERR(CAM_CPAS, "cpas intf not initialized");
+		return -ENODEV;
+	}
+
+	if (!addr_trans_data) {
+		CAM_ERR(CAM_CPAS, "Invalid addr_trans_data");
+		return -EINVAL;
+	}
+
+	if (g_cpas_intf->hw_intf->hw_ops.process_cmd) {
+		struct cam_cpas_hw_addr_trans_data cmd_add_trans;
+
+		cmd_add_trans.client_handle = client_handle;
+		cmd_add_trans.addr_trans_data = addr_trans_data;
+
+		rc = g_cpas_intf->hw_intf->hw_ops.process_cmd(
+			g_cpas_intf->hw_intf->hw_priv,
+			CAM_CPAS_HW_CMD_SET_ADDR_TRANS, &cmd_add_trans,
+			sizeof(struct cam_cpas_hw_addr_trans_data));
+		if (rc)
+			CAM_ERR(CAM_CPAS, "Failed in process_cmd, rc=%d", rc);
+	} else {
+		CAM_ERR(CAM_CPAS, "Invalid process_cmd ops");
+		rc = -EINVAL;
+	}
+
+	return rc;
+}
+EXPORT_SYMBOL(cam_cpas_set_addr_trans);
+
 int cam_cpas_reg_write(uint32_t client_handle, enum cam_cpas_regbase_types reg_base,
 	uint32_t offset, bool mb, uint32_t value)
 {
@@ -595,6 +661,38 @@ int cam_cpas_reg_read(uint32_t client_handle, enum cam_cpas_regbase_types reg_ba
 	return rc;
 }
 EXPORT_SYMBOL(cam_cpas_reg_read);
+
+int cam_cpas_update_axi_floor_lvl(uint32_t client_handle,
+	int32_t axi_floor_lvl)
+{
+	int rc;
+
+	if (!CAM_CPAS_INTF_INITIALIZED()) {
+		CAM_ERR(CAM_CPAS, "cpas intf not initialized");
+		return -ENODEV;
+	}
+
+	if (g_cpas_intf->hw_intf->hw_ops.process_cmd) {
+		struct cam_cpas_hw_axi_floor_lvl floor_lvl_info;
+
+		floor_lvl_info.client_handle = client_handle;
+		floor_lvl_info.floor_lvl = axi_floor_lvl;
+
+		rc = g_cpas_intf->hw_intf->hw_ops.process_cmd(
+			g_cpas_intf->hw_intf->hw_priv,
+			CAM_CPAS_HW_AXI_FLOOR_LVL, &floor_lvl_info,
+			sizeof(struct cam_cpas_hw_axi_floor_lvl));
+		if (rc)
+			CAM_ERR(CAM_CPAS, "Failed in process_cmd CAM_CPAS_HW_AXI_FLOOR_LVL, rc=%d",
+				rc);
+	} else {
+		CAM_ERR(CAM_CPAS, "Invalid process_cmd ops");
+		rc = -EINVAL;
+	}
+
+	return rc;
+
+}
 
 int cam_cpas_update_axi_vote(uint32_t client_handle,
 	struct cam_axi_vote *axi_vote)
@@ -883,7 +981,7 @@ int cam_cpas_register_client(
 EXPORT_SYMBOL(cam_cpas_register_client);
 
 int cam_cpas_get_scid(
-	enum cam_sys_cache_config_types type)
+	uint32_t type)
 {
 	int rc;
 
@@ -963,8 +1061,7 @@ int cam_cpas_prepare_subpart_info(enum cam_subparts_index idx, uint32_t num_subp
 }
 EXPORT_SYMBOL(cam_cpas_prepare_subpart_info);
 
-int cam_cpas_activate_llcc(
-	enum cam_sys_cache_config_types type)
+int cam_cpas_activate_llcc(uint32_t type)
 {
 	int rc;
 
@@ -989,8 +1086,7 @@ int cam_cpas_activate_llcc(
 }
 EXPORT_SYMBOL(cam_cpas_activate_llcc);
 
-int cam_cpas_deactivate_llcc(
-	enum cam_sys_cache_config_types type)
+int cam_cpas_deactivate_llcc(uint32_t type)
 {
 	int rc;
 
@@ -1016,9 +1112,8 @@ int cam_cpas_deactivate_llcc(
 EXPORT_SYMBOL(cam_cpas_deactivate_llcc);
 
 int cam_cpas_configure_staling_llcc(
-	enum cam_sys_cache_config_types type,
-	enum cam_sys_cache_llcc_staling_mode mode_param,
-	enum cam_sys_cache_llcc_staling_op_type operation_type,
+	uint32_t type, uint32_t mode_param,
+	uint32_t operation_type,
 	uint32_t staling_distance)
 {
 	int rc;
@@ -1054,7 +1149,7 @@ int cam_cpas_configure_staling_llcc(
 EXPORT_SYMBOL(cam_cpas_configure_staling_llcc);
 
 int cam_cpas_notif_increment_staling_counter(
-	enum cam_sys_cache_config_types type)
+	uint32_t type)
 {
 	int rc;
 
@@ -1090,6 +1185,41 @@ bool cam_cpas_is_notif_staling_supported(void)
 	#endif
 }
 EXPORT_SYMBOL(cam_cpas_is_notif_staling_supported);
+
+bool cam_cpas_is_fw_based_sys_caching_supported(void)
+{
+	struct cam_hw_info *cpas_hw = NULL;
+	struct cam_cpas_private_soc *soc_private = NULL;
+	int i;
+	bool supported = false;
+
+	if (!CAM_CPAS_INTF_INITIALIZED()) {
+		CAM_ERR(CAM_CPAS, "cpas intf not initialized");
+		return false;
+	}
+
+	cpas_hw = (struct cam_hw_info *) g_cpas_intf->hw_intf->hw_priv;
+	soc_private =
+		(struct cam_cpas_private_soc *)cpas_hw->soc_info.soc_private;
+	for (i = 0; i < soc_private->num_caches; i++) {
+		switch (soc_private->llcc_info[i].type) {
+		case CAM_LLCC_OFE_IP:
+		case CAM_LLCC_IPE_RT_IP:
+		case CAM_LLCC_IPE_SRT_IP:
+		case CAM_LLCC_IPE_RT_RF:
+		case CAM_LLCC_IPE_SRT_RF:
+			supported = true;
+			break;
+		default:
+			supported = false;
+			break;
+		}
+	}
+
+	return supported;
+}
+EXPORT_SYMBOL(cam_cpas_is_fw_based_sys_caching_supported);
+
 
 bool cam_cpas_query_domain_id_security_support(void)
 {
@@ -1592,13 +1722,17 @@ static int cam_cpas_dev_component_bind(struct device *dev,
 	struct cam_hw_intf *hw_intf;
 	int rc;
 	struct platform_device *pdev = to_platform_device(dev);
+	struct cam_hw_info *cpas_hw = NULL;
+	struct timespec64 ts_start, ts_end;
+	long microsec = 0;
 
+	CAM_GET_TIMESTAMP(ts_start);
 	if (g_cpas_intf) {
 		CAM_ERR(CAM_CPAS, "cpas component already binded");
 		return -EALREADY;
 	}
 
-	g_cpas_intf = kzalloc(sizeof(*g_cpas_intf), GFP_KERNEL);
+	g_cpas_intf = CAM_MEM_ZALLOC(sizeof(*g_cpas_intf), GFP_KERNEL);
 	if (!g_cpas_intf)
 		return -ENOMEM;
 
@@ -1613,6 +1747,15 @@ static int cam_cpas_dev_component_bind(struct device *dev,
 
 	hw_intf = g_cpas_intf->hw_intf;
 	hw_caps = &g_cpas_intf->hw_caps;
+	cpas_hw = hw_intf->hw_priv;
+
+	cpas_hw->soc_info.hw_id = CAM_HW_ID_CPAS + cpas_hw->soc_info.index;
+	rc = cam_vmvm_populate_hw_instance_info(
+		&cpas_hw->soc_info, cam_cpas_vmrm_callback_handler, hw_intf);
+	if (rc) {
+		CAM_ERR(CAM_CPAS, "hw instance populate failed: %d", rc);
+		goto error_hw_remove;
+	}
 
 	if (hw_intf->hw_ops.get_hw_caps) {
 		rc = hw_intf->hw_ops.get_hw_caps(hw_intf->hw_priv,
@@ -1631,6 +1774,9 @@ static int cam_cpas_dev_component_bind(struct device *dev,
 		goto error_hw_remove;
 
 	g_cpas_intf->probe_done = true;
+	CAM_GET_TIMESTAMP(ts_end);
+	CAM_GET_TIMESTAMP_DIFF_IN_MICRO(ts_start, ts_end, microsec);
+	cam_record_bind_latency(pdev->name, microsec);
 	CAM_DBG(CAM_CPAS,
 		"Component bound successfully %d, %d.%d.%d, %d.%d.%d, 0x%x",
 		hw_caps->camera_family, hw_caps->camera_version.major,
@@ -1644,7 +1790,7 @@ error_hw_remove:
 	cam_cpas_hw_remove(g_cpas_intf->hw_intf);
 error_destroy_mem:
 	mutex_destroy(&g_cpas_intf->intf_lock);
-	kfree(g_cpas_intf);
+	CAM_MEM_FREE(g_cpas_intf);
 	g_cpas_intf = NULL;
 	CAM_ERR(CAM_CPAS, "CPAS component bind failed");
 	return rc;
@@ -1664,7 +1810,7 @@ static void cam_cpas_dev_component_unbind(struct device *dev,
 	cam_cpas_hw_remove(g_cpas_intf->hw_intf);
 	mutex_unlock(&g_cpas_intf->intf_lock);
 	mutex_destroy(&g_cpas_intf->intf_lock);
-	kfree(g_cpas_intf);
+	CAM_MEM_FREE(g_cpas_intf);
 	g_cpas_intf = NULL;
 }
 

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -21,6 +21,18 @@
 #include "cfg_ucfg_api.h"
 #include "wlan_policy_mgr_api.h"
 #include "wlan_nan_api.h"
+#include "wlan_mlo_link_force.h"
+#include "wlan_mlme_api.h"
+
+/*
+ * Max allowed active vdevs as per firmware. MAX_CONC_CXNS should be
+ * same as this.
+ */
+#ifdef WLAN_FEATURE_SON
+#define MAX_CONC_CXNS    MAX_NUMBER_OF_CONC_CONNECTIONS
+#else
+#define MAX_CONC_CXNS 4
+#endif
 
 #ifdef WLAN_FEATURE_SR
 /**
@@ -83,8 +95,11 @@ static QDF_STATUS policy_mgr_init_cfg(struct wlan_objmgr_psoc *psoc)
 		cfg->max_conc_cxns = cfg_get(psoc, CFG_MAX_CONC_CXNS);
 		policy_mgr_err("max_conc_cxns %d non-nan", cfg->max_conc_cxns);
 	}
+
 	cfg->max_conc_cxns = QDF_MIN(cfg->max_conc_cxns,
-				     MAX_NUMBER_OF_CONC_CONNECTIONS);
+				     QDF_MIN(MAX_NUMBER_OF_CONC_CONNECTIONS,
+					     MAX_CONC_CXNS));
+
 	cfg->conc_rule1 = cfg_get(psoc, CFG_ENABLE_CONC_RULE1);
 	cfg->conc_rule2 = cfg_get(psoc, CFG_ENABLE_CONC_RULE2);
 	cfg->pcl_band_priority = cfg_get(psoc, CFG_PCL_BAND_PRIORITY);
@@ -115,13 +130,7 @@ static QDF_STATUS policy_mgr_init_cfg(struct wlan_objmgr_psoc *psoc)
 	if (cfg_get(psoc, CFG_INDOOR_CHANNEL_SUPPORT))
 		cfg->sta_sap_scc_on_indoor_channel = true;
 
-	/*
-	 * Force set sta_sap_scc_on_dfs_chnl on Non-DBS HW so that standalone
-	 * SAP is not allowed on DFS channel on non-DBS HW, Also, force SCC in
-	 * case of STA+SAP
-	 */
-	if (cfg->sta_sap_scc_on_dfs_chnl == 2 &&
-	    !cfg_get(psoc, CFG_ENABLE_DFS_MASTER_CAPABILITY))
+	if (!cfg_get(psoc, CFG_ENABLE_DFS_MASTER_CAPABILITY))
 		cfg->sta_sap_scc_on_dfs_chnl = 0;
 	cfg->nan_sap_scc_on_lte_coex_chnl =
 		cfg_get(psoc, CFG_NAN_SAP_SCC_ON_LTE_COEX_CHAN);
@@ -359,10 +368,12 @@ bool ucfg_policy_mgr_is_hw_sbs_capable(struct wlan_objmgr_psoc *psoc)
 }
 
 bool ucfg_policy_mgr_get_vdev_same_freq_new_conn(struct wlan_objmgr_psoc *psoc,
+						 uint8_t self_vdev_id,
 						 uint32_t new_freq,
 						 uint8_t *vdev_id)
 {
-	return policy_mgr_get_vdev_same_freq_new_conn(psoc, new_freq, vdev_id);
+	return policy_mgr_get_vdev_same_freq_new_conn(psoc, self_vdev_id,
+						      new_freq, vdev_id);
 }
 
 bool ucfg_policy_mgr_get_vdev_diff_freq_new_conn(struct wlan_objmgr_psoc *psoc,

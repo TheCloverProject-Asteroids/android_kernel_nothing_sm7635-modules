@@ -13,6 +13,7 @@
 #include "cam_cdm_util.h"
 #include "cam_cdm.h"
 #include "cam_io_util.h"
+#include "cam_mem_mgr_api.h"
 
 #define CAM_CDM_DWORD 4
 
@@ -1174,7 +1175,7 @@ static uint32_t cam_cdm_util_dump_reg_cont_cmd_v2(
 	struct cam_cdm_cmd_buf_dump_info *dump_info)
 {
 	int                             i;
-	long                            ret;
+	uint32_t                        ret;
 	uint8_t                        *dst;
 	size_t                          remain_len;
 	uint32_t                       *temp_ptr = cmd_buf_addr;
@@ -1225,7 +1226,7 @@ static uint32_t cam_cdm_util_dump_reg_random_cmd_v2(
 	struct cam_cdm_cmd_buf_dump_info *dump_info)
 {
 	int                             i;
-	long                            ret;
+	uint32_t                        ret;
 	uint8_t                        *dst;
 	uint32_t                       *temp_ptr = cmd_buf_addr;
 	uint32_t                       *addr, *start;

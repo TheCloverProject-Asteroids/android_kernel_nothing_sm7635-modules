@@ -129,7 +129,7 @@ static QDF_STATUS qdf_ini_read_values(char **main_cursor,
 			cursor++;
 	}
 
-	return QDF_STATUS_E_INVAL;
+	return QDF_STATUS_E_FAILURE;
 }
 
 QDF_STATUS qdf_ini_parse(const char *ini_path, void *context,

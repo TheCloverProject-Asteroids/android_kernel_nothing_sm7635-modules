@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _CAM_CDM_H_
@@ -27,6 +27,8 @@
 #define CAM_CDM_INFLIGHT_WORKS            5
 #define CAM_CDM_HW_RESET_TIMEOUT          300
 #define CAM_CDM_PAUSE_CORE_US_TIMEOUT     10000
+
+#define CAM_CDM_CAP_PAUSE_CORE            BIT(0)
 
 /*
  * Macros to get prepare and get information
@@ -294,12 +296,14 @@ struct cam_cdm_comp_wait_status {
  * @num_bl_fifo_irq:        number of FIFO irqs in CDM
  * @num_bl_pending_req_reg: number of pending_requests register in CDM
  * @num_scratch_reg:        number of scratch registers in CDM
+ * @capabilities:           If some newer features are supported on target
  */
 struct cam_cdm_common_reg_data {
 	uint32_t num_bl_fifo;
 	uint32_t num_bl_fifo_irq;
 	uint32_t num_bl_pending_req_reg;
 	uint32_t num_scratch_reg;
+	uint32_t capabilities;
 };
 
 /**
@@ -352,6 +356,8 @@ struct cam_cdm_common_reg_data {
  *                       and invalid commands in FIFO
  * @spare:               spare register
  * @priority_group_bit_offset offset of priority group bits
+ * @pause_core_done_mask: Mask to test if pause core operation is done
+ * @pause_core_enable_mask: Mask to enable pause core operation
  *
  */
 struct cam_cdm_common_regs {
@@ -393,6 +399,8 @@ struct cam_cdm_common_regs {
 	const struct cam_cdm_icl_regs *icl_reg;
 	uint32_t spare;
 	uint32_t priority_group_bit_offset;
+	uint32_t pause_core_done_mask;
+	uint32_t pause_core_enable_mask;
 };
 
 /**
@@ -495,6 +503,7 @@ struct cam_cdm_bl_cb_request_entry {
 	void *userdata;
 	uint32_t cookie;
 	struct list_head entry;
+	bool fast_callback_enabled;
 };
 
 /* struct cam_cdm_hw_intf_cmd_submit_bl - cdm interface submit command.*/
@@ -503,7 +512,22 @@ struct cam_cdm_hw_intf_cmd_submit_bl {
 	struct cam_cdm_bl_request *data;
 };
 
-/* struct cam_cdm_bl_fifo - CDM hw memory struct */
+/**
+ * struct cam_cdm_bl_fifo - CDM hw memory struct
+ *
+ * @bl_complete:          Completion variable of BL Done
+ * @work_queue:           Workq for postponed work
+ * @bl_request_list:      BL request list, adding nodes during submitting Gen IRQ and popping nodes
+ *                        in workq after receiving corresponding IRQ
+ * @fifo_lock:            Mutex lock to make sure intacticity of bl_request_list
+ * @bl_tag:               Tag for BL entry
+ * @bl_depth:             Length for each BL FIFO queue, normally it's set to 64
+ * @last_bl_tag_done:     Tag for last bl done
+ * @work_record:          Number of scheduled workq task
+ * @fast_complete:        Array of pointers to fast completion variable submitted from clients
+ *                        during submitting genirq, BL tag is used as index
+ * @fast_complete_lock:   Spinlock to avoid race conditions in fast complete array
+ */
 struct cam_cdm_bl_fifo {
 	struct completion bl_complete;
 	struct workqueue_struct *work_queue;
@@ -513,6 +537,8 @@ struct cam_cdm_bl_fifo {
 	uint32_t bl_depth;
 	uint8_t last_bl_tag_done;
 	atomic_t work_record;
+	struct completion *fast_complete[CAM_CDM_BL_FIFO_LENGTH_MAX_DEFAULT];
+	spinlock_t fast_complete_lock;
 };
 
 /**

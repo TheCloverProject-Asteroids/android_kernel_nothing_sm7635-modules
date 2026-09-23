@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "msm_vidc_iris3.h"
@@ -473,7 +473,7 @@ static int __power_off_iris3(struct msm_vidc_core *core)
 		d_vpr_e("%s: failed to unvote buses\n", __func__);
 
 	if (!call_venus_op(core, watchdog, core, core->intr_status))
-		disable_irq_nosync(core->resource->irq);
+		disable_irq_nosync(core->irq);
 
 	msm_vidc_change_core_sub_state(core, CORE_SUBSTATE_POWER_ENABLE, 0, __func__);
 
@@ -569,7 +569,7 @@ static int __power_on_iris3(struct msm_vidc_core *core)
 	if (rc)
 		goto fail_power_on_substate;
 
-	freq_tbl = core->resource->freq_set.freq_tbl;
+	freq_tbl = core->freq_tbl;
 	freq = core->power.clk_freq ? core->power.clk_freq :
 				      freq_tbl[0].freq;
 
@@ -586,7 +586,7 @@ static int __power_on_iris3(struct msm_vidc_core *core)
 
 	__interrupt_init_iris3(core);
 	core->intr_status = 0;
-	enable_irq(core->resource->irq);
+	enable_irq(core->irq);
 
 	return rc;
 
@@ -850,7 +850,7 @@ int msm_vidc_decide_work_mode_iris3(struct msm_vidc_inst *inst)
 	}
 
 exit:
-	i_vpr_h(inst, "Configuring work mode = %u low latency = %u, gop size = %u\n",
+	i_vpr_h(inst, "Configuring work mode = %u low latency = %llu, gop size = %llu\n",
 		work_mode, inst->capabilities[LOWLATENCY_MODE].value,
 		inst->capabilities[GOP_SIZE].value);
 	msm_vidc_update_cap_value(inst, STAGE, work_mode, __func__);
@@ -944,7 +944,7 @@ int msm_vidc_adjust_bitrate_boost_iris3(void *instance, struct v4l2_ctrl *ctrl)
 {
 	s32 adjusted_value;
 	struct msm_vidc_inst *inst = (struct msm_vidc_inst *)instance;
-	s32 rc_type = -1;
+	s64 rc_type = -1;
 	u32 width, height, frame_rate;
 	struct v4l2_format *f;
 	u32 max_bitrate = 0, bitrate = 0;

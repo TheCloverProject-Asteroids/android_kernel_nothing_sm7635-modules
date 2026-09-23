@@ -125,6 +125,20 @@ qdf_net_if_hold_dev(struct qdf_net_if  *nif)
 qdf_export_symbol(qdf_net_if_hold_dev);
 
 /**
+ * qdf_net_if_is_vlan_dev() - Abstraction of is_vlan_dev API
+ * @nif: network device
+ *
+ * Return: true if network device is vlan else false
+ */
+bool
+qdf_net_if_is_vlan_dev(struct qdf_net_if *nif)
+{
+	return __qdf_net_if_is_vlan_dev(nif);
+}
+
+qdf_export_symbol(qdf_net_if_is_vlan_dev);
+
+/**
  * qdf_net_update_net_device_dev_addr() - update net_device dev_addr
  * @ndev: net_device
  * @src_addr: source mac address

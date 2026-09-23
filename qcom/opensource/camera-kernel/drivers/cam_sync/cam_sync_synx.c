@@ -5,6 +5,7 @@
 
 #include "cam_sync_synx.h"
 #include "cam_sync_util.h"
+#include "cam_mem_mgr_api.h"
 
 extern unsigned long cam_sync_monitor_mask;
 
@@ -244,10 +245,10 @@ static inline int __cam_synx_register_cb_util(
 
 static int __cam_synx_obj_release(int32_t row_idx)
 {
-	int rc;
-	bool deregister_cb = false;
-	uint32_t synx_hdl = 0;
-	struct cam_synx_obj_row *row = NULL;
+	int                      rc;
+	bool                     deregister_cb = false;
+	uint32_t                 synx_hdl;
+	struct cam_synx_obj_row *row;
 
 	spin_lock_bh(&g_cam_synx_obj_dev->row_spinlocks[row_idx]);
 	row = &g_cam_synx_obj_dev->rows[row_idx];
@@ -638,9 +639,9 @@ int cam_synx_obj_signal_obj(struct cam_synx_obj_signal *signal_synx_obj)
 int cam_synx_obj_register_cb(int32_t *sync_obj, int32_t row_idx,
 	cam_sync_callback_for_synx_obj sync_cb)
 {
-	int rc = 0;
-	uint32_t synx_obj = 0;
-	struct cam_synx_obj_row *row = NULL;
+	int                         rc = 0;
+	uint32_t                    synx_obj;
+	struct cam_synx_obj_row    *row;
 	struct synx_callback_params cb_params;
 
 	if (!sync_obj || !sync_cb) {
@@ -779,7 +780,7 @@ void cam_synx_obj_open(void)
 {
 	mutex_lock(&g_cam_synx_obj_dev->dev_lock);
 	if (test_bit(CAM_GENERIC_FENCE_TYPE_SYNX_OBJ, &cam_sync_monitor_mask)) {
-		g_cam_synx_obj_dev->monitor_data = kzalloc(
+		g_cam_synx_obj_dev->monitor_data = CAM_MEM_ZALLOC(
 			sizeof(struct cam_generic_fence_monitor_data *) *
 			CAM_SYNX_TABLE_SZ, GFP_KERNEL);
 		if (!g_cam_synx_obj_dev->monitor_data) {
@@ -843,11 +844,11 @@ void cam_synx_obj_close(void)
 
 	if (g_cam_synx_obj_dev->monitor_data) {
 		for (i = 0; i < CAM_SYNX_TABLE_SZ; i++) {
-			kfree(g_cam_synx_obj_dev->monitor_data[i]);
+			CAM_MEM_FREE(g_cam_synx_obj_dev->monitor_data[i]);
 			g_cam_synx_obj_dev->monitor_data[i] = NULL;
 		}
 	}
-	kfree(g_cam_synx_obj_dev->monitor_data);
+	CAM_MEM_FREE(g_cam_synx_obj_dev->monitor_data);
 	g_cam_synx_obj_dev->monitor_data = NULL;
 
 	mutex_unlock(&g_cam_synx_obj_dev->dev_lock);
@@ -858,7 +859,7 @@ int cam_synx_obj_driver_init(void)
 {
 	int i;
 
-	g_cam_synx_obj_dev = kzalloc(sizeof(struct cam_synx_obj_device), GFP_KERNEL);
+	g_cam_synx_obj_dev = CAM_MEM_ZALLOC(sizeof(struct cam_synx_obj_device), GFP_KERNEL);
 	if (!g_cam_synx_obj_dev)
 		return -ENOMEM;
 
@@ -881,7 +882,7 @@ int cam_synx_obj_driver_init(void)
 
 deinit_driver:
 	CAM_ERR(CAM_SYNX, "Camera synx obj driver initialization failed");
-	kfree(g_cam_synx_obj_dev);
+	CAM_MEM_FREE(g_cam_synx_obj_dev);
 	g_cam_synx_obj_dev = NULL;
 	return -EINVAL;
 }
@@ -899,7 +900,7 @@ void cam_synx_obj_driver_deinit(void)
 		}
 	}
 
-	kfree(g_cam_synx_obj_dev);
+	CAM_MEM_FREE(g_cam_synx_obj_dev);
 	g_cam_synx_obj_dev = NULL;
 	CAM_DBG(CAM_SYNX, "Camera synx obj driver deinitialized");
 }

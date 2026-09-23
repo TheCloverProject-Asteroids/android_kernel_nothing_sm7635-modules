@@ -50,6 +50,19 @@
 		(((_val) << _wrd ## _ ## _field ## _LSB) &	\
 		_wrd ## _ ## _field ## _MASK))
 
+#ifdef DP_RX_BUFFER_OPTIMIZATION
+/*
+ * BUFFER_SIZE = 120 RX TLV bytes + 2 bytes L3_hdr_padding +
+ *               1536 data bytes + 6 spare bytes
+ */
+#ifndef RX_DATA_BUFFER_SIZE
+#define RX_DATA_BUFFER_SIZE	1664
+#endif
+
+#ifndef RX_MONITOR_BUFFER_SIZE
+#define RX_MONITOR_BUFFER_SIZE  1664
+#endif
+#else /* DP_RX_BUFFER_OPTIMIZATION */
 /* BUFFER_SIZE = 1536 data bytes + 384 RX TLV bytes + some spare bytes */
 #ifndef RX_DATA_BUFFER_SIZE
 #define RX_DATA_BUFFER_SIZE     2048
@@ -58,6 +71,7 @@
 #ifndef RX_MONITOR_BUFFER_SIZE
 #define RX_MONITOR_BUFFER_SIZE  2048
 #endif
+#endif /* DP_RX_BUFFER_OPTIMIZATION */
 
 #define RXDMA_OPTIMIZATION
 

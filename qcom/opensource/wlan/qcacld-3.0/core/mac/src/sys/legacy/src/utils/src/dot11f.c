@@ -20263,6 +20263,15 @@ static uint32_t get_packed_size_core(tpAniSirGlobal pCtx,
 					  (pFrm + pIe->offset + offset * i))->
 					  present;
 					break;
+				case SigIeP2P2IEOpaque:
+					offset = sizeof(tDot11fIEP2P2IEOpaque);
+					byteCount = ((tDot11fIEP2P2IEOpaque *)
+					  (pFrm + pIe->offset + offset * i))->
+					  num_data;
+					pIePresent = ((tDot11fIEP2P2IEOpaque *)
+					  (pFrm + pIe->offset + offset * i))->
+					  present;
+					break;
 				case SigIeP2PAssocReq:
 					offset = sizeof(tDot11fIEP2PAssocReq);
 					status |=
@@ -20445,6 +20454,15 @@ static uint32_t get_packed_size_core(tpAniSirGlobal pCtx,
 					  (pFrm + pIe->offset + offset * i))->
 					  num_data;
 					pIePresent = ((tDot11fIERSNOpaque *)
+					  (pFrm + pIe->offset + offset * i))->
+					  present;
+					break;
+				case SigIeRSNXEOpaque:
+					offset = sizeof(tDot11fIERSNXEOpaque);
+					byteCount = ((tDot11fIERSNXEOpaque *)
+					  (pFrm + pIe->offset + offset * i))->
+					  num_data;
+					pIePresent = ((tDot11fIERSNXEOpaque *)
 					  (pFrm + pIe->offset + offset * i))->
 					  present;
 					break;
@@ -27562,6 +27580,43 @@ uint32_t dot11f_pack_ie_operating_mode(tpAniSirGlobal pCtx,
 	return DOT11F_PARSE_SUCCESS;
 } /* End dot11f_pack_ie_operating_mode. */
 
+uint32_t dot11f_pack_ie_P2P2IEOpaque(tpAniSirGlobal pCtx,
+				     tDot11fIEP2P2IEOpaque *pSrc,
+				     uint8_t *pBuf,
+				     uint32_t nBuf,
+				     uint32_t *pnConsumed)
+{
+	uint8_t *pIeLen = 0;
+	uint32_t nConsumedOnEntry = *pnConsumed;
+	uint32_t nNeeded = 0U;
+	nNeeded  +=  pSrc->num_data;
+	while (pSrc->present) {
+		if (nNeeded > nBuf)
+			return DOT11F_BUFFER_OVERFLOW;
+		*pBuf = 221;
+		++pBuf; ++(*pnConsumed);
+		pIeLen = pBuf;
+		++pBuf; ++(*pnConsumed);
+		*pBuf = 0x50;
+		++pBuf; ++(*pnConsumed);
+		*pBuf = 0x6f;
+		++pBuf; ++(*pnConsumed);
+		*pBuf = 0x9a;
+		++pBuf; ++(*pnConsumed);
+		*pBuf = 0x28;
+		++pBuf; ++(*pnConsumed);
+		DOT11F_MEMCPY(pCtx, pBuf, &(pSrc->data), pSrc->num_data);
+		*pnConsumed += pSrc->num_data;
+		/* fieldsEndFlag = 1 */
+		break;
+	}
+	(void)pCtx;
+	if (pIeLen) {
+		*pIeLen = *pnConsumed - nConsumedOnEntry - 2;
+	}
+	return DOT11F_PARSE_SUCCESS;
+} /* End dot11f_pack_ie_P2P2IEOpaque. */
+
 uint32_t dot11f_pack_ie_p2_p_assoc_req(tpAniSirGlobal pCtx,
 				    tDot11fIEP2PAssocReq *pSrc,
 				    uint8_t *pBuf,
@@ -28538,6 +28593,35 @@ uint32_t dot11f_pack_ie_rsn_opaque(tpAniSirGlobal pCtx,
 	}
 	return DOT11F_PARSE_SUCCESS;
 } /* End dot11f_pack_ie_rsn_opaque. */
+
+uint32_t dot11f_pack_ie_rsnXEOpaque(tpAniSirGlobal pCtx,
+				    tDot11fIERSNXEOpaque *pSrc,
+				    uint8_t *pBuf,
+				    uint32_t nBuf,
+				    uint32_t *pnConsumed)
+{
+	uint8_t *pIeLen = 0;
+	uint32_t nConsumedOnEntry = *pnConsumed;
+	uint32_t nNeeded = 0U;
+	nNeeded  +=  pSrc->num_data;
+	while (pSrc->present) {
+		if (nNeeded > nBuf)
+			return DOT11F_BUFFER_OVERFLOW;
+		*pBuf = 244;
+		++pBuf; ++(*pnConsumed);
+		pIeLen = pBuf;
+		++pBuf; ++(*pnConsumed);
+		DOT11F_MEMCPY(pCtx, pBuf, &(pSrc->data), pSrc->num_data);
+		*pnConsumed += pSrc->num_data;
+		/* fieldsEndFlag = 1 */
+		break;
+	}
+	(void)pCtx;
+	if (pIeLen) {
+		*pIeLen = *pnConsumed - nConsumedOnEntry - 2;
+	}
+	return DOT11F_PARSE_SUCCESS;
+} /* End dot11f_pack_ie_rsnXEOpaque. */
 
 uint32_t dot11f_pack_ie_supp_channels(tpAniSirGlobal pCtx,
 				     tDot11fIESuppChannels *pSrc,
@@ -33832,6 +33916,14 @@ static uint32_t pack_core(tpAniSirGlobal pCtx,
 				sizeof(tDot11fIEOperatingMode) * i),
 				pBufRemaining, nBufRemaining, &len);
 			break;
+			case SigIeP2P2IEOpaque:
+			status |=
+				dot11f_pack_ie_P2P2IEOpaque(
+				pCtx, (tDot11fIEP2P2IEOpaque *)
+				(pSrc + pIe->offset +
+				sizeof(tDot11fIEP2P2IEOpaque) * i),
+				pBufRemaining, nBufRemaining, &len);
+			break;
 			case SigIeP2PAssocReq:
 			status |=
 				dot11f_pack_ie_p2_p_assoc_req(
@@ -34022,6 +34114,14 @@ static uint32_t pack_core(tpAniSirGlobal pCtx,
 				pCtx, (tDot11fIERSNOpaque *)
 				(pSrc + pIe->offset +
 				sizeof(tDot11fIERSNOpaque) * i),
+				pBufRemaining, nBufRemaining, &len);
+			break;
+			case SigIeRSNXEOpaque:
+			status |=
+				dot11f_pack_ie_rsnXEOpaque(
+				pCtx, (tDot11fIERSNXEOpaque *)
+				(pSrc + pIe->offset +
+				sizeof(tDot11fIERSNXEOpaque) * i),
 				pBufRemaining, nBufRemaining, &len);
 			break;
 			case SigIeSuppChannels:

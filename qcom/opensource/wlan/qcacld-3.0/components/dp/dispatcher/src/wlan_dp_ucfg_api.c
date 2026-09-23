@@ -36,6 +36,7 @@
 #include "wlan_nlink_common.h"
 #include "wlan_pkt_capture_api.h"
 #include <cdp_txrx_ctrl.h>
+#include <cdp_txrx_peer_ops.h>
 #include <qdf_net_stats.h>
 #include "wlan_dp_prealloc.h"
 #include "wlan_dp_rx_thread.h"
@@ -211,6 +212,22 @@ void ucfg_dp_update_intf_mac(struct wlan_objmgr_psoc *psoc,
 	wlan_dp_set_vdev_direct_link_cfg(psoc, dp_intf);
 }
 
+static inline uint8_t
+wlan_dp_get_dp_intf_id(struct wlan_dp_psoc_context *dp_ctx)
+{
+	uint8_t id = 0;
+
+	while (id < WLAN_DP_INTF_MAX) {
+		if (qdf_test_bit(id, dp_ctx->wlan_dp_intf_id_map)) {
+			id++;
+			continue;
+		}
+		break;
+	}
+
+	return id;
+}
+
 QDF_STATUS
 ucfg_dp_create_intf(struct wlan_objmgr_psoc *psoc,
 		    struct qdf_mac_addr *intf_addr,
@@ -218,6 +235,7 @@ ucfg_dp_create_intf(struct wlan_objmgr_psoc *psoc,
 {
 	struct wlan_dp_intf *dp_intf;
 	struct wlan_dp_psoc_context *dp_ctx;
+	uint8_t id;
 
 	dp_ctx =  dp_get_context();
 
@@ -237,6 +255,18 @@ ucfg_dp_create_intf(struct wlan_objmgr_psoc *psoc,
 	qdf_copy_macaddr(&dp_intf->mac_addr, intf_addr);
 
 	qdf_spin_lock_bh(&dp_ctx->intf_list_lock);
+	id = wlan_dp_get_dp_intf_id(dp_ctx);
+	if (id == WLAN_DP_INTF_MAX) {
+		qdf_spin_unlock_bh(&dp_ctx->intf_list_lock);
+		dp_err("Max dp interface already created");
+		__qdf_mem_free(dp_intf);
+		return QDF_STATUS_E_INVAL;
+	}
+
+	dp_intf->id = id;
+	qdf_set_bit(id, dp_ctx->wlan_dp_intf_id_map);
+	dp_intf->guid = ++dp_ctx->intf_guid;
+	dp_ctx->dp_intf_list[id] = dp_intf;
 	qdf_list_insert_front(&dp_ctx->intf_list, &dp_intf->node);
 	qdf_spin_unlock_bh(&dp_ctx->intf_list_lock);
 
@@ -249,7 +279,7 @@ ucfg_dp_create_intf(struct wlan_objmgr_psoc *psoc,
 	dp_mic_init_work(dp_intf);
 	qdf_atomic_init(&dp_ctx->num_latency_critical_clients);
 	qdf_atomic_init(&dp_intf->gro_disallowed);
-
+	dp_softap_hlp_init(dp_intf);
 	return QDF_STATUS_SUCCESS;
 }
 
@@ -284,8 +314,10 @@ ucfg_dp_destroy_intf(struct wlan_objmgr_psoc *psoc,
 
 	qdf_spin_lock_bh(&dp_ctx->intf_list_lock);
 	qdf_list_remove_node(&dp_ctx->intf_list, &dp_intf->node);
+	qdf_clear_bit(dp_intf->id, dp_ctx->wlan_dp_intf_id_map);
+	dp_ctx->dp_intf_list[dp_intf->id] = NULL;
 	qdf_spin_unlock_bh(&dp_ctx->intf_list_lock);
-
+	dp_softap_hlp_deinit(dp_intf);
 	__qdf_mem_free(dp_intf);
 
 	return QDF_STATUS_SUCCESS;
@@ -331,6 +363,13 @@ void ucfg_dp_set_hif_handle(struct wlan_objmgr_psoc *psoc,
 
 	dp_ctx->hif_handle = hif_handle;
 }
+
+#ifdef WLAN_DP_FLOW_BALANCE_SUPPORT
+void ucfg_dp_update_num_rx_rings(struct wlan_objmgr_psoc *psoc)
+{
+	wlan_dp_fb_update_num_rx_rings(psoc);
+}
+#endif
 
 QDF_STATUS ucfg_dp_init(void)
 {
@@ -539,6 +578,7 @@ ucfg_dp_suspend_handler(struct wlan_objmgr_psoc *psoc, void *arg)
 {
 	struct wlan_dp_psoc_context *dp_ctx;
 	struct wlan_dp_intf *dp_intf, *dp_intf_next = NULL;
+	struct wlan_dp_link *dp_link, *dp_link_next = NULL;
 	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
 	QDF_STATUS status;
 
@@ -558,7 +598,12 @@ ucfg_dp_suspend_handler(struct wlan_objmgr_psoc *psoc, void *arg)
 	dp_ctx->is_suspend = true;
 	cdp_set_tx_pause(soc, true);
 	dp_for_each_intf_held_safe(dp_ctx, dp_intf, dp_intf_next) {
-		dp_intf->sap_tx_block_mask |= WLAN_DP_SUSPEND;
+		dp_for_each_link_held_safe(dp_intf, dp_link, dp_link_next) {
+			dp_link->sap_tx_block_mask |= WLAN_DP_SUSPEND;
+			dp_debug("sap_tx_block_mask 0x%x",
+				 dp_link->sap_tx_block_mask);
+		}
+		dp_intf->sap_tx_block_mask = true;
 	}
 	return QDF_STATUS_SUCCESS;
 }
@@ -577,6 +622,7 @@ ucfg_dp_resume_handler(struct wlan_objmgr_psoc *psoc, void *arg)
 {
 	struct wlan_dp_psoc_context *dp_ctx;
 	struct wlan_dp_intf *dp_intf, *dp_intf_next = NULL;
+	struct wlan_dp_link *dp_link, *dp_link_next = NULL;
 	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
 
 	dp_ctx = dp_psoc_get_priv(psoc);
@@ -588,7 +634,14 @@ ucfg_dp_resume_handler(struct wlan_objmgr_psoc *psoc, void *arg)
 	dp_ctx->is_suspend = false;
 	cdp_set_tx_pause(soc, false);
 	dp_for_each_intf_held_safe(dp_ctx, dp_intf, dp_intf_next) {
-		dp_intf->sap_tx_block_mask &= ~WLAN_DP_SUSPEND;
+		dp_for_each_link_held_safe(dp_intf, dp_link, dp_link_next) {
+			dp_link->sap_tx_block_mask &= ~WLAN_DP_SUSPEND;
+			dp_debug("sap_tx_block_mask 0x%x",
+				 dp_link->sap_tx_block_mask);
+			/* if one of the link is active, then allow tx */
+			if (!qdf_unlikely(dp_link->sap_tx_block_mask))
+				dp_intf->sap_tx_block_mask = false;
+		}
 	}
 	if (dp_ctx->enable_dp_rx_threads)
 		dp_txrx_resume(cds_get_context(QDF_MODULE_ID_SOC));
@@ -664,6 +717,8 @@ QDF_STATUS ucfg_dp_psoc_open(struct wlan_objmgr_psoc *psoc)
 	dp_register_pmo_handler();
 	dp_trace_init(psoc);
 	dp_bus_bandwidth_init(psoc);
+	wlan_dp_load_balancer_init(psoc);
+	dp_haps_init(psoc);
 	qdf_wake_lock_create(&dp_ctx->rx_wake_lock, "qcom_rx_wakelock");
 
 	return QDF_STATUS_SUCCESS;
@@ -681,6 +736,7 @@ QDF_STATUS ucfg_dp_psoc_close(struct wlan_objmgr_psoc *psoc)
 
 	dp_rtpm_tput_policy_deinit(psoc);
 	dp_unregister_pmo_handler();
+	wlan_dp_load_balancer_deinit(psoc);
 	dp_bus_bandwidth_deinit(psoc);
 	qdf_wake_lock_destroy(&dp_ctx->rx_wake_lock);
 
@@ -817,6 +873,7 @@ void ucfg_dp_update_dhcp_state_on_disassoc(struct wlan_objmgr_vdev *vdev,
 	struct wlan_dp_intf *dp_intf;
 	struct wlan_dp_link *dp_link;
 	struct wlan_objmgr_peer *peer;
+	struct wlan_dp_peer_priv_context *priv_ctx;
 	struct wlan_dp_sta_info *stainfo;
 
 	dp_link = dp_get_vdev_priv_obj(vdev);
@@ -835,11 +892,12 @@ void ucfg_dp_update_dhcp_state_on_disassoc(struct wlan_objmgr_vdev *vdev,
 		return;
 	}
 
-	stainfo = dp_get_peer_priv_obj(peer);
-	if (!stainfo) {
+	priv_ctx = dp_get_peer_priv_obj(peer);
+	if (!priv_ctx) {
 		wlan_objmgr_peer_release_ref(peer, WLAN_DP_ID);
 		return;
 	}
+	stainfo = &priv_ctx->sta_info;
 
 	/* Send DHCP STOP indication to FW */
 	stainfo->dhcp_phase = DHCP_PHASE_ACK;
@@ -851,9 +909,30 @@ void ucfg_dp_update_dhcp_state_on_disassoc(struct wlan_objmgr_vdev *vdev,
 	wlan_objmgr_peer_release_ref(peer, WLAN_DP_ID);
 }
 
+/**
+ * ucfg_dp_update_intf_tx_block_mask() - Update tx block mask for DP interface
+ * @dp_intf: pointer to DP component interface handle
+ *
+ * Return: None
+ */
+static
+void ucfg_dp_update_intf_tx_block_mask(struct wlan_dp_intf *dp_intf)
+{
+	struct wlan_dp_link *dp_link;
+	struct wlan_dp_link *dp_link_next;
+
+	dp_for_each_link_held_safe(dp_intf, dp_link, dp_link_next) {
+		/*
+		 * as long as there is one active link
+		 * should not block tx
+		 */
+		if (!qdf_unlikely(dp_link->sap_tx_block_mask))
+			 dp_intf->sap_tx_block_mask = false;
+	}
+}
+
 void ucfg_dp_set_dfs_cac_tx(struct wlan_objmgr_vdev *vdev, bool tx_block)
 {
-	struct wlan_dp_intf *dp_intf;
 	struct wlan_dp_link *dp_link;
 
 	dp_link = dp_get_vdev_priv_obj(vdev);
@@ -862,16 +941,15 @@ void ucfg_dp_set_dfs_cac_tx(struct wlan_objmgr_vdev *vdev, bool tx_block)
 		return;
 	}
 
-	dp_intf = dp_link->dp_intf;
 	if (tx_block)
-		dp_intf->sap_tx_block_mask |= DP_TX_DFS_CAC_BLOCK;
+		dp_link->sap_tx_block_mask |= DP_TX_DFS_CAC_BLOCK;
 	else
-		dp_intf->sap_tx_block_mask &= ~DP_TX_DFS_CAC_BLOCK;
+		dp_link->sap_tx_block_mask &= ~DP_TX_DFS_CAC_BLOCK;
+	ucfg_dp_update_intf_tx_block_mask(dp_link->dp_intf);
 }
 
 void ucfg_dp_set_bss_state_start(struct wlan_objmgr_vdev *vdev, bool start)
 {
-	struct wlan_dp_intf *dp_intf;
 	struct wlan_dp_link *dp_link;
 
 	dp_link = dp_get_vdev_priv_obj(vdev);
@@ -880,14 +958,14 @@ void ucfg_dp_set_bss_state_start(struct wlan_objmgr_vdev *vdev, bool start)
 		return;
 	}
 
-	dp_intf = dp_link->dp_intf;
 	if (start) {
-		dp_intf->sap_tx_block_mask &= ~DP_TX_SAP_STOP;
-		dp_intf->bss_state = BSS_INTF_START;
+		dp_link->sap_tx_block_mask &= ~DP_TX_SAP_STOP;
+		dp_link->bss_state = BSS_INTF_START;
 	} else {
-		dp_intf->sap_tx_block_mask |= DP_TX_SAP_STOP;
-		dp_intf->bss_state = BSS_INTF_STOP;
+		dp_link->sap_tx_block_mask |= DP_TX_SAP_STOP;
+		dp_link->bss_state = BSS_INTF_STOP;
 	}
+	ucfg_dp_update_intf_tx_block_mask(dp_link->dp_intf);
 }
 
 QDF_STATUS ucfg_dp_lro_set_reset(struct wlan_objmgr_vdev *vdev,
@@ -1089,6 +1167,8 @@ ucfg_dp_update_config(struct wlan_objmgr_psoc *psoc,
 		cfg_get(psoc, CFG_DP_TCP_UDP_CKSUM_OFFLOAD);
 	params.ipa_enable = req->ipa_enable;
 	dp_ctx->dp_cfg.gro_enable = cfg_get(psoc, CFG_DP_GRO);
+	dp_ctx->dp_cfg.wlm_rx_aggr_control =
+		cfg_get(psoc, CFG_DP_WLM_RX_AGGR_CTRL);
 	params.gro_enable = dp_ctx->dp_cfg.gro_enable;
 	params.tx_comp_loop_pkt_limit = cfg_get(psoc,
 						CFG_DP_TX_COMP_LOOP_PKT_LIMIT);
@@ -1205,6 +1285,7 @@ QDF_STATUS ucfg_dp_sta_register_txrx_ops(struct wlan_objmgr_vdev *vdev)
 		txrx_ops.rx.rx = dp_rx_packet_cbk;
 		txrx_ops.rx.rx_stack = NULL;
 		txrx_ops.rx.rx_flush = NULL;
+		txrx_ops.rx.rx_gro_flush = dp_rx_gro_flush_cbk;
 	}
 
 	if (wlan_dp_cfg_is_rx_fisa_enabled(&dp_intf->dp_ctx->dp_cfg) &&
@@ -1259,6 +1340,7 @@ QDF_STATUS ucfg_dp_tdlsta_register_txrx_ops(struct wlan_objmgr_vdev *vdev)
 		txrx_ops.rx.rx = dp_rx_packet_cbk;
 		txrx_ops.rx.rx_stack = NULL;
 		txrx_ops.rx.rx_flush = NULL;
+		txrx_ops.rx.rx_gro_flush = dp_rx_gro_flush_cbk;
 	}
 
 	if (wlan_dp_cfg_is_rx_fisa_enabled(&dp_intf->dp_ctx->dp_cfg) &&
@@ -1382,6 +1464,15 @@ QDF_STATUS ucfg_dp_softap_register_txrx_ops(struct wlan_objmgr_vdev *vdev,
 		txrx_ops->rx.rx = dp_softap_rx_packet_cbk;
 		txrx_ops->rx.rx_stack = NULL;
 		txrx_ops->rx.rx_flush = NULL;
+		txrx_ops->rx.rx_gro_flush = dp_rx_gro_flush_cbk;
+	}
+
+	if ((wlan_dp_fb_enabled(dp_intf->dp_ctx) ||
+	     wlan_dp_rx_is_latency_sensitive_reo_enabled()) &&
+	    wlan_dp_cfg_is_rx_fisa_enabled(&dp_intf->dp_ctx->dp_cfg) &&
+	    dp_intf->device_mode != QDF_MONITOR_MODE) {
+		dp_debug("FISA feature enabled");
+		dp_rx_register_fisa_ops(txrx_ops);
 	}
 
 	txrx_ops->get_tsf_time = wlan_dp_get_tsf_time;
@@ -1395,7 +1486,7 @@ QDF_STATUS ucfg_dp_softap_register_txrx_ops(struct wlan_objmgr_vdev *vdev,
 
 	wlan_dp_add_cdp_vdev(dp_link, cdp_vdev);
 	dp_intf->txrx_ops = *txrx_ops;
-	dp_intf->sap_tx_block_mask &= ~DP_TX_FN_CLR;
+	dp_link->sap_tx_block_mask &= ~DP_TX_FN_CLR;
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -1463,6 +1554,36 @@ QDF_STATUS ucfg_dp_rx_packet_cbk(struct wlan_objmgr_vdev *vdev, qdf_nbuf_t nbuf)
 	return dp_rx_packet_cbk(dp_link, nbuf);
 }
 
+#ifdef WLAN_FEATURE_FILS_SK_SAP
+QDF_STATUS ucfg_dp_hlp_state_update(struct wlan_objmgr_vdev *vdev,
+				    struct qdf_mac_addr *peer_mac)
+{
+	struct wlan_dp_intf *dp_intf;
+	struct fils_peer_hlp_node *hlp_node = NULL;
+
+	dp_intf = dp_get_vdev_priv_obj(vdev);
+	if (unlikely(!dp_intf)) {
+		dp_err_rl("DP interface not found");
+		return QDF_STATUS_E_INVAL;
+	}
+	hlp_node = qdf_mem_malloc(sizeof(struct fils_peer_hlp_node));
+	if (unlikely(!hlp_node)) {
+		dp_err_rl("Fail to allocate mem for hlp node" QDF_MAC_ADDR_FMT,
+			  QDF_MAC_ADDR_REF(peer_mac->bytes));
+		return QDF_STATUS_E_INVAL;
+	}
+	if (hlp_node) {
+		qdf_copy_macaddr(&hlp_node->peer_mac, peer_mac);
+		hlp_node->is_processing = true;
+	}
+
+	qdf_spin_lock_bh(&dp_intf->hlp_list_lock);
+	qdf_list_insert_front(&dp_intf->hlp_list, &hlp_node->node);
+	qdf_spin_unlock_bh(&dp_intf->hlp_list_lock);
+
+	return QDF_STATUS_SUCCESS;
+}
+#endif
 void ucfg_dp_tx_timeout(struct wlan_objmgr_vdev *vdev)
 {
 	struct wlan_dp_intf *dp_intf;
@@ -1789,6 +1910,24 @@ void ucfg_dp_nud_indicate_roam(struct wlan_objmgr_vdev *vdev)
 {
 	dp_nud_indicate_roam(vdev);
 }
+
+#ifdef WLAN_HAPS_ENABLE
+uint32_t ucfg_dp_get_haps_config(struct wlan_objmgr_psoc *psoc)
+{
+	struct wlan_dp_psoc_context *dp_ctx = dp_psoc_get_priv(psoc);
+
+	if (!dp_ctx) {
+		dp_err("DP Context is NULL");
+		return 0;
+	}
+	return dp_ctx->dp_cfg.haps_config;
+}
+#else
+uint32_t ucfg_dp_get_haps_config(struct wlan_objmgr_psoc *psoc)
+{
+	return 0;
+}
+#endif
 
 void ucfg_dp_clear_arp_stats(struct wlan_objmgr_vdev *vdev)
 {
@@ -2226,6 +2365,63 @@ ucfg_dp_req_set_arp_stats(struct wlan_objmgr_psoc *psoc,
 	return sb_ops->dp_set_arp_req_stats(psoc, params);
 }
 
+#ifdef FEATURE_DIRECT_LINK
+/**
+ * ucfg_dp_register_direct_link_hdd_cbs() - Register direct link hdd callbacks
+ * @dp_ctx: DP private context
+ * @cb_obj: Callback object
+ *
+ * Returns: None
+ */
+static void
+ucfg_dp_register_direct_link_hdd_cbs(struct wlan_dp_psoc_context *dp_ctx,
+				     struct wlan_dp_psoc_callbacks *cb_obj)
+{
+	dp_ctx->dp_ops.dp_register_lpass_ssr_notifier =
+		cb_obj->dp_register_lpass_ssr_notifier;
+	dp_ctx->dp_ops.dp_unregister_lpass_ssr_notifier =
+		cb_obj->dp_unregister_lpass_ssr_notifier;
+}
+#else
+static inline void
+ucfg_dp_register_direct_link_hdd_cbs(struct wlan_dp_psoc_context *dp_ctx,
+				     struct wlan_dp_psoc_callbacks *cb_obj)
+{
+}
+#endif
+
+#ifdef IPA_WDS_EASYMESH_FEATURE
+static void
+ucfg_dp_register_ipa_wds_hdd_cbs(struct wlan_dp_psoc_context *dp_ctx,
+				 struct wlan_dp_psoc_callbacks *cb_obj)
+{
+	dp_ctx->dp_ops.wlan_dp_ipa_wds_peer_cb =
+		cb_obj->wlan_dp_ipa_wds_peer_cb;
+}
+#else /* !IPA_WDS_EASYMESH_FEATURE */
+static inline void
+ucfg_dp_register_ipa_wds_hdd_cbs(struct wlan_dp_psoc_context *dp_ctx,
+				 struct wlan_dp_psoc_callbacks *cb_obj)
+{
+}
+#endif /* IPA_WDS_EASYMESH_FEATURE */
+
+#ifdef WLAN_DP_FEATURE_STC
+static inline void
+ucfg_dp_register_stc_hdd_cbs(struct wlan_dp_psoc_context *dp_ctx,
+			     struct wlan_dp_psoc_callbacks *cb_obj)
+{
+	dp_ctx->dp_ops.send_flow_stats_event = cb_obj->send_flow_stats_event;
+	dp_ctx->dp_ops.send_flow_report_event = cb_obj->send_flow_report_event;
+}
+#else
+static inline void
+ucfg_dp_register_stc_hdd_cbs(struct wlan_dp_psoc_context *dp_ctx,
+			     struct wlan_dp_psoc_callbacks *cb_obj)
+{
+}
+#endif
+
 void ucfg_dp_register_hdd_callbacks(struct wlan_objmgr_psoc *psoc,
 				    struct wlan_dp_psoc_callbacks *cb_obj)
 {
@@ -2276,6 +2472,7 @@ void ucfg_dp_register_hdd_callbacks(struct wlan_objmgr_psoc *psoc,
 		cb_obj->dp_get_tx_flow_low_watermark;
 	dp_ctx->dp_ops.dp_get_tsf_time = cb_obj->dp_get_tsf_time;
 	dp_ctx->dp_ops.dp_tsf_timestamp_rx = cb_obj->dp_tsf_timestamp_rx;
+	dp_ctx->dp_ops.dp_fils_hlp_rx = cb_obj->dp_fils_hlp_rx;
 	dp_ctx->dp_ops.dp_gro_rx_legacy_get_napi =
 		cb_obj->dp_gro_rx_legacy_get_napi;
 	dp_ctx->dp_ops.dp_get_netdev_by_vdev_mac =
@@ -2301,7 +2498,13 @@ void ucfg_dp_register_hdd_callbacks(struct wlan_objmgr_psoc *psoc,
 	dp_ctx->dp_ops.osif_dp_process_mic_error =
 		cb_obj->osif_dp_process_mic_error;
 	dp_ctx->dp_ops.link_monitoring_cb = cb_obj->link_monitoring_cb;
-	}
+	dp_ctx->dp_ops.dp_get_ndev_by_vdev_id = cb_obj->dp_get_ndev_by_vdev_id;
+	ucfg_dp_register_direct_link_hdd_cbs(dp_ctx, cb_obj);
+	ucfg_dp_register_ipa_wds_hdd_cbs(dp_ctx, cb_obj);
+	ucfg_dp_register_stc_hdd_cbs(dp_ctx, cb_obj);
+	dp_ctx->dp_ops.wlan_dp_haps_update_qtime_sync_period =
+				cb_obj->wlan_dp_haps_update_qtime_sync_period;
+}
 
 void ucfg_dp_register_event_handler(struct wlan_objmgr_psoc *psoc,
 				    struct wlan_dp_psoc_nb_ops *cb_obj)
@@ -2487,6 +2690,98 @@ void ucfg_dp_runtime_disable_rx_thread(struct wlan_objmgr_vdev *vdev,
 				       bool value)
 {
 	struct wlan_dp_link *dp_link = dp_get_vdev_priv_obj(vdev);
+	ol_txrx_soc_handle soc = cds_get_context(QDF_MODULE_ID_SOC);
+	struct wlan_dp_intf *dp_intf;
+	struct wlan_dp_psoc_context *dp_ctx;
+
+	if (!dp_link) {
+		dp_err("Unable to get DP link");
+		return;
+	}
+
+	dp_intf = dp_link->dp_intf;
+	if (qdf_unlikely(!dp_intf))
+		return;
+
+	dp_ctx = dp_intf->dp_ctx;
+	if (qdf_unlikely(!dp_ctx))
+		return;
+
+	if (!dp_ctx->enable_dp_rx_threads) {
+		dp_info("rx_thread is not enabled");
+		return;
+	}
+
+	qdf_atomic_inc(&dp_intf->num_active_task);
+
+	if (dp_intf->runtime_disable_rx_thread != value) {
+		dp_intf->runtime_disable_rx_thread = value;
+		dp_txrx_flush_pkts_by_vdev_id(soc, dp_link->link_id);
+	}
+
+	qdf_atomic_dec(&dp_intf->num_active_task);
+}
+
+#ifdef WLAN_FEATURE_LATENCY_SENSITIVE_REO
+static void dp_flush_fisa_entries_by_vdev(struct wlan_objmgr_vdev *vdev)
+{
+	struct wlan_dp_link *dp_link = dp_get_vdev_priv_obj(vdev);
+	struct wlan_dp_intf *dp_intf = dp_link->dp_intf;
+	struct wlan_dp_psoc_context *dp_ctx;
+	ol_txrx_soc_handle soc = cds_get_context(QDF_MODULE_ID_SOC);
+
+	if (qdf_unlikely(!soc))
+		return;
+
+	dp_ctx = dp_intf->dp_ctx;
+	if (qdf_unlikely(!dp_ctx))
+		return;
+
+	qdf_atomic_inc(&dp_intf->num_active_task);
+
+	/* do fisa flush for this vdev */
+	if (wlan_dp_cfg_is_rx_fisa_enabled(&dp_ctx->dp_cfg))
+		wlan_dp_rx_fisa_flush_by_vdev_id((struct dp_soc *)soc,
+						 dp_link->link_id);
+
+	qdf_atomic_dec(&dp_intf->num_active_task);
+}
+
+void ucfg_dp_fisa_route_to_latency_sensitive_reo(struct wlan_objmgr_vdev *vdev,
+						 bool value)
+{
+	struct wlan_dp_link *dp_link = dp_get_vdev_priv_obj(vdev);
+	struct wlan_dp_intf *dp_intf;
+	struct wlan_dp_psoc_context *dp_ctx;
+
+	if (!dp_link) {
+		dp_err("Unable to get DP link");
+		return;
+	}
+
+	dp_intf = dp_link->dp_intf;
+	if (qdf_unlikely(!dp_intf))
+		return;
+
+	dp_ctx = dp_intf->dp_ctx;
+	if (qdf_unlikely(!dp_ctx))
+		return;
+
+	if (dp_intf->route_to_latency_sensitive_reo != value) {
+		if (!dp_is_fisa_in_cmem(dp_ctx)) {
+			dp_err("lsr feature not supported");
+			return;
+		}
+
+		dp_intf->route_to_latency_sensitive_reo = value;
+		dp_flush_fisa_entries_by_vdev(vdev);
+	}
+}
+
+void ucfg_dp_runtime_disable_rx_fisa_aggr(struct wlan_objmgr_vdev *vdev,
+					  bool value)
+{
+	struct wlan_dp_link *dp_link = dp_get_vdev_priv_obj(vdev);
 	struct wlan_dp_intf *dp_intf;
 
 	if (!dp_link) {
@@ -2495,8 +2790,21 @@ void ucfg_dp_runtime_disable_rx_thread(struct wlan_objmgr_vdev *vdev,
 	}
 
 	dp_intf = dp_link->dp_intf;
-	dp_intf->runtime_disable_rx_thread = value;
+
+	if (dp_intf->runtime_disable_rx_fisa_aggr != value)
+		dp_intf->runtime_disable_rx_fisa_aggr = value;
 }
+#else
+void ucfg_dp_fisa_route_to_latency_sensitive_reo(struct wlan_objmgr_vdev *vdev,
+						 bool value)
+{
+}
+
+void ucfg_dp_runtime_disable_rx_fisa_aggr(struct wlan_objmgr_vdev *vdev,
+					  bool value)
+{
+}
+#endif
 
 bool ucfg_dp_get_napi_enabled(struct wlan_objmgr_psoc *psoc)
 {
@@ -2789,6 +3097,46 @@ QDF_STATUS ucfg_dp_config_direct_link(qdf_netdev_t dev,
 	return dp_config_direct_link(dp_intf, config_direct_link,
 				     enable_low_latency);
 }
+
+QDF_STATUS
+ucfg_dp_set_lpass_ssr_notif_hdl(struct wlan_objmgr_psoc *psoc, void *handle)
+{
+	struct wlan_dp_psoc_context *dp_ctx = dp_psoc_get_priv(psoc);
+
+	if (!dp_ctx || !dp_ctx->dp_direct_link_ctx) {
+		dp_err("Invalid DP or DP direct link context");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	dp_ctx->dp_direct_link_ctx->lpass_ssr_notif_hdl = handle;
+
+	return QDF_STATUS_SUCCESS;
+}
+
+void *ucfg_dp_get_lpass_ssr_notif_hdl(struct wlan_objmgr_psoc *psoc)
+{
+	struct wlan_dp_psoc_context *dp_ctx = dp_psoc_get_priv(psoc);
+
+	if (!dp_ctx || !dp_ctx->dp_direct_link_ctx) {
+		dp_err("Invalid DP or DP direct link context");
+		return NULL;
+	}
+
+	return dp_ctx->dp_direct_link_ctx->lpass_ssr_notif_hdl;
+}
+
+QDF_STATUS
+ucfg_dp_direct_link_handle_lpass_ssr_notif(struct wlan_objmgr_psoc *psoc)
+{
+	struct wlan_dp_psoc_context *dp_ctx = dp_psoc_get_priv(psoc);
+
+	if (!dp_ctx || !dp_ctx->dp_direct_link_ctx) {
+		dp_err("Invalid DP or DP direct link context");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	return dp_direct_link_handle_lpass_ssr_notif(dp_ctx);
+}
 #endif
 
 QDF_STATUS ucfg_dp_bus_suspend(ol_txrx_soc_handle soc, uint8_t pdev_id)
@@ -2810,6 +3158,18 @@ void *ucfg_dp_txrx_soc_attach(struct dp_txrx_soc_attach_params *params,
 void ucfg_dp_txrx_soc_detach(ol_txrx_soc_handle soc)
 {
 	return wlan_dp_txrx_soc_detach(soc);
+}
+
+void ucfg_dp_txrx_set_default_affinity(struct wlan_objmgr_psoc *psoc)
+{
+	struct wlan_dp_psoc_context *dp_ctx = dp_psoc_get_priv(psoc);
+
+	if (!dp_ctx) {
+		dp_err("DP context not found");
+		return;
+	}
+
+	wlan_dp_lb_set_default_affinity(dp_ctx);
 }
 
 QDF_STATUS ucfg_dp_txrx_attach_target(ol_txrx_soc_handle soc, uint8_t pdev_id)

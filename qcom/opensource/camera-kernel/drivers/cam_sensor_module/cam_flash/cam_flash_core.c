@@ -11,6 +11,7 @@
 #include "cam_res_mgr_api.h"
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
+#include "cam_mem_mgr_api.h"
 
 int cam_flash_led_prepare(struct led_trigger *trigger, int options,
 	int *max_current, bool is_wled)
@@ -108,7 +109,7 @@ static int cam_flash_construct_default_power_setting(
 
 	power_info->power_setting_size = 1;
 	power_info->power_setting =
-		kzalloc(sizeof(struct cam_sensor_power_setting),
+		CAM_MEM_ZALLOC(sizeof(struct cam_sensor_power_setting),
 			GFP_KERNEL);
 	if (!power_info->power_setting)
 		return -ENOMEM;
@@ -120,7 +121,7 @@ static int cam_flash_construct_default_power_setting(
 
 	power_info->power_down_setting_size = 1;
 	power_info->power_down_setting =
-		kzalloc(sizeof(struct cam_sensor_power_setting),
+		CAM_MEM_ZALLOC(sizeof(struct cam_sensor_power_setting),
 			GFP_KERNEL);
 	if (!power_info->power_down_setting) {
 		rc = -ENOMEM;
@@ -134,7 +135,7 @@ static int cam_flash_construct_default_power_setting(
 	return rc;
 
 free_power_settings:
-	kfree(power_info->power_setting);
+	CAM_MEM_FREE(power_info->power_setting);
 	power_info->power_setting = NULL;
 	power_info->power_setting_size = 0;
 	return rc;
@@ -198,8 +199,8 @@ int cam_flash_i2c_power_ops(struct cam_flash_ctrl *fctrl,
 	return rc;
 
 free_pwr_settings:
-	kfree(power_info->power_setting);
-	kfree(power_info->power_down_setting);
+	CAM_MEM_FREE(power_info->power_setting);
+	CAM_MEM_FREE(power_info->power_down_setting);
 	power_info->power_setting = NULL;
 	power_info->power_down_setting = NULL;
 	power_info->power_setting_size = 0;
@@ -654,7 +655,12 @@ static int32_t cam_flash_slaveInfo_pkt_parser(struct cam_flash_ctrl *fctrl,
 		CAM_DBG(CAM_FLASH, "Slave addr: 0x%x Freq Mode: %d",
 			i2c_info->slave_addr, i2c_info->i2c_freq_mode);
 	} else if (fctrl->io_master_info.master_type == I2C_MASTER) {
-		fctrl->io_master_info.client->addr = i2c_info->slave_addr;
+		if (!fctrl->io_master_info.qup_client) {
+			CAM_ERR(CAM_FLASH, "io_master_info.qup_client is NULL");
+			return -EINVAL;
+		}
+		fctrl->io_master_info.qup_client->i2c_client->addr =
+			i2c_info->slave_addr;
 		CAM_DBG(CAM_FLASH, "Slave addr: 0x%x", i2c_info->slave_addr);
 	} else {
 		CAM_ERR(CAM_FLASH, "Invalid Master type: %d",
@@ -1110,6 +1116,9 @@ int cam_flash_i2c_pkt_parser(struct cam_flash_ctrl *fctrl, void *arg)
 				break;
 			}
 			cam_mem_put_cpu_buf(cmd_desc[i].mem_handle);
+
+			if (rc)
+				goto end;
 		}
 		power_info = &fctrl->power_info;
 		if (!power_info) {
@@ -1302,6 +1311,7 @@ int cam_flash_pmic_pkt_parser(struct cam_flash_ctrl *fctrl, void *arg)
 	struct cam_req_mgr_add_request add_req = {0};
 	struct cam_flash_init *cam_flash_info = NULL;
 	struct cam_flash_set_rer *flash_rer_info = NULL;
+	struct cam_flash_set_rer *flash_rer_info_u = NULL;
 	struct cam_flash_set_on_off *flash_operation_info = NULL;
 	struct cam_flash_set_on_off *flash_operation_info_u = NULL;
 	struct cam_flash_query_curr *flash_query_info = NULL;
@@ -1343,7 +1353,7 @@ int cam_flash_pmic_pkt_parser(struct cam_flash_ctrl *fctrl, void *arg)
 			 sizeof(struct cam_packet), len_of_buffer);
 		cam_mem_put_cpu_buf(config.packet_handle);
 		rc = -EINVAL;
-		return rc;
+		goto put_ref;
 	}
 
 	remain_len -= (size_t)config.offset;
@@ -1752,14 +1762,39 @@ int cam_flash_pmic_pkt_parser(struct cam_flash_ctrl *fctrl, void *arg)
 				cam_mem_put_cpu_buf(cmd_desc->mem_handle);
 				goto end;
 			}
-			flash_rer_info = (struct cam_flash_set_rer *)cmd_buf;
-			if (!flash_rer_info) {
+			flash_rer_info_u = (struct cam_flash_set_rer *)cmd_buf;
+			if (!flash_rer_info_u) {
 				CAM_ERR(CAM_FLASH,
 					"flash_rer_info Null");
 				rc = -EINVAL;
 				cam_mem_put_cpu_buf(cmd_desc->mem_handle);
 				goto end;
 			}
+
+			count = flash_rer_info_u->count;
+			rc = cam_common_mem_kdup((void**)&flash_rer_info,
+				flash_rer_info_u,
+				sizeof(struct cam_flash_set_rer));
+
+			if(rc) {
+				CAM_ERR(CAM_FLASH, "Alloc and copy flash operation info failed");
+				break;
+			}
+
+			if (!flash_rer_info) {
+				CAM_ERR(CAM_FLASH, "Memory allocation for flash_rer_info failed");
+				rc = -ENOMEM;
+				break;
+			}
+
+			if (count != flash_rer_info->count) {
+				CAM_ERR(CAM_FLASH, "Count changed: userspace: %d, kernel: %d",
+					count, flash_rer_info->count);
+				rc = -EINVAL;
+				cam_common_mem_free(flash_rer_info);
+				break;
+			}
+
 			if (flash_rer_info->count >
 				CAM_FLASH_MAX_LED_TRIGGERS) {
 				CAM_ERR(CAM_FLASH, "led count out of limit");
@@ -1876,8 +1911,17 @@ put_ref:
 
 int cam_flash_publish_dev_info(struct cam_req_mgr_device_info *info)
 {
+	struct cam_flash_ctrl *fctrl;
+
+	fctrl = (struct cam_flash_ctrl *)cam_get_device_priv(info->dev_hdl);
+	if (!fctrl) {
+		CAM_ERR(CAM_FLASH, " Device data is NULL");
+		return -EINVAL;
+	}
+
 	info->dev_id = CAM_REQ_MGR_DEVICE_FLASH;
-	strlcpy(info->name, CAM_FLASH_NAME, sizeof(info->name));
+	snprintf(info->name, sizeof(info->name), "%s(camera-flash%u)",
+		CAM_FLASH_NAME, fctrl->soc_info.index);
 	info->p_delay = CAM_PIPELINE_DELAY_1;
 	info->m_delay = CAM_MODESWITCH_DELAY_1;
 	info->trigger = CAM_TRIGGER_POINT_SOF;

@@ -8,11 +8,13 @@
 #include <linux/interconnect.h>
 #include <linux/iopoll.h>
 #include <linux/of_device.h>
+#include <linux/pm_domain.h>
 #include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
 #include <linux/thermal.h>
 #include <linux/msm_kgsl.h>
+#include <linux/units.h>
 #include <soc/qcom/dcvs.h>
 
 #include "kgsl_device.h"
@@ -26,6 +28,8 @@
 #define UPDATE_BUSY_VAL		1000000
 
 #define KGSL_MAX_BUSLEVELS	20
+
+#define GX_GDSC_TIMEOUT_MS	200
 
 /* Order deeply matters here because reasons. New entries go on the end */
 static const char * const clocks[KGSL_MAX_CLKS] = {
@@ -47,6 +51,8 @@ static const char * const clocks[KGSL_MAX_CLKS] = {
 	"ahb_clk",
 	"smmu_vote",
 	"apb_pclk",
+	"hub_cx_int_clk",
+	"gpu_cc_memnoc_gfx_clk",
 };
 
 static void kgsl_pwrctrl_clk(struct kgsl_device *device, bool state,
@@ -63,27 +69,21 @@ static void _bimc_clk_prepare_enable(struct kgsl_device *device,
 /**
  * _adjust_pwrlevel() - Given a requested power level do bounds checking on the
  * constraints and return the nearest possible level
- * @device: Pointer to the kgsl_device struct
+ * @pwr: kgsl_pwrctrl structure for the device
  * @level: Requested level
  * @pwrc: Pointer to the power constraint to be applied
  *
- * Apply thermal and max/min limits first.  Then force the level with a
+ * Apply thermal and max/min limits first. Then force the level with a
  * constraint if one exists.
  */
-static unsigned int _adjust_pwrlevel(struct kgsl_pwrctrl *pwr, int level,
-					struct kgsl_pwr_constraint *pwrc)
+static u32 _adjust_pwrlevel(struct kgsl_pwrctrl *pwr, u32 level, struct kgsl_pwr_constraint *pwrc)
 {
-	unsigned int max_pwrlevel = max_t(unsigned int, pwr->thermal_pwrlevel,
-					pwr->max_pwrlevel);
-	unsigned int min_pwrlevel = min_t(unsigned int,
-					pwr->thermal_pwrlevel_floor,
-					pwr->min_pwrlevel);
-
-	/* Ensure that max/min pwrlevels are within thermal max/min limits */
-	max_pwrlevel = min_t(unsigned int, max_pwrlevel,
-					pwr->thermal_pwrlevel_floor);
-	min_pwrlevel = max_t(unsigned int, min_pwrlevel,
-					pwr->thermal_pwrlevel);
+	u32 thermal_pwrlevel = max_t(u32, READ_ONCE(pwr->thermal_pwrlevel),
+			READ_ONCE(pwr->pmqos_max_pwrlevel));
+	/* Ensure that max pwrlevel is within pmqos max limit */
+	u32 max_pwrlevel = max_t(u32, pwr->max_pwrlevel, thermal_pwrlevel);
+	/* Ensure that min pwrlevel is within thermal limit */
+	u32 min_pwrlevel = max_t(u32, pwr->min_pwrlevel, thermal_pwrlevel);
 
 	switch (pwrc->type) {
 	case KGSL_CONSTRAINT_PWRLEVEL: {
@@ -135,11 +135,10 @@ static void kgsl_pwrctrl_pwrlevel_change_settings(struct kgsl_device *device,
  * @device: Pointer to the kgsl_device struct
  * @new_level: Requested powerlevel, an index into the pwrlevel array
  */
-unsigned int kgsl_pwrctrl_adjust_pwrlevel(struct kgsl_device *device,
-				unsigned int new_level)
+static u32 kgsl_pwrctrl_adjust_pwrlevel(struct kgsl_device *device, u32 new_level)
 {
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
-	unsigned int old_level = pwr->active_pwrlevel;
+	u32 old_level = pwr->active_pwrlevel;
 	bool reset = false;
 
 	/* If a pwr constraint is expired, remove it */
@@ -171,7 +170,7 @@ unsigned int kgsl_pwrctrl_adjust_pwrlevel(struct kgsl_device *device,
 		 * the timestamp retires
 		 */
 		pwr->constraint.expires = jiffies +
-			msecs_to_jiffies(device->pwrctrl.interval_timeout);
+			msecs_to_jiffies(atomic64_read(&device->pwrctrl.interval_timeout));
 
 		kgsl_context_put(context);
 	}
@@ -310,7 +309,7 @@ void kgsl_pwrctrl_set_constraint(struct kgsl_device *device,
 		pwrc_old->sub_type = pwrc->sub_type;
 		pwrc_old->owner_id = id;
 		pwrc_old->expires = jiffies +
-			msecs_to_jiffies(device->pwrctrl.interval_timeout);
+			msecs_to_jiffies(atomic64_read(&device->pwrctrl.interval_timeout));
 		pwrc_old->owner_timestamp = ts;
 		kgsl_pwrctrl_pwrlevel_change(device, constraint);
 		/* Trace the constraint being set by the driver */
@@ -319,7 +318,7 @@ void kgsl_pwrctrl_set_constraint(struct kgsl_device *device,
 		pwrc_old->owner_id = id;
 		pwrc_old->owner_timestamp = ts;
 		pwrc_old->expires = jiffies +
-			msecs_to_jiffies(device->pwrctrl.interval_timeout);
+			msecs_to_jiffies(atomic64_read(&device->pwrctrl.interval_timeout));
 	}
 }
 
@@ -364,8 +363,18 @@ static ssize_t thermal_pwrlevel_show(struct device *dev,
 
 	struct kgsl_device *device = dev_get_drvdata(dev);
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
+	u32 thermal_pwrlevel = max_t(u32, READ_ONCE(pwr->thermal_pwrlevel),
+					READ_ONCE(pwr->pmqos_max_pwrlevel));
 
-	return scnprintf(buf, PAGE_SIZE, "%d\n", pwr->thermal_pwrlevel);
+	return scnprintf(buf, PAGE_SIZE, "%d\n", thermal_pwrlevel);
+}
+
+static ssize_t thermal_time_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	struct kgsl_device *device = dev_get_drvdata(dev);
+
+	return scnprintf(buf, PAGE_SIZE, "%llu\n", device->pwrctrl.thermal_time);
 }
 
 static ssize_t max_pwrlevel_store(struct device *dev,
@@ -410,6 +419,9 @@ static void kgsl_pwrctrl_min_pwrlevel_set(struct kgsl_device *device,
 					int level)
 {
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
+
+	if (level > pwr->min_render_pwrlevel)
+		level = pwr->min_render_pwrlevel;
 
 	mutex_lock(&device->mutex);
 
@@ -511,9 +523,11 @@ static ssize_t max_gpuclk_show(struct device *dev,
 {
 	struct kgsl_device *device = dev_get_drvdata(dev);
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
+	u32 max_pwrlevel = max_t(u32, READ_ONCE(pwr->thermal_pwrlevel),
+				READ_ONCE(pwr->pmqos_max_pwrlevel));
 
 	return scnprintf(buf, PAGE_SIZE, "%d\n",
-		device->pwrctrl.pwrlevels[pwr->thermal_pwrlevel].gpu_freq);
+		device->pwrctrl.pwrlevels[max_pwrlevel].gpu_freq);
 }
 
 static ssize_t gpuclk_store(struct device *dev,
@@ -529,12 +543,13 @@ static ssize_t gpuclk_store(struct device *dev,
 	if (ret)
 		return ret;
 
-	mutex_lock(&device->mutex);
 	level = _get_nearest_pwrlevel(pwr, val);
-	if (level >= 0)
+	if (level >= 0) {
+		mutex_lock(&device->mutex);
 		kgsl_pwrctrl_pwrlevel_change(device, (unsigned int) level);
+		mutex_unlock(&device->mutex);
+	}
 
-	mutex_unlock(&device->mutex);
 	return count;
 }
 
@@ -568,9 +583,7 @@ static ssize_t idle_timer_store(struct device *dev, struct device_attribute *att
 	if (val > jiffies_to_usecs(MAX_JIFFY_OFFSET))
 		return -EINVAL;
 
-	mutex_lock(&device->mutex);
-	device->pwrctrl.interval_timeout = val;
-	mutex_unlock(&device->mutex);
+	atomic64_set(&device->pwrctrl.interval_timeout, val);
 
 	return count;
 }
@@ -580,7 +593,8 @@ static ssize_t idle_timer_show(struct device *dev,
 {
 	struct kgsl_device *device = dev_get_drvdata(dev);
 
-	return scnprintf(buf, PAGE_SIZE, "%u\n", device->pwrctrl.interval_timeout);
+	return scnprintf(buf, PAGE_SIZE, "%llu\n",
+			atomic64_read(&device->pwrctrl.interval_timeout));
 }
 
 static ssize_t minbw_timer_store(struct device *dev,
@@ -922,9 +936,11 @@ static ssize_t min_clock_mhz_store(struct device *dev,
 static ssize_t _max_clock_mhz_show(struct kgsl_device *device, char *buf)
 {
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
+	u32 max_pwrlevel = max_t(u32, READ_ONCE(pwr->thermal_pwrlevel),
+				READ_ONCE(pwr->pmqos_max_pwrlevel));
 
 	return scnprintf(buf, PAGE_SIZE, "%d\n",
-		pwr->pwrlevels[pwr->thermal_pwrlevel].gpu_freq / 1000000);
+		pwr->pwrlevels[max_pwrlevel].gpu_freq / 1000000);
 }
 
 static ssize_t max_clock_mhz_show(struct device *dev,
@@ -1092,6 +1108,7 @@ static DEVICE_ATTR_RO(gpu_clock_stats);
 static DEVICE_ATTR_RW(max_pwrlevel);
 static DEVICE_ATTR_RW(min_pwrlevel);
 static DEVICE_ATTR_RW(thermal_pwrlevel);
+static DEVICE_ATTR_RO(thermal_time);
 static DEVICE_ATTR_RO(num_pwrlevels);
 static DEVICE_ATTR_RO(reset_count);
 static DEVICE_ATTR_RW(force_clk_on);
@@ -1119,6 +1136,7 @@ static const struct attribute *pwrctrl_attr_list[] = {
 	&dev_attr_max_pwrlevel.attr,
 	&dev_attr_min_pwrlevel.attr,
 	&dev_attr_thermal_pwrlevel.attr,
+	&dev_attr_thermal_time.attr,
 	&dev_attr_num_pwrlevels.attr,
 	&dev_attr_reset_count.attr,
 	&dev_attr_force_clk_on.attr,
@@ -1305,70 +1323,132 @@ int kgsl_pwrctrl_axi(struct kgsl_device *device, bool state)
 	return 0;
 }
 
+static int kgsl_genpd_disable_wait(struct device *dev, u32 timeout)
+{
+	ktime_t tout = ktime_add_us(ktime_get(), timeout * USEC_PER_MSEC);
+	int ret;
+
+	ret = pm_runtime_put_sync(dev);
+	if (ret < 0)
+		return ret;
+
+	for (;;) {
+		if (!kgsl_genpd_is_enabled(dev))
+			return 0;
+
+		if (ktime_compare(ktime_get(), tout) > 0)
+			return (!kgsl_genpd_is_enabled(dev) ? 0 : -ETIMEDOUT);
+
+		usleep_range((100 >> 2) + 1, 100);
+	}
+}
+
+int kgsl_regulator_disable_wait(struct regulator *reg, u32 timeout)
+{
+	ktime_t tout = ktime_add_us(ktime_get(), timeout * USEC_PER_MSEC);
+	int ret;
+
+	ret = regulator_disable(reg);
+	if (ret)
+		return ret;
+
+	for (;;) {
+		if (!regulator_is_enabled(reg))
+			return 0;
+
+		if (ktime_compare(ktime_get(), tout) > 0)
+			return (!regulator_is_enabled(reg) ? 0 : -ETIMEDOUT);
+
+		usleep_range((100 >> 2) + 1, 100);
+	}
+}
+
 int kgsl_pwrctrl_enable_cx_gdsc(struct kgsl_device *device)
 {
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
-	struct regulator *regulator = pwr->cx_gdsc;
 	int ret;
 
-	if (IS_ERR_OR_NULL(regulator))
+	if (!pwr->cx_regulator && !pwr->gmu_cx_pd)
 		return 0;
 
 	ret = wait_for_completion_timeout(&pwr->cx_gdsc_gate, msecs_to_jiffies(5000));
 	if (!ret) {
-		dev_err(device->dev, "GPU CX wait timeout. Dumping CX votes:\n");
 		/* Dump the cx regulator consumer list */
-		qcom_clk_dump(NULL, regulator, false);
+		if (pwr->cx_regulator) {
+			dev_err(device->dev, "GPU CX wait timeout. Dumping CX votes:\n");
+			qcom_clk_dump(NULL, pwr->cx_regulator, false);
+		} else {
+			dev_err(device->dev, "GPU CX wait timeout\n");
+		}
 	}
 
-	ret = regulator_enable(regulator);
+	if (pwr->cx_regulator)
+		ret = regulator_enable(pwr->cx_regulator);
+	else
+		ret = pm_runtime_resume_and_get(pwr->gmu_cx_pd);
+
 	if (ret)
-		dev_err(device->dev, "Failed to enable CX regulator: %d\n", ret);
+		dev_err(device->dev, "Failed to enable CX gdsc, error %d\n", ret);
 
 	kgsl_mmu_send_tlb_hint(&device->mmu, false);
 	pwr->cx_gdsc_wait = false;
 	return ret;
 }
 
-static int kgsl_pwtctrl_enable_gx_gdsc(struct kgsl_device *device)
+int kgsl_pwrctrl_enable_gx_gdsc(struct kgsl_device *device)
 {
-	struct regulator *regulator = device->pwrctrl.gx_gdsc;
+	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 	int ret;
 
-	if (IS_ERR_OR_NULL(regulator))
+	if (!pwr->gx_regulator && !pwr->gx_pd)
 		return 0;
 
-	ret = regulator_enable(regulator);
+	if (pwr->gx_regulator)
+		ret = regulator_enable(pwr->gx_regulator);
+	else
+		ret = pm_runtime_resume_and_get(pwr->gx_pd);
+
 	if (ret)
-		dev_err(device->dev, "Failed to enable GX regulator: %d\n", ret);
+		dev_err(device->dev, "Failed to enable GX gdsc, error %d\n", ret);
+
 	return ret;
 }
 
 void kgsl_pwrctrl_disable_cx_gdsc(struct kgsl_device *device)
 {
-	struct regulator *regulator = device->pwrctrl.cx_gdsc;
+	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 
-	if (IS_ERR_OR_NULL(regulator))
+	if (!pwr->cx_regulator && !pwr->gmu_cx_pd)
 		return;
 
 	kgsl_mmu_send_tlb_hint(&device->mmu, true);
-	reinit_completion(&device->pwrctrl.cx_gdsc_gate);
-	device->pwrctrl.cx_gdsc_wait = true;
-	regulator_disable(regulator);
+	reinit_completion(&pwr->cx_gdsc_gate);
+	pwr->cx_gdsc_wait = true;
+
+	if (pwr->cx_regulator)
+		regulator_disable(pwr->cx_regulator);
+	else
+		pm_runtime_put_sync(pwr->gmu_cx_pd);
 }
 
-static void kgsl_pwrctrl_disable_gx_gdsc(struct kgsl_device *device)
+void kgsl_pwrctrl_disable_gx_gdsc(struct kgsl_device *device)
 {
-	struct regulator *regulator = device->pwrctrl.gx_gdsc;
+	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
+	int ret;
 
-	if (IS_ERR_OR_NULL(regulator))
+	if (!pwr->gx_regulator && !pwr->gx_pd)
 		return;
 
-	if (!kgsl_regulator_disable_wait(regulator, 200))
-		dev_err(device->dev, "Regulator vdd is stuck on\n");
+	if (pwr->gx_regulator)
+		ret = kgsl_regulator_disable_wait(pwr->gx_regulator, GX_GDSC_TIMEOUT_MS);
+	else
+		ret = kgsl_genpd_disable_wait(pwr->gx_pd, GX_GDSC_TIMEOUT_MS);
+
+	if (ret)
+		dev_err(device->dev, "vdd is stuck on, error %d\n", ret);
 }
 
-static int enable_regulators(struct kgsl_device *device)
+static int enable_gdscs(struct kgsl_device *device)
 {
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 	int ret;
@@ -1380,10 +1460,10 @@ static int enable_regulators(struct kgsl_device *device)
 	if (!ret) {
 		/* Set parent in retention voltage to power up vdd supply */
 		ret = kgsl_regulator_set_voltage(device->dev,
-				pwr->gx_gdsc_parent,
-				pwr->gx_gdsc_parent_min_corner);
+				pwr->gx_regulator_parent,
+				pwr->gx_regulator_parent_min_corner);
 		if (!ret)
-			ret = kgsl_pwtctrl_enable_gx_gdsc(device);
+			ret = kgsl_pwrctrl_enable_gx_gdsc(device);
 	}
 
 	if (ret) {
@@ -1395,26 +1475,95 @@ static int enable_regulators(struct kgsl_device *device)
 	return 0;
 }
 
-int kgsl_pwrctrl_probe_regulators(struct kgsl_device *device,
-		struct platform_device *pdev)
+static int kgsl_pwrctrl_probe_cx_gdsc(struct kgsl_device *device, struct platform_device *pdev)
 {
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 
-	pwr->cx_gdsc = devm_regulator_get(&pdev->dev, "vddcx");
-	if (IS_ERR(pwr->cx_gdsc)) {
-		if (PTR_ERR(pwr->cx_gdsc) != -EPROBE_DEFER)
-			dev_err(&pdev->dev, "Couldn't get the vddcx gdsc\n");
-		return PTR_ERR(pwr->cx_gdsc);
-	}
+	if (of_property_read_bool(pdev->dev.of_node, "power-domains")) {
+		/* Get virtual device handle for CX GDSC to control it */
+		struct device *cx_pd = dev_pm_domain_attach_by_name(&pdev->dev, "cx");
 
-	pwr->gx_gdsc = devm_regulator_get(&pdev->dev, "vdd");
-	if (IS_ERR(pwr->gx_gdsc)) {
-		if (PTR_ERR(pwr->gx_gdsc) != -EPROBE_DEFER)
-			dev_err(&pdev->dev, "Couldn't get the vdd gdsc\n");
-		return PTR_ERR(pwr->gx_gdsc);
+		if (IS_ERR_OR_NULL(cx_pd)) {
+			dev_err_probe(&pdev->dev, PTR_ERR(cx_pd),
+					"Failed to attach cx power domain\n");
+			return IS_ERR(cx_pd) ? PTR_ERR(cx_pd) : -EINVAL;
+		}
+		pwr->cx_pd = cx_pd;
+
+		pwr->gmu_cx_pd = dev_pm_domain_attach_by_name(&pdev->dev, "gmu_cx");
+		if (IS_ERR_OR_NULL(pwr->gmu_cx_pd)) {
+			dev_err(device->dev,
+				"Failed to attach GMU cx power domain, falling back to cx pd\n");
+			/* Fallback to cx pd voting if gmu_cx pd is unavailable */
+			pwr->gmu_cx_pd = cx_pd;
+		}
+	} else {
+		struct regulator *cx_regulator = devm_regulator_get(&pdev->dev, "vddcx");
+
+		if (IS_ERR(cx_regulator)) {
+			dev_err_probe(&pdev->dev, PTR_ERR(cx_regulator),
+					"Couldn't get the vddcx\n");
+			return PTR_ERR(cx_regulator);
+		}
+		pwr->cx_regulator = cx_regulator;
 	}
 
 	return 0;
+}
+
+static int kgsl_pwrctrl_probe_gx_gdsc(struct kgsl_device *device, struct platform_device *pdev)
+{
+	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
+
+	if (of_property_read_bool(pdev->dev.of_node, "power-domains")) {
+		/* Get virtual device handle for GX GDSC to control it */
+		struct device *gx_pd = dev_pm_domain_attach_by_name(&pdev->dev, "gx");
+
+		if (IS_ERR_OR_NULL(gx_pd)) {
+			dev_err_probe(&pdev->dev, PTR_ERR(gx_pd),
+					"Failed to attach gx power domain\n");
+			return IS_ERR(gx_pd) ? PTR_ERR(gx_pd) : -EINVAL;
+		}
+		pwr->gx_pd = gx_pd;
+		dev_pm_syscore_device(pwr->gx_pd, true);
+	} else {
+		struct regulator *gx_regulator = devm_regulator_get(&pdev->dev, "vdd");
+
+		if (IS_ERR(gx_regulator)) {
+			dev_err_probe(&pdev->dev, PTR_ERR(gx_regulator),
+					"Couldn't get the vdd\n");
+			return PTR_ERR(gx_regulator);
+		}
+		pwr->gx_regulator = gx_regulator;
+	}
+
+	return 0;
+}
+
+int kgsl_pwrctrl_probe_gdscs(struct kgsl_device *device, struct platform_device *pdev)
+{
+	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
+	int ret;
+
+	ret = kgsl_pwrctrl_probe_cx_gdsc(device, pdev);
+	if (ret)
+		return ret;
+
+	ret = kgsl_pwrctrl_probe_gx_gdsc(device, pdev);
+	if (!ret)
+		return ret;
+
+	/* Detach pm domains during failure */
+	if (pwr->gmu_cx_pd && (pwr->gmu_cx_pd != pwr->cx_pd))
+		dev_pm_domain_detach(pwr->gmu_cx_pd, false);
+
+	if (pwr->cx_pd)
+		dev_pm_domain_detach(pwr->cx_pd, false);
+
+	pwr->gmu_cx_pd = NULL;
+	pwr->cx_pd = NULL;
+
+	return ret;
 }
 
 static int kgsl_cx_gdsc_event(struct notifier_block *nb,
@@ -1422,9 +1571,9 @@ static int kgsl_cx_gdsc_event(struct notifier_block *nb,
 {
 	struct kgsl_pwrctrl *pwr = container_of(nb, struct kgsl_pwrctrl, cx_gdsc_nb);
 	struct kgsl_device *device = container_of(pwr, struct kgsl_device, pwrctrl);
-	u32 val;
+	u32 val = 0;
 
-	if (!(event & REGULATOR_EVENT_DISABLE) || !pwr->cx_gdsc_wait)
+	if (!pwr->cx_gdsc_wait)
 		return 0;
 
 	if (pwr->cx_cfg_gdsc_offset) {
@@ -1439,7 +1588,7 @@ static int kgsl_cx_gdsc_event(struct notifier_block *nb,
 	return 0;
 }
 
-int kgsl_register_gdsc_notifier(struct kgsl_device *device)
+static int kgsl_register_gdsc_notifier(struct kgsl_device *device)
 {
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 
@@ -1484,7 +1633,7 @@ static int kgsl_pwrctrl_pwrrail(struct kgsl_device *device, bool state)
 			kgsl_pwrctrl_disable_cx_gdsc(device);
 		}
 	} else {
-		status = enable_regulators(device);
+		status = enable_gdscs(device);
 		kgsl_mmu_send_tlb_hint(&device->mmu, false);
 	}
 
@@ -1614,6 +1763,128 @@ static int kgsl_pwrctrl_clk_set_rate(struct clk *grp_clk, unsigned int freq,
 	return ret;
 }
 
+/*
+ * pmqos_max_notifier_call - Callback function registered to receive qos max
+ * frequency events.
+ * @nb: The notifier block
+ * @val: Max frequency value in KHz for GPU
+ *
+ * The function subscribes to GPU max frequency change and updates thermal
+ * power level accordingly.
+ */
+static int pmqos_max_notifier_call(struct notifier_block *nb, unsigned long val, void *data)
+{
+	struct kgsl_pwrctrl *pwr = container_of(nb, struct kgsl_pwrctrl, nb_max);
+	struct kgsl_device *device = container_of(pwr, struct kgsl_device, pwrctrl);
+	u32 max_freq = val * 1000;
+	int level;
+
+	if (!device->pwrscale.devfreq_enabled)
+		return NOTIFY_DONE;
+
+	for (level = pwr->num_pwrlevels - 1; level >= 0; level--) {
+		/* get nearest power level with a maximum delta of 5MHz */
+		if (abs(pwr->pwrlevels[level].gpu_freq - max_freq) < 5000000)
+			break;
+	}
+
+	if (level < 0)
+		return NOTIFY_DONE;
+
+	if (level == pwr->pmqos_max_pwrlevel)
+		return NOTIFY_OK;
+
+	pwr->pmqos_max_pwrlevel = level;
+
+	trace_kgsl_thermal_constraint(max_freq);
+
+	mutex_lock(&device->mutex);
+
+	/* Update the current level using the new limit */
+	kgsl_pwrctrl_pwrlevel_change(device, pwr->active_pwrlevel);
+
+	mutex_unlock(&device->mutex);
+	return NOTIFY_OK;
+}
+
+static int kgsl_cooling_get_max_state(struct thermal_cooling_device *cooling_dev,
+		unsigned long *state)
+{
+	struct kgsl_device *device = cooling_dev->devdata;
+
+	*state = device->pwrctrl.num_pwrlevels - 1;
+	return 0;
+}
+
+static int kgsl_cooling_get_cur_state(struct thermal_cooling_device *cooling_dev,
+		unsigned long *state)
+{
+	struct kgsl_device *device = cooling_dev->devdata;
+	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
+
+	*state = READ_ONCE(pwr->thermal_pwrlevel);
+	return 0;
+}
+
+static int kgsl_cooling_set_cur_state(struct thermal_cooling_device *cooling_dev,
+		unsigned long state)
+{
+	struct kgsl_device *device = cooling_dev->devdata;
+	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
+	u32 freq;
+
+	if (state > (pwr->num_pwrlevels - 1))
+		return -EINVAL;
+
+	if (state == READ_ONCE(pwr->thermal_pwrlevel))
+		return 0;
+
+	freq = pwr->pwrlevels[state].gpu_freq;
+	trace_kgsl_thermal_constraint(freq);
+	WRITE_ONCE(pwr->thermal_pwrlevel, state);
+
+	mutex_lock(&device->mutex);
+
+	/* Update the current level using the new limit */
+	kgsl_pwrctrl_pwrlevel_change(device, pwr->active_pwrlevel);
+
+	mutex_unlock(&device->mutex);
+
+	return 0;
+}
+
+static const struct thermal_cooling_device_ops kgsl_cooling_ops = {
+	.get_max_state = kgsl_cooling_get_max_state,
+	.get_cur_state = kgsl_cooling_get_cur_state,
+	.set_cur_state = kgsl_cooling_set_cur_state,
+};
+
+static int register_thermal_cooling_device(struct kgsl_device *device, struct device_node *np)
+{
+	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
+	const char *name = "kgsl";
+	int ret;
+
+	ret = dev_pm_qos_add_request(&device->pdev->dev, &pwr->pmqos_max_freq,
+			DEV_PM_QOS_MAX_FREQUENCY, PM_QOS_MAX_FREQUENCY_DEFAULT_VALUE);
+	if (ret)
+		goto err;
+
+	pwr->cooling_dev = thermal_of_cooling_device_register(np, name, device,
+			&kgsl_cooling_ops);
+	if (IS_ERR(pwr->cooling_dev)) {
+		dev_pm_qos_remove_request(&pwr->pmqos_max_freq);
+		ret = PTR_ERR(pwr->cooling_dev);
+		goto err;
+	}
+
+	return 0;
+
+err:
+	dev_err(device->dev, "Unable to register thermal cooling device: %d\n", ret);
+	return ret;
+}
+
 int kgsl_pwrctrl_init(struct kgsl_device *device)
 {
 	int i, result, freq;
@@ -1642,16 +1913,6 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 
 	init_waitqueue_head(&device->active_cnt_wq);
 
-	/* Initialize the thermal clock constraints */
-	pwr->thermal_pwrlevel = 0;
-	pwr->thermal_pwrlevel_floor = pwr->num_pwrlevels - 1;
-
-	result = dev_pm_qos_add_request(&pdev->dev, &pwr->sysfs_thermal_req,
-			DEV_PM_QOS_MAX_FREQUENCY,
-			PM_QOS_MAX_FREQUENCY_DEFAULT_VALUE);
-	if (result < 0)
-		dev_err(device->dev, "PM QoS thermal request failed:%d\n", result);
-
 	for (i = 0; i < pwr->num_pwrlevels; i++) {
 		freq = pwr->pwrlevels[i].gpu_freq;
 
@@ -1672,24 +1933,26 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 
 	_isense_clk_set_rate(pwr, pwr->num_pwrlevels - 1);
 
-	if (of_property_read_bool(pdev->dev.of_node, "vddcx-supply"))
-		pwr->cx_gdsc = devm_regulator_get(&pdev->dev, "vddcx");
+	if (of_property_read_bool(pdev->dev.of_node, "vddcx-supply") ||
+		(of_property_match_string(pdev->dev.of_node, "power-domain-names", "cx") >= 0))
+		kgsl_pwrctrl_probe_cx_gdsc(device, pdev);
 
-	if (of_property_read_bool(pdev->dev.of_node, "vdd-supply"))
-		pwr->gx_gdsc = devm_regulator_get(&pdev->dev, "vdd");
+	if (of_property_read_bool(pdev->dev.of_node, "vdd-supply") ||
+		(of_property_match_string(pdev->dev.of_node, "power-domain-names", "gx") >= 0))
+		kgsl_pwrctrl_probe_gx_gdsc(device, pdev);
 
 	if (of_property_read_bool(pdev->dev.of_node, "vdd-parent-supply")) {
-		pwr->gx_gdsc_parent = devm_regulator_get(&pdev->dev,
+		pwr->gx_regulator_parent = devm_regulator_get(&pdev->dev,
 				"vdd-parent");
-		if (IS_ERR(pwr->gx_gdsc_parent)) {
+		if (IS_ERR(pwr->gx_regulator_parent)) {
 			dev_err(device->dev,
 				"Failed to get vdd-parent regulator:%ld\n",
-				PTR_ERR(pwr->gx_gdsc_parent));
+				PTR_ERR(pwr->gx_regulator_parent));
 			return -ENODEV;
 		}
 		if (of_property_read_u32(pdev->dev.of_node,
 					"vdd-parent-min-corner",
-					&pwr->gx_gdsc_parent_min_corner)) {
+					&pwr->gx_regulator_parent_min_corner)) {
 			dev_err(device->dev,
 				"vdd-parent-min-corner not found\n");
 			return -ENODEV;
@@ -1702,7 +1965,33 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 	result = kgsl_register_gdsc_notifier(device);
 	if (result) {
 		dev_err(&pdev->dev, "Failed to register gdsc notifier: %d\n", result);
-		return result;
+		goto err;
+	}
+
+	/* Initialize the thermal clock constraints */
+	pwr->thermal_pwrlevel = 0;
+	result = dev_pm_qos_add_request(&pdev->dev, &pwr->sysfs_thermal_req,
+			DEV_PM_QOS_MAX_FREQUENCY,
+			PM_QOS_MAX_FREQUENCY_DEFAULT_VALUE);
+	if (result < 0)
+		dev_err(device->dev, "PM QoS sysfs thermal request failed:%d\n", result);
+
+	/*
+	 * Due to the way it is implemented by the thermal driver, thermal skin mitigation event
+	 * is triggered through PMQOS. Usually, this is supposed to be handled via devfreq.
+	 * Because devfreq recommendations can be overridden by kgsl min_freq/pwrlevel sysfs nodes,
+	 * kgsl should listen to PMQOS events and apply MAX FREQUENCY limit correctly.
+	 */
+	pwr->nb_max.notifier_call = pmqos_max_notifier_call;
+	result = dev_pm_qos_add_notifier(&pdev->dev, &pwr->nb_max, DEV_PM_QOS_MAX_FREQUENCY);
+	if (result)
+		dev_err(device->dev, "Unable to register notifier call for PMQOS updates: %d\n",
+				result);
+
+	result = register_thermal_cooling_device(device, pdev->dev.of_node);
+	if (result) {
+		dev_pm_qos_remove_notifier(&pdev->dev, &pwr->nb_max, DEV_PM_QOS_MAX_FREQUENCY);
+		goto err;
 	}
 
 	pwr->power_flags = 0;
@@ -1710,6 +1999,12 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 	pm_runtime_enable(&pdev->dev);
 
 	return 0;
+
+err:
+	if (dev_pm_qos_request_active(&pwr->sysfs_thermal_req))
+		dev_pm_qos_remove_request(&pwr->sysfs_thermal_req);
+
+	return result;
 }
 
 void kgsl_pwrctrl_close(struct kgsl_device *device)
@@ -1718,10 +2013,32 @@ void kgsl_pwrctrl_close(struct kgsl_device *device)
 
 	pwr->power_flags = 0;
 
+	if (!IS_ERR(pwr->cooling_dev)) {
+		dev_pm_qos_remove_request(&pwr->pmqos_max_freq);
+		dev_pm_qos_remove_notifier(&device->pdev->dev, &pwr->nb_max,
+						DEV_PM_QOS_MAX_FREQUENCY);
+		thermal_cooling_device_unregister(pwr->cooling_dev);
+	}
+
 	if (dev_pm_qos_request_active(&pwr->sysfs_thermal_req))
 		dev_pm_qos_remove_request(&pwr->sysfs_thermal_req);
 
 	pm_runtime_disable(&device->pdev->dev);
+
+	if (pwr->gmu_cx_pd && (pwr->gmu_cx_pd != pwr->cx_pd))
+		dev_pm_domain_detach(pwr->gmu_cx_pd, false);
+
+	if (pwr->cx_pd) {
+		dev_pm_genpd_remove_notifier(pwr->cx_pd);
+		dev_pm_domain_detach(pwr->cx_pd, false);
+	}
+
+	if (pwr->gx_pd)
+		dev_pm_domain_detach(pwr->gx_pd, false);
+
+	pwr->gmu_cx_pd = NULL;
+	pwr->cx_pd = NULL;
+	pwr->gx_pd = NULL;
 }
 
 void kgsl_idle_check(struct work_struct *work)
@@ -1791,7 +2108,7 @@ done:
 
 void kgsl_timer(struct timer_list *t)
 {
-	struct kgsl_device *device = from_timer(device, t, idle_timer);
+	struct kgsl_device *device = kgsl_timer_container_of(device, t, idle_timer);
 
 	if (device->requested_state != KGSL_STATE_SUSPEND) {
 		kgsl_pwrctrl_request_state(device, KGSL_STATE_SLUMBER);
@@ -2214,7 +2531,7 @@ int kgsl_active_count_wait(struct kgsl_device *device, int count,
  * kgsl_pwrctrl_set_default_gpu_pwrlevel() - Set GPU to default power level
  * @device: Pointer to the kgsl_device struct
  */
-int kgsl_pwrctrl_set_default_gpu_pwrlevel(struct kgsl_device *device)
+static int kgsl_pwrctrl_set_default_gpu_pwrlevel(struct kgsl_device *device)
 {
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 	unsigned int new_level = pwr->default_pwrlevel;

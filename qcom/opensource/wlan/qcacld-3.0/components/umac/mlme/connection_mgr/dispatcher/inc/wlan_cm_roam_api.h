@@ -476,7 +476,7 @@ void wlan_cm_append_assoc_ies(struct wlan_roam_scan_offload_params *rso_mode_cfg
 			      uint8_t ie_id, uint8_t ie_len,
 			      const uint8_t *ie_data);
 /**
- * wlan_add_supported_5Ghz_channels()- Add valid 5Ghz channels
+ * wlan_add_supported_5ghz_channels()- Add valid 5GHz channels
  * in Join req.
  * @psoc: psoc ptr
  * @pdev: pdev
@@ -484,7 +484,7 @@ void wlan_cm_append_assoc_ies(struct wlan_roam_scan_offload_params *rso_mode_cfg
  * @num_chnl: Pointer to number of channels value to update
  * @supp_chan_ie: Boolean to check if we need to populate as IE
  *
- * This function is called to update valid 5Ghz channels
+ * This function is called to update valid 5GHz channels
  * in Join req. If @supp_chan_ie is true, supported channels IE
  * format[chan num 1, num of channels 1, chan num 2, num of
  * channels 2, ..] is populated. Else, @chan_list would be a list
@@ -492,11 +492,35 @@ void wlan_cm_append_assoc_ies(struct wlan_roam_scan_offload_params *rso_mode_cfg
  *
  * Return: void
  */
-void wlan_add_supported_5Ghz_channels(struct wlan_objmgr_psoc *psoc,
+void wlan_add_supported_5ghz_channels(struct wlan_objmgr_psoc *psoc,
 				      struct wlan_objmgr_pdev *pdev,
 				      uint8_t *chan_list,
 				      uint8_t *num_chnl,
 				      bool supp_chan_ie);
+
+/**
+ * wlan_add_supported_6ghz_channels()- Add valid 6GHz channels
+ * in Join req.
+ * @psoc: psoc ptr
+ * @pdev: pdev
+ * @chan_list: Pointer to channel list buffer to populate
+ * @num_chnl: Pointer to number of channels value to update
+ * @supp_chan_ie: Boolean to check if we need to populate as IE
+ *
+ * This function is called to update valid 6GHz channels
+ * in Join req. If @supp_chan_ie is true, supported channels IE
+ * format[chan num 1, num of channels 1, chan num 2, num of
+ * channels 2, ..] is populated. Else, @chan_list would be a list
+ * of supported channels[chan num 1, chan num 2..]
+ *
+ * Return: void
+ */
+void wlan_add_supported_6ghz_channels(struct wlan_objmgr_psoc *psoc,
+				      struct wlan_objmgr_pdev *pdev,
+				      uint8_t *chan_list,
+				      uint8_t *num_chnl,
+				      bool supp_chan_ie);
+
 #ifdef WLAN_ADAPTIVE_11R
 /**
  * wlan_get_adaptive_11r_enabled() - Function to check if adaptive 11r
@@ -665,6 +689,40 @@ QDF_STATUS
 wlan_cm_roam_invoke(struct wlan_objmgr_pdev *pdev, uint8_t vdev_id,
 		    struct qdf_mac_addr *bssid, qdf_freq_t chan_freq,
 		    enum wlan_cm_source source);
+
+/**
+ * wlan_cm_roam_get_roam_score_algo() - get value of INI
+ * vendor_roam_score_algorithm
+ * @pdev: Pointer to pdev
+ *
+ * Return: value of vendor_roam_score_algorithm
+ */
+uint32_t wlan_cm_roam_get_roam_score_algo(struct wlan_objmgr_pdev *pdev);
+
+/**
+ * wlan_cm_is_bssid_present_on_any_assoc_link() : Check if bssid belongs to any
+ * assoc link
+ * @vdev: Pointer to vdev
+ * @target_bssid: target bssid
+ *
+ * Return: True if bssid belongs to any assoc else return false
+ */
+bool
+wlan_cm_is_bssid_present_on_any_assoc_link(struct wlan_objmgr_vdev *vdev,
+					   struct qdf_mac_addr *target_bssid);
+
+/**
+ * wlan_cm_roam_reject_reassoc_event() - send reassoc reject log event
+ * vendor_roam_score_algorithm
+ * @pdev: Pointer to pdev
+ * @vdev: Pointer to vdev
+ * @connected_bssid: connected BSSID
+ *
+ * Return: none
+ */
+void wlan_cm_roam_reject_reassoc_event(struct wlan_objmgr_pdev *pdev,
+				       struct wlan_objmgr_vdev *vdev,
+				       struct qdf_mac_addr *connected_bssid);
 
 /**
  * cm_is_fast_roam_enabled() - check fast roam enabled or not
@@ -1199,6 +1257,16 @@ wlan_cm_get_roam_offload_bssid(struct wlan_objmgr_vdev *vdev,
 			       struct qdf_mac_addr *bssid);
 
 /**
+ * wlan_cm_clear_roam_offload_bssid() - Clear the roam offload bssid of the sae
+ * roam candidate
+ * @vdev: pointer to vdevs
+ *
+ * Return: None
+ */
+void
+wlan_cm_clear_roam_offload_bssid(struct wlan_objmgr_vdev *vdev);
+
+/**
  * wlan_cm_set_roam_offload_ssid() - Set the roam offload candidate ssid
  *
  * @vdev: pointer to vdev
@@ -1650,6 +1718,11 @@ wlan_cm_set_roam_offload_bssid(struct wlan_objmgr_vdev *vdev,
 static inline void
 wlan_cm_get_roam_offload_bssid(struct wlan_objmgr_vdev *vdev,
 			       struct qdf_mac_addr *bssid)
+{
+}
+
+static inline void
+wlan_cm_clear_roam_offload_bssid(struct wlan_objmgr_vdev *vdev)
 {
 }
 

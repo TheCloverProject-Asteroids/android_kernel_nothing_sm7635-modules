@@ -32,7 +32,15 @@
 #include <net/cnss2.h>
 #endif
 #if IS_ENABLED(CONFIG_QCOM_MEMORY_DUMP_V2) || IS_ENABLED(CONFIG_QCOM_MINIDUMP)
+#if defined(__has_include)
+#if __has_include(<linux/firmware/qcom/memory_dump.h>)
+#include <linux/firmware/qcom/memory_dump.h>
+#else
 #include <soc/qcom/memory_dump.h>
+#endif
+#else
+#include <soc/qcom/memory_dump.h>
+#endif
 #endif
 #if IS_ENABLED(CONFIG_MSM_SUBSYSTEM_RESTART) || \
 	IS_ENABLED(CONFIG_QCOM_RAMDUMP)
@@ -59,6 +67,7 @@
 #define WLAN_WD_TIMEOUT_MS		60000
 #define WLAN_COLD_BOOT_CAL_TIMEOUT	60000
 #define WLAN_MISSION_MODE_TIMEOUT	30000
+#define WLAN_FW_LOAD_TIMEOUT_MS		65000
 #define TIME_CLOCK_FREQ_HZ		19200000
 #define CNSS_RAMDUMP_MAGIC		0x574C414E
 #define CNSS_RAMDUMP_VERSION		0
@@ -75,6 +84,7 @@
 #define CNSS_FS_NAME_SIZE		15
 #define CNSS_DEVICE_NAME_SIZE		16
 #define QRTR_NODE_FW_ID_BASE		7
+#define QRTR_NODE_FW_ID_BASE_FIG	1
 
 #define POWER_ON_RETRY_DELAY_MS         500
 #define WLFW_MAX_HANG_EVENT_DATA_SIZE   384
@@ -87,9 +97,28 @@
 				CNSS_EVENT_UNINTERRUPTIBLE)
 #define CNSS_EVENT_SYNC_UNKILLABLE (CNSS_EVENT_SYNC | CNSS_EVENT_UNKILLABLE)
 #define QMI_WLFW_MAX_TME_OPT_FILE_NUM 3
-#define TME_OEM_FUSE_FILE_NAME		"peach_sec.dat"
-#define TME_RPR_FILE_NAME		"peach_rpr.bin"
-#define TME_DPR_FILE_NAME		"peach_dpr.bin"
+#define TME_OEM_FUSE_FILE_NAME		"%s_sec.dat"
+#define TME_RPR_FILE_NAME		"%s_rpr.bin"
+#define TME_DPR_FILE_NAME		"%s_dpr.bin"
+
+enum ack_gen_mode {
+	ACK_GEN_DISABLED = 0,
+	ACK_GEN_ENABLED,
+};
+
+enum cx_modes {
+	CX_LEGACY = 0,
+	CX_DATA_PIN,
+	CX_DATA_PIN_PDC,
+	CX_DATA_PIN_PMIC,
+};
+
+enum cx_voltage_corners {
+	CX_RET_V = 0,
+	CX_SVS,
+	CX_SVSL1,
+	CX_NOM,
+};
 
 enum cnss_dt_type {
 	CNSS_DTT_LEGACY = 0,
@@ -154,6 +183,8 @@ struct cnss_pinctrl_info {
 	int xo_clk_gpio; /*qca6490 only */
 	int sw_ctrl_gpio;
 	int wlan_sw_ctrl_gpio;
+	int sw_ctrl_data_0_gpio;
+	int sw_ctrl_data_1_gpio;
 };
 
 #if IS_ENABLED(CONFIG_MSM_SUBSYSTEM_RESTART)
@@ -340,6 +371,12 @@ enum cnss_driver_event_type {
 	CNSS_DRIVER_EVENT_FW_MEM_FILE_SAVE,
 	CNSS_DRIVER_EVENT_QDSS_TRACE_FREE,
 	CNSS_DRIVER_EVENT_QDSS_TRACE_REQ_DATA,
+	CNSS_DRIVER_EVENT_RESUME_POST_SOL,
+	CNSS_DRIVER_EVENT_XO_TRIM_IND,
+	CNSS_DRIVER_EVENT_XDUMP_BT_ARRIVAL,
+	CNSS_DRIVER_EVENT_XDUMP_BT_OVER_WL_REQ,
+	CNSS_DRIVER_EVENT_CALDB_RDDM_SAVE,
+	CNSS_DRIVER_EVENT_CALDB_RDDM_RESTORE,
 	CNSS_DRIVER_EVENT_MAX,
 };
 
@@ -373,6 +410,10 @@ enum cnss_driver_state {
 	CNSS_DRIVER_REGISTERED,
 	CNSS_DMS_DEL_SERVER,
 	CNSS_POWER_OFF,
+	CNSS_SHUTDOWN_DEVICE,
+	CNSS_POWERING_ON,
+	CNSS_SEC_DOWNLOAD,
+	CNSS_RADIO_OFF,
 };
 
 struct cnss_recovery_data {
@@ -413,6 +454,8 @@ enum cnss_debug_quirks {
 	IGNORE_PCI_LINK_FAILURE,
 	DISABLE_TIME_SYNC,
 	FORCE_ONE_MSI,
+	PREVENT_PCI_LINK_RESUME,
+	CNSS_INTERNAL_RESUME,
 	QUIRK_MAX_VALUE
 };
 
@@ -460,6 +503,12 @@ struct cnss_tcs_info {
 	void __iomem *cmd_base_addr_io;
 };
 
+struct cnss_irq_ts_info {
+	bool is_valid_addr;
+	resource_size_t cmd_ts_addr;
+	void __iomem *cmd_ts_addr_io;
+};
+
 struct cnss_cpr_info {
 	resource_size_t tcs_cmd_data_addr;
 	void __iomem *tcs_cmd_data_addr_io;
@@ -497,6 +546,7 @@ enum cnss_timeout_type {
 	CNSS_TIMEOUT_RDDM,
 	CNSS_TIMEOUT_RECOVERY,
 	CNSS_TIMEOUT_DAEMON_CONNECTION,
+	CNSS_TIMEOUT_FW_LOAD,
 };
 
 struct cnss_sol_gpio {
@@ -513,6 +563,81 @@ struct cnss_thermal_cdev {
 	unsigned long max_thermal_state;
 	struct device_node *dev_node;
 	struct thermal_cooling_device *tcdev;
+};
+
+/**
+ * struct cnss_xo_trim_config - Configuration for crystal oscillator (XO) trim
+ * @xo_calib_reg: register for XO calibration
+ * @wcal_pbs: regulator to trigger PBS sequence
+ * @trim_val: trim value for XO
+ */
+struct cnss_xo_trim_config {
+	struct nvmem_cell *xo_calib_reg;
+	struct regulator *wcal_pbs;
+	u8 trim_val;
+};
+
+/*
+ * struct cnss_xdump_cap - Capabilities for WLAN/BT cross-module dump
+ * @indicated: Indicates whether the capabilities has been reported
+ * @wl_over_bt: Supports collecting WLAN dump over BT UART
+ * @bt_over_wl: Supports collecting BT dump over WLAN PCIe
+ */
+struct cnss_xdump_cap {
+	u8 indicated : 1;
+	u8 wl_over_bt : 1;
+	u8 bt_over_wl : 1;
+};
+
+/**
+ * struct cnss_xdump_helper - Configurations for WLAN/BT cross-module dump
+ * @user_cap: user configured capability
+ * @wl_cap: WLAN capability
+ * @bt_cap: BT capability
+ * @wl_over_bt_enabled: Indicates whether collecting BT dump over WLAN
+ * is enabled
+ * @bt_over_wlan_enabled: Indicates whether collecting WLAN dump over BT
+ * is enabled
+ * @dumping_wl_over_bt: Indicates whether collecting BT dump over WLAN
+ * is in progress
+ * @dumping_bt_over_wl: Indicates whether collecting WLAN dump over BT
+ * is in progress
+ * @wl_over_bt_complete: completion for collecting WLAN dump over BT
+ */
+struct cnss_xdump_helper {
+	struct cnss_xdump_cap user_cap;
+	struct cnss_xdump_cap wl_cap;
+	struct cnss_xdump_cap bt_cap;
+	u8 wl_over_bt_enabled;
+	u8 bt_over_wlan_enabled;
+	u8 dumping_wl_over_bt;
+	u8 dumping_bt_over_wl;
+	struct completion wl_over_bt_complete;
+};
+
+struct cnss_wlan_tsf_info {
+	int wlan_tsf_gpio;
+	int irq_num;
+	void *context;
+	uint64_t host_time_us;
+	wlan_tsf_handler_t wlan_tsf_handler;
+	struct cnss_irq_ts_info irq_ts_info;
+};
+
+/**
+ * enum cnss_power_ctrl_mode - WLAN power control modes
+ * @CNSS_POWER_CTRL_HOST: Power rails are controlled by the host platform driver
+ * @CNSS_POWER_CTRL_SCMI: Power rails are controlled via SCMI
+ *  (System Control and Management Interface)
+ * @CNSS_POWER_CTRL_ALWAYS_ON: Power rails remain always on;
+ */
+enum cnss_power_ctrl_mode {
+	CNSS_POWER_CTRL_HOST = 0,
+	CNSS_POWER_CTRL_SCMI,
+	CNSS_POWER_CTRL_ALWAYS_ON,
+
+	/* keep last */
+	CNSS_POWER_CTRL_LAST,
 };
 
 struct cnss_plat_data {
@@ -571,6 +696,7 @@ struct cnss_plat_data {
 #endif
 	struct cnss_fw_mem fw_mem[QMI_WLFW_MAX_NUM_MEM_SEG_V01];
 	struct cnss_fw_mem m3_mem;
+	struct cnss_fw_mem sku_license_mem;
 	struct cnss_fw_mem tme_lite_mem;
 	struct cnss_fw_mem tme_opt_file_mem[QMI_WLFW_MAX_TME_OPT_FILE_NUM];
 	struct cnss_fw_mem *cal_mem;
@@ -603,6 +729,8 @@ struct cnss_plat_data {
 	char firmware_name[MAX_FIRMWARE_NAME_LEN];
 	char fw_fallback_name[MAX_FIRMWARE_NAME_LEN];
 #ifndef CONFIG_DISABLE_CNSS_SRAM_DUMP
+	u32 sram_dump_start_addr;
+	u32 sram_dump_size;
 	u8 *sram_dump;
 #endif
 	struct completion rddm_complete;
@@ -624,10 +752,12 @@ struct cnss_plat_data {
 	u8 use_pm_domain;
 	u8 use_nv_mac;
 	u8 set_wlaon_pwr_ctrl;
+	u8 wlaon_pwr_ctrl_otp_supported;
 	struct cnss_tcs_info tcs_info;
 	bool fw_pcie_gen_switch;
 	bool fw_aux_uc_support;
 	u64 fw_caps;
+	u64 sku_features;
 	u8 pcie_gen_speed;
 	struct iommu_domain *audio_iommu_domain;
 	bool is_audio_shared_iommu_group;
@@ -641,6 +771,8 @@ struct cnss_plat_data {
 	const char *vreg_ol_cpr, *vreg_ipa;
 	const char **pdc_init_table, **vreg_pdc_map, **pmu_vreg_map;
 	int pdc_init_table_len, vreg_pdc_map_len, pmu_vreg_map_len;
+	const char **pdc_mode_vote_table;
+	int pdc_mode_vote_table_len;
 	bool adsp_pc_enabled;
 	u64 feature_list;
 	u32 dt_type;
@@ -670,6 +802,10 @@ struct cnss_plat_data {
 	int pd_count;
 };
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 16, 0))
+#define from_timer timer_container_of
+#endif
+
 #if IS_ENABLED(CONFIG_ARCH_QCOM)
 static inline u64 cnss_get_host_timestamp(struct cnss_plat_data *plat_priv)
 {
@@ -693,7 +829,7 @@ static inline u64 cnss_get_host_timestamp(struct cnss_plat_data *plat_priv)
 int cnss_wlan_hw_disable_check(struct cnss_plat_data *plat_priv);
 int cnss_wlan_hw_enable(void);
 struct cnss_plat_data *cnss_get_plat_priv(struct platform_device *plat_dev);
-struct cnss_plat_data *cnss_get_first_plat_priv(struct platform_device *plat_dev);
+struct cnss_plat_data *cnss_get_first_plat_priv(void);
 void cnss_pm_stay_awake(struct cnss_plat_data *plat_priv);
 void cnss_pm_relax(struct cnss_plat_data *plat_priv);
 struct cnss_plat_data *cnss_get_plat_priv_by_rc_num(int rc_num);
@@ -730,6 +866,10 @@ int cnss_init_dev_sol_irq(struct cnss_plat_data *plat_priv);
 int cnss_deinit_dev_sol_irq(struct cnss_plat_data *plat_priv);
 int cnss_set_host_sol_value(struct cnss_plat_data *plat_priv, int value);
 int cnss_get_host_sol_value(struct cnss_plat_data *plat_priv);
+int cnss_set_direct_cx_host_sol_value(struct cnss_plat_data *plat_priv,
+				      int value);
+int cnss_get_direct_cx_host_sol_value(struct cnss_plat_data *plat_priv);
+int cnss_init_direct_cx_host_sol_gpio(struct cnss_plat_data *plat_priv);
 int cnss_register_subsys(struct cnss_plat_data *plat_priv);
 void cnss_unregister_subsys(struct cnss_plat_data *plat_priv);
 int cnss_register_ramdump(struct cnss_plat_data *plat_priv);
@@ -762,6 +902,11 @@ void cnss_power_misc_params_init(struct cnss_plat_data *plat_priv);
 void cnss_pci_of_switch_type_init(struct cnss_plat_data *plat_priv);
 int cnss_aop_ol_cpr_cfg_setup(struct cnss_plat_data *plat_priv,
 			      struct wlfw_pmu_cfg_v01 *fw_pmu_cfg);
+int cnss_ol_cpr_cfg_ext_setup(struct cnss_plat_data *plat_priv,
+			      struct wlfw_pmu_cfg_ext_v01 *fw_pmu_cfg_ext);
+int cnss_request_firmware_update_timer(struct cnss_plat_data *plat_priv,
+				       const struct firmware **fw_entry,
+				       const char *filename);
 int cnss_request_firmware_direct(struct cnss_plat_data *plat_priv,
 				 const struct firmware **fw_entry,
 				 const char *filename);
@@ -772,6 +917,7 @@ int cnss_clear_feature_list(struct cnss_plat_data *plat_priv,
 int cnss_get_feature_list(struct cnss_plat_data *plat_priv,
 			  u64 *feature_list);
 int cnss_get_input_gpio_value(struct cnss_plat_data *plat_priv, int gpio_num);
+void cnss_read_gpio_status_on_link_down(struct cnss_plat_data *plat_priv);
 bool cnss_check_driver_loading_allowed(void);
 int cnss_dev_specific_power_on(struct cnss_plat_data *plat_priv);
 void cnss_recovery_handler(struct cnss_plat_data *plat_priv);

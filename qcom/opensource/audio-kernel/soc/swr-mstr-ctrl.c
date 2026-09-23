@@ -27,6 +27,7 @@
 #include "swr-slave-registers.h"
 #include <dsp/digital-cdc-rsc-mgr.h>
 #include "swr-mstr-ctrl.h"
+#include <linux/proc_fs.h>
 
 #define SWR_NUM_PORTS    4 /* TODO - Get this info from DT */
 
@@ -1685,6 +1686,7 @@ static void swrm_copy_data_port_config(struct swr_master *master, u8 bank)
 		list_for_each_entry(port_req, &mport->port_req_list, list) {
 			if (!port_req->dev_num)
 				continue;
+
 			j++;
 			slv_id = port_req->slave_port_id;
 			/* Assumption: If different channels in the same port
@@ -1746,7 +1748,9 @@ static void swrm_copy_data_port_config(struct swr_master *master, u8 bank)
 						SWRS_DP_OFFSET_CONTROL_2_BANK(
 							slv_id, bank));
 			}
-			if (port_req->hstart != SWR_INVALID_PARAM
+
+			if (len < SWRM_MAX_PORT_REG
+				&& port_req->hstart != SWR_INVALID_PARAM
 				&& port_req->hstop != SWR_INVALID_PARAM) {
 				hparams = (port_req->hstart << 4) |
 						port_req->hstop;
@@ -1850,6 +1854,7 @@ static void swrm_copy_data_port_config(struct swr_master *master, u8 bank)
 			port_req->ch_en = port_req->req_ch;
 			dev_offset[port_req->dev_num] = port_req->offset1;
 		}
+
 		if (swrm->master_id == MASTER_ID_TX) {
 			mport->sinterval = sinterval;
 			mport->lane_ctrl = lane_ctrl;
@@ -1872,44 +1877,57 @@ static void swrm_copy_data_port_config(struct swr_master *master, u8 bank)
 		mport->offset1 = controller_offset;
 		value |= (mport->sinterval & 0xFF);
 
-		reg[len] = SWRM_DP_PORT_CTRL_BANK((i + 1), bank);
-		val[len++] = value;
-		dev_dbg(swrm->dev, "%s: mport :%d, reg: 0x%x, val: 0x%x\n",
-			__func__, (i + 1),
-			(SWRM_DP_PORT_CTRL_BANK((i + 1), bank)), value);
+		if (len < SWRM_MAX_PORT_REG) {
+			reg[len] = SWRM_DP_PORT_CTRL_BANK((i + 1), bank);
+			val[len++] = value;
+			dev_dbg(swrm->dev, "%s: mport :%d, reg: 0x%x, val: 0x%x\n",
+				__func__, (i + 1),
+				(SWRM_DP_PORT_CTRL_BANK((i + 1), bank)), value);
+		}
 
-		reg[len] = SWRM_DP_SAMPLECTRL2_BANK((i + 1), bank);
-		val[len++] = ((mport->sinterval >> 8) & 0xFF);
+		if (len < SWRM_MAX_PORT_REG) {
+			reg[len] = SWRM_DP_SAMPLECTRL2_BANK((i + 1), bank);
+			val[len++] = ((mport->sinterval >> 8) & 0xFF);
+		}
 
-		if (mport->lane_ctrl != SWR_INVALID_PARAM) {
+		if (len < SWRM_MAX_PORT_REG
+			&& mport->lane_ctrl != SWR_INVALID_PARAM) {
 			reg[len] = SWRM_DP_PORT_CTRL_2_BANK((i + 1), bank);
 			val[len++] = mport->lane_ctrl;
 		}
-		if (mport->word_length != SWR_INVALID_PARAM) {
+
+		if (len < SWRM_MAX_PORT_REG
+			&& mport->word_length != SWR_INVALID_PARAM) {
 			reg[len] = SWRM_DP_BLOCK_CTRL_1((i + 1));
 			val[len++] = mport->word_length;
 		}
 
-		if (mport->blk_grp_count != SWR_INVALID_PARAM) {
+		if (len < SWRM_MAX_PORT_REG
+			&& mport->blk_grp_count != SWR_INVALID_PARAM) {
 			reg[len] = SWRM_DP_BLOCK_CTRL2_BANK((i + 1), bank);
 			val[len++] = mport->blk_grp_count;
 		}
-		if (mport->hstart != SWR_INVALID_PARAM
+
+		if (len < SWRM_MAX_PORT_REG) {
+			if (mport->hstart != SWR_INVALID_PARAM
 				&& mport->hstop != SWR_INVALID_PARAM) {
-			reg[len] = SWRM_DP_PORT_HCTRL_BANK((i + 1), bank);
-			hparams = (mport->hstop << 4) | mport->hstart;
-			val[len++] = hparams;
-		} else {
-			reg[len] = SWRM_DP_PORT_HCTRL_BANK((i + 1), bank);
-			hparams = (SWR_HSTOP_MAX_VAL << 4) | SWR_HSTART_MIN_VAL;
-			val[len++] = hparams;
+				reg[len] = SWRM_DP_PORT_HCTRL_BANK((i + 1), bank);
+				hparams = (mport->hstop << 4) | mport->hstart;
+				val[len++] = hparams;
+			} else {
+				reg[len] = SWRM_DP_PORT_HCTRL_BANK((i + 1), bank);
+				hparams = (SWR_HSTOP_MAX_VAL << 4) | SWR_HSTART_MIN_VAL;
+				val[len++] = hparams;
+			}
 		}
-		if (mport->blk_pack_mode != SWR_INVALID_PARAM) {
+
+		if (len < SWRM_MAX_PORT_REG
+			&& mport->blk_pack_mode != SWR_INVALID_PARAM) {
 			reg[len] = SWRM_DP_BLOCK_CTRL3_BANK((i + 1), bank);
 			val[len++] = mport->blk_pack_mode;
 		}
-		mport->ch_en = mport->req_ch;
 
+		mport->ch_en = mport->req_ch;
 	}
 	swrm_reg_dump(swrm, reg, val, len, __func__);
 	swr_master_bulk_write(swrm, reg, val, len);
@@ -2141,6 +2159,7 @@ static int swrm_slvdev_datapath_control(struct swr_master *master, bool enable)
 	swrm_update_clk_base_and_scale(master, bank);
 	enable_bank_switch(swrm, bank, n_row, n_col);
 	inactive_bank = bank ? 0 : 1;
+	swrm_update_clk_base_and_scale(master, inactive_bank);
 
 	if (enable)
 		swrm_copy_data_port_config(master, inactive_bank);
@@ -2888,16 +2907,20 @@ static int swrm_get_logical_dev_num(struct swr_master *mstr, u64 dev_id,
 		 * update logical device number for all slaves.
 		 */
 		list_for_each_entry(swr_dev, &mstr->devices, dev_list) {
-			if (swr_dev->addr == (id & SWR_DEV_ID_MASK)) {
+			if (swr_dev->addr == (id & SWR_DEV_ID_MASK) ||
+			    swrm_read_scp_registers(swrm, i, __func__) == swr_dev->addr) {
+
 				u32 status = swrm_get_device_status(swrm, i);
 
 				if ((status == 0x01) || (status == 0x02)) {
 					swr_dev->dev_num = i;
-					if ((id & SWR_DEV_ID_MASK) == dev_id) {
+					if ((id & SWR_DEV_ID_MASK) == dev_id ||
+					     swrm_read_scp_registers(swrm, i, __func__) == dev_id) {
+
 						*dev_num = i;
 						sdev = swr_dev;
 						ret = 0;
-						dev_info(swrm->dev,
+						dev_dbg(swrm->dev,
 							"%s: devnum %d assigned for dev %llx\n",
 							__func__, i,
 							swr_dev->addr);
@@ -3194,6 +3217,7 @@ static int swrm_probe(struct platform_device *pdev)
 	int ret = 0;
 	struct clk *lpass_core_hw_vote = NULL;
 	struct clk *lpass_core_audio = NULL;
+	struct proc_dir_entry *swr_mstr_ctrl_regdump_file = NULL;
 	u32 swrm_hw_ver = 0;
 	u32 max_register = 0;
 
@@ -3618,6 +3642,24 @@ static int swrm_probe(struct platform_device *pdev)
 				   &swrm_debug_dump_ops);
 	}
 #endif
+
+	/*
+	 * gracefully handle proc dir creation failure
+	 * if creation fails probe shoul not fail.
+	 */
+	swrm->swr_mstr_ctrl_proc_entry = proc_mkdir(dev_name(&pdev->dev), NULL);
+	if (swrm->swr_mstr_ctrl_proc_entry) {
+		swr_mstr_ctrl_regdump_file = proc_create_data("swr_mstr_ctrl_regdump",
+				0444, swrm->swr_mstr_ctrl_proc_entry,
+				&swr_mstr_ctrl_proc_ops, swrm);
+		if (!swr_mstr_ctrl_regdump_file) {
+			dev_err(&pdev->dev, "%s: error creating proc read interface\n",
+					__func__);
+			proc_remove(swrm->swr_mstr_ctrl_proc_entry);
+			swrm->swr_mstr_ctrl_proc_entry = NULL;
+		}
+	}
+
 	pm_runtime_set_autosuspend_delay(&pdev->dev, auto_suspend_timer);
 	pm_runtime_use_autosuspend(&pdev->dev);
 	pm_runtime_set_active(&pdev->dev);
@@ -3665,6 +3707,9 @@ err_memory_fail:
 static int swrm_remove(struct platform_device *pdev)
 {
 	struct swr_mstr_ctrl *swrm = platform_get_drvdata(pdev);
+
+	if (swrm->swr_mstr_ctrl_proc_entry)
+		proc_remove(swrm->swr_mstr_ctrl_proc_entry);
 
 	if (swrm->reg_irq) {
 		swrm->reg_irq(swrm->handle, swr_mstr_interrupt,

@@ -38,6 +38,8 @@
 		SNDRV_PCM_FMTBIT_S24_LE |\
 		SNDRV_PCM_FMTBIT_S24_3LE | SNDRV_PCM_FMTBIT_S32_LE)
 
+#define LPASS_CDC_WSA_MACRO_VI_FEEDBACK_RATES (SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |\
+			SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_96000)
 #define LPASS_CDC_WSA_MACRO_ECHO_RATES (SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |\
 			SNDRV_PCM_RATE_48000)
 #define LPASS_CDC_WSA_MACRO_ECHO_FORMATS (SNDRV_PCM_FMTBIT_S16_LE |\
@@ -46,6 +48,7 @@
 
 #define LPASS_CDC_WSA_MACRO_CPS_RATES (48000)
 #define LPASS_CDC_WSA_MACRO_CPS_FORMATS (SNDRV_PCM_FMTBIT_S32_LE)
+#define LPASS_CDC_WSA_MACRO_VI_DEC_ENABLE_DELAY_MS  5
 
 #define NUM_INTERPOLATORS 2
 
@@ -203,7 +206,7 @@ static int lpass_cdc_wsa_macro_mute_stream(struct snd_soc_dai *dai, int mute, in
 struct lpass_cdc_wsa_macro_swr_ctrl_data {
 	struct platform_device *wsa_swr_pdev;
 };
-static int lpass_cdc_wsa_macro_enable_vi_decimator(struct snd_soc_component *component);
+static void lpass_cdc_wsa_macro_enable_vi_decimator(struct work_struct *work);
 
 #define LPASS_CDC_WSA_MACRO_SET_VOLUME_TLV(xname, xreg, xmin, xmax, tlv_array) \
 {	.iface  = SNDRV_CTL_ELEM_IFACE_MIXER, .name = (xname), \
@@ -238,9 +241,14 @@ enum {
 	LPASS_CDC_WSA_MACRO_AIF_VI,
 	LPASS_CDC_WSA_MACRO_AIF_ECHO,
 	LPASS_CDC_WSA_MACRO_AIF_CPS,
+	LPASS_CDC_WSA_MACRO_AIF4_PB,
 	LPASS_CDC_WSA_MACRO_MAX_DAIS,
 };
 
+struct wsa_vi_dec_enable_work {
+	struct lpass_cdc_wsa_macro_priv *wsa_priv;
+	struct delayed_work dwork;
+};
 
 #define LPASS_CDC_WSA_MACRO_CHILD_DEVICES_MAX 3
 
@@ -276,6 +284,7 @@ struct lpass_cdc_wsa_macro_priv {
 	int ec_hq[LPASS_CDC_WSA_MACRO_RX1 + 1];
 	u16 prim_int_users[LPASS_CDC_WSA_MACRO_RX1 + 1];
 	u16 wsa_mclk_users;
+	struct wsa_vi_dec_enable_work wsa_vi_dec_enable_work;
 	u16 swr_clk_users;
 	bool dapm_mclk_enable;
 	bool reset_swr;
@@ -561,7 +570,7 @@ static struct snd_soc_dai_driver lpass_cdc_wsa_macro_dai[] = {
 			.stream_name = "WSA_AIF_VI Capture",
 			.rates = LPASS_CDC_WSA_MACRO_VI_RATES,
 			.formats = LPASS_CDC_WSA_MACRO_RX_FORMATS,
-			.rate_max = 48000,
+			.rate_max = 96000,
 			.rate_min = 8000,
 			.channels_min = 1,
 			.channels_max = 4,
@@ -593,6 +602,20 @@ static struct snd_soc_dai_driver lpass_cdc_wsa_macro_dai[] = {
 			.rate_min = 48000,
 			.channels_min = 1,
 			.channels_max = 2,
+		},
+		.ops = &lpass_cdc_wsa_macro_dai_ops,
+	},
+	{
+		.name = "wsa_macro_rx4",
+		.id = LPASS_CDC_WSA_MACRO_AIF4_PB,
+		.playback = {
+				.stream_name = "WSA AIF4 Playback",
+				.rates = LPASS_CDC_WSA_MACRO_RX_RATES,
+				.formats = LPASS_CDC_WSA_MACRO_RX_FORMATS,
+				.rate_max = 192000,
+				.rate_min = 8000,
+				.channels_min = 1,
+				.channels_max = 2,
 		},
 		.ops = &lpass_cdc_wsa_macro_dai_ops,
 	},
@@ -914,6 +937,10 @@ static int lpass_cdc_wsa_macro_get_channel_map(struct snd_soc_dai *dai,
 		*tx_slot = wsa_priv->active_ch_mask[dai->id];
 		*tx_num = wsa_priv->active_ch_cnt[dai->id];
 		break;
+	case LPASS_CDC_WSA_MACRO_AIF4_PB:
+		*rx_slot = 0x1;
+		*rx_num = 0x01;
+		break;
 	case LPASS_CDC_WSA_MACRO_AIF1_PB:
 	case LPASS_CDC_WSA_MACRO_AIF_MIX1_PB:
 		for_each_set_bit(temp, &wsa_priv->active_ch_mask[dai->id],
@@ -945,6 +972,9 @@ static int lpass_cdc_wsa_macro_get_channel_map(struct snd_soc_dai *dai,
 		dev_err_ratelimited(wsa_dev, "%s: Invalid AIF\n", __func__);
 		break;
 	}
+	dev_dbg(wsa_priv->dev,
+			"%s: dai->id:%d, rx_mask:%d, rx_ch_cnt:%d, tx_mask:%d, tx_ch_cnt:%d\n",
+			__func__, dai->id, *rx_slot, *rx_num, *tx_slot, *tx_num);
 	return 0;
 }
 
@@ -986,7 +1016,9 @@ static int lpass_cdc_wsa_macro_mute_stream(struct snd_soc_dai *dai, int mute, in
 	case LPASS_CDC_WSA_MACRO_AIF_MIX1_PB:
 		lpass_cdc_wsa_pa_on(wsa_dev, adie_lb);
 		lpass_cdc_wsa_unmute_interpolator(dai);
-		lpass_cdc_wsa_macro_enable_vi_decimator(component);
+		queue_delayed_work(system_freezable_wq,
+			&wsa_priv->wsa_vi_dec_enable_work.dwork,
+			msecs_to_jiffies(LPASS_CDC_WSA_MACRO_VI_DEC_ENABLE_DELAY_MS));
 		break;
 	default:
 		break;
@@ -1170,23 +1202,37 @@ static int lpass_cdc_wsa_macro_event_handler(struct snd_soc_component *component
 	return 0;
 }
 
-static int lpass_cdc_wsa_macro_enable_vi_decimator(struct snd_soc_component *component)
+static void lpass_cdc_wsa_macro_enable_vi_decimator(struct work_struct *work)
 {
+	struct delayed_work *unmute_delayed_work = NULL;
+	struct wsa_vi_dec_enable_work *wsa_vi_dec_enable_work = NULL;
+	struct snd_soc_component *component = NULL;
 	struct device *wsa_dev = NULL;
 	struct lpass_cdc_wsa_macro_priv *wsa_priv = NULL;
 	u8 val = 0x0;
 
-	if (!lpass_cdc_wsa_macro_get_data(component, &wsa_dev, &wsa_priv, __func__))
-		return -EINVAL;
+	unmute_delayed_work = to_delayed_work(work);
+	wsa_vi_dec_enable_work = container_of(unmute_delayed_work,
+			struct wsa_vi_dec_enable_work, dwork);
+	wsa_priv = wsa_vi_dec_enable_work->wsa_priv;
+	component = wsa_priv->component;
+
+	lpass_cdc_wsa_macro_get_data(component, &wsa_dev, &wsa_priv, __func__);
 
 	usleep_range(5000, 5500);
 	dev_dbg(wsa_dev, "%s: wsa_priv->pcm_rate_vi %d\n", __func__, wsa_priv->pcm_rate_vi);
 	switch (wsa_priv->pcm_rate_vi) {
+	case 96000:
+		val = 0x05;
+		break;
 	case 48000:
 		val = 0x04;
 		break;
-	case 24000:
-		val = 0x02;
+	case 32000:
+		val = 0x03;
+		break;
+	case 16000:
+		val = 0x01;
 		break;
 	case 8000:
 	default:
@@ -1256,7 +1302,6 @@ static int lpass_cdc_wsa_macro_enable_vi_decimator(struct snd_soc_component *com
 			LPASS_CDC_WSA_TX3_SPKR_PROT_PATH_CTL,
 			0x20, 0x00);
 	}
-	return 0;
 }
 
 static int lpass_cdc_wsa_macro_disable_vi_feedback(struct snd_soc_dapm_widget *w,
@@ -3088,6 +3133,9 @@ static const struct snd_soc_dapm_widget lpass_cdc_wsa_macro_dapm_widgets[] = {
 	SND_SOC_DAPM_AIF_OUT("WSA AIF_CPS", "WSA_AIF_CPS Capture", 0,
 		SND_SOC_NOPM, 0, 0),
 
+	SND_SOC_DAPM_AIF_IN("WSA AIF4 PB", "WSA AIF4 Playback", 0,
+		SND_SOC_NOPM, 0, 0),
+
 	SND_SOC_DAPM_MIXER("WSA_AIF_VI Mixer", SND_SOC_NOPM, LPASS_CDC_WSA_MACRO_AIF_VI,
 		0, aif_vi_mixer, ARRAY_SIZE(aif_vi_mixer)),
 	SND_SOC_DAPM_MIXER("WSA_AIF_CPS Mixer", SND_SOC_NOPM, LPASS_CDC_WSA_MACRO_AIF_CPS,
@@ -3174,6 +3222,7 @@ static const struct snd_soc_dapm_widget lpass_cdc_wsa_macro_dapm_widgets[] = {
 
 	SND_SOC_DAPM_OUTPUT("WSA_SPK1 OUT"),
 	SND_SOC_DAPM_OUTPUT("WSA_SPK2 OUT"),
+	SND_SOC_DAPM_OUTPUT("WSA_HAPT OUT"),
 
 	SND_SOC_DAPM_SUPPLY_S("WSA_MCLK", 0, SND_SOC_NOPM, 0, 0,
 	lpass_cdc_wsa_macro_mclk_event, SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
@@ -3191,6 +3240,10 @@ static const struct snd_soc_dapm_route wsa_audio_map[] = {
 	{"WSA_AIF_CPS Mixer", "WSA_SPKR_CPS_2", "CPSINPUT_WSA"},
 	{"WSA AIF_CPS", NULL, "WSA_AIF_CPS Mixer"},
 	{"WSA AIF_CPS", NULL, "WSA_MCLK"},
+
+	/* Haptics PCM*/
+	{"WSA AIF4 PB", NULL, "WSA_MCLK"},
+	{"WSA_HAPT OUT", NULL, "WSA AIF4 PB"},
 
 	{"WSA RX_MIX EC0_MUX", "RX_MIX_TX0", "WSA_RX INT0 SEC MIX"},
 	{"WSA RX_MIX EC1_MUX", "RX_MIX_TX0", "WSA_RX INT0 SEC MIX"},
@@ -3762,12 +3815,14 @@ static int lpass_cdc_wsa_macro_init(struct snd_soc_component *component)
 		return ret;
 	}
 	snd_soc_dapm_ignore_suspend(dapm, "WSA_AIF1 Playback");
+	snd_soc_dapm_ignore_suspend(dapm, "WSA AIF4 Playback");
 	snd_soc_dapm_ignore_suspend(dapm, "WSA_AIF_MIX1 Playback");
 	snd_soc_dapm_ignore_suspend(dapm, "WSA_AIF_VI Capture");
 	snd_soc_dapm_ignore_suspend(dapm, "WSA_AIF_ECHO Capture");
 	snd_soc_dapm_ignore_suspend(dapm, "WSA_AIF_CPS Capture");
 	snd_soc_dapm_ignore_suspend(dapm, "WSA_SPK1 OUT");
 	snd_soc_dapm_ignore_suspend(dapm, "WSA_SPK2 OUT");
+	snd_soc_dapm_ignore_suspend(dapm, "WSA_HAPT OUT");
 	snd_soc_dapm_ignore_suspend(dapm, "VIINPUT_WSA");
 	snd_soc_dapm_ignore_suspend(dapm, "CPSINPUT_WSA");
 	snd_soc_dapm_ignore_suspend(dapm, "WSA SRC0_INP");
@@ -3775,6 +3830,9 @@ static int lpass_cdc_wsa_macro_init(struct snd_soc_component *component)
 	snd_soc_dapm_ignore_suspend(dapm, "WSA_TX DEC1_INP");
 	snd_soc_dapm_sync(dapm);
 
+	wsa_priv->wsa_vi_dec_enable_work.wsa_priv = wsa_priv;
+	INIT_DELAYED_WORK(&wsa_priv->wsa_vi_dec_enable_work.dwork,
+		lpass_cdc_wsa_macro_enable_vi_decimator);
 	wsa_priv->component = component;
 	wsa_priv->spkr_gain_offset = LPASS_CDC_WSA_MACRO_GAIN_OFFSET_0_DB;
 	lpass_cdc_wsa_macro_init_reg(component);
@@ -4158,6 +4216,8 @@ static int lpass_cdc_wsa_macro_remove(struct platform_device *pdev)
 	if (!wsa_priv)
 		return -EINVAL;
 
+	cancel_delayed_work_sync(
+			&wsa_priv->wsa_vi_dec_enable_work.dwork);
 	if (wsa_priv->tcdev)
 		thermal_cooling_device_unregister(wsa_priv->tcdev);
 

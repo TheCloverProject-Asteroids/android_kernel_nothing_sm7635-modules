@@ -48,6 +48,8 @@
 #define pmo_nofl_debug(params...) \
 	QDF_TRACE_DEBUG_NO_FL(QDF_MODULE_ID_PMO, params)
 
+#define pmo_debug_rl(params...) QDF_TRACE_DEBUG_RL(QDF_MODULE_ID_PMO, params)
+
 #define pmo_enter() QDF_TRACE_ENTER(QDF_MODULE_ID_PMO, "enter")
 #define pmo_exit() QDF_TRACE_EXIT(QDF_MODULE_ID_PMO, "exit")
 

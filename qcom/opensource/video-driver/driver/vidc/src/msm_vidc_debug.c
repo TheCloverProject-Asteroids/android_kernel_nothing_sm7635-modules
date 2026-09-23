@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #define CREATE_TRACE_POINTS
@@ -17,6 +17,7 @@ extern struct msm_vidc_core *g_core;
 
 #define MAX_SSR_STRING_LEN         64
 #define MAX_STABILITY_STRING_LEN   64
+#define MAX_CRC_STRING_LEN         64
 #define MAX_DEBUG_LEVEL_STRING_LEN 15
 #define MSM_VIDC_MIN_STATS_DELAY_MS     200
 #define MSM_VIDC_MAX_STATS_DELAY_MS     10000
@@ -65,7 +66,7 @@ static int debug_level_set_drv(const char *val,
 	}
 
 	d_vpr_h(
-		"timeout updated for driver: hw_response %u, sw_pc %u, fw_unload %u, debug_level %#x\n",
+		"timeout updated for driver: hw_response %llu, sw_pc %llu, fw_unload %llu, debug_level %#x\n",
 		core->capabilities[HW_RESPONSE_TIMEOUT].value,
 		core->capabilities[SW_PC_DELAY].value,
 		core->capabilities[FW_UNLOAD_DELAY].value,
@@ -112,7 +113,7 @@ static int debug_level_set_fw(const char *val,
 	}
 
 	d_vpr_h(
-		"timeout updated for firmware: hw_response %u, sw_pc %u, fw_unload %u, debug_level %#x\n",
+		"timeout updated for firmware: hw_response %llu, sw_pc %llu, fw_unload %llu, debug_level %#x\n",
 		core->capabilities[HW_RESPONSE_TIMEOUT].value,
 		core->capabilities[SW_PC_DELAY].value,
 		core->capabilities[FW_UNLOAD_DELAY].value,
@@ -311,8 +312,8 @@ static ssize_t core_info_read(struct file *file, char __user *buf,
 	cur += write_str(cur, end - cur,
 		"FW version : %s\n", core->fw_version);
 	cur += write_str(cur, end - cur,
-		"register_base: 0x%x\n", core->resource->register_base_addr);
-	cur += write_str(cur, end - cur, "irq: %u\n", core->resource->irq);
+		"register_base: 0x%x\n", core->register_base_addr);
+	cur += write_str(cur, end - cur, "irq: %u\n", core->irq);
 
 	len = simple_read_from_buffer(buf, count, ppos,
 		dbuf, cur - dbuf);
@@ -378,7 +379,7 @@ static ssize_t stats_delay_read_ms(struct file *file, char __user *buf,
 		return 0;
 	}
 
-	len = scnprintf(kbuf, sizeof(kbuf), "%u\n", core->capabilities[STATS_TIMEOUT_MS].value);
+	len = scnprintf(kbuf, sizeof(kbuf), "%llu\n", core->capabilities[STATS_TIMEOUT_MS].value);
 	return simple_read_from_buffer(buf, count, ppos, kbuf, len);
 }
 
@@ -429,9 +430,56 @@ exit:
 	return rc;
 }
 
+static ssize_t enable_crc_write(struct file *filp, const char __user *buf,
+	size_t count, loff_t *ppos)
+{
+	unsigned long crc_val = 0;
+	int rc = 0;
+	struct msm_vidc_core *core = filp->private_data;
+	size_t size = MAX_CRC_STRING_LEN;
+	char kbuf[MAX_CRC_STRING_LEN + 1] = { 0 };
+
+	if (!core) {
+		d_vpr_e("%s: invalid params %pK\n", __func__, core);
+		return 0;
+	}
+
+	if (!buf)
+		return -EINVAL;
+
+	if (!count)
+		goto exit;
+
+	if (count < size)
+		size = count;
+
+	if (copy_from_user(kbuf, buf, size)) {
+		d_vpr_e("%s: User memory fault\n", __func__);
+		rc = -EFAULT;
+		goto exit;
+	}
+
+	rc = kstrtoul(kbuf, 0, &crc_val);
+	if (rc) {
+		d_vpr_e("returning error err %d\n", rc);
+		rc = -EINVAL;
+	}
+
+	core->debug_enable_crc = !!crc_val;
+	rc = count;
+
+exit:
+	return rc;
+}
+
 static const struct file_operations ssr_fops = {
 	.open = simple_open,
 	.write = trigger_ssr_write,
+};
+
+static const struct file_operations crc_fops = {
+	.open = simple_open,
+	.write = enable_crc_write,
 };
 
 static ssize_t trigger_stability_write(struct file *filp, const char __user *buf,
@@ -548,6 +596,10 @@ struct dentry *msm_vidc_debugfs_init_core(struct msm_vidc_core *core)
 		d_vpr_e("debugfs_create_file: fail\n");
 		goto failed_create_dir;
 	}
+	if (!debugfs_create_file("enable_crc", 0200, dir, core, &crc_fops)) {
+		d_vpr_e("debugfs_create_file: fail\n");
+		goto failed_create_dir;
+	}
 failed_create_dir:
 	return dir;
 }
@@ -584,7 +636,7 @@ static ssize_t inst_info_read(struct file *file, char __user *buf,
 	core = idata->core;
 	inst = idata->inst;
 
-	inst = get_inst(core, inst->session_id);
+	inst = get_inst_ref(core, inst);
 	if (!inst) {
 		d_vpr_h("%s: instance has become obsolete", __func__);
 		return 0;
@@ -608,7 +660,7 @@ static ssize_t inst_info_read(struct file *file, char __user *buf,
 	cur += write_str(cur, end - cur, "core: %pK\n", inst->core);
 	cur += write_str(cur, end - cur, "height: %d\n", f->fmt.pix_mp.height);
 	cur += write_str(cur, end - cur, "width: %d\n", f->fmt.pix_mp.width);
-	cur += write_str(cur, end - cur, "fps: %d\n",
+	cur += write_str(cur, end - cur, "fps: %lld\n",
 			inst->capabilities[FRAME_RATE].value >> 16);
 	cur += write_str(cur, end - cur, "state: %d\n", inst->state);
 	cur += write_str(cur, end - cur, "secure: %d\n",

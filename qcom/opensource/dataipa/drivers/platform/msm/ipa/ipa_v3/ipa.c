@@ -68,10 +68,13 @@
 #endif
 #include "ipahal.h"
 #include "ipahal_fltrt.h"
+#include "ipa_elf_dump.h"
+
 
 #define CREATE_TRACE_POINTS
 #include "ipa_trace.h"
 #include "ipa_odl.h"
+#include "ipa_opt_log.h"
 
 #define IPA_SUSPEND_BUSY_TIMEOUT (msecs_to_jiffies(10))
 
@@ -5272,11 +5275,11 @@ static int ipa3_q6_clean_q6_tables(void)
 	if (ipa3_ctx->ipa_fltrt_not_hashable)
 		return retval;
 	/* Flush rules cache */
-	desc = kcalloc(2, sizeof(struct ipa3_desc), GFP_KERNEL);
+	desc = kcalloc(2, sizeof(struct ipa3_desc), GFP_ATOMIC);
 	if (!desc)
 		return -ENOMEM;
 
-	cmd_pyld = kcalloc(2, sizeof(struct ipahal_imm_cmd_pyld *), GFP_KERNEL);
+	cmd_pyld = kcalloc(2, sizeof(struct ipahal_imm_cmd_pyld *), GFP_ATOMIC);
 	if (!cmd_pyld) {
 		retval = -ENOMEM;
 		goto bail_desc;
@@ -5537,6 +5540,7 @@ void ipa3_q6_pre_shutdown_cleanup(void)
 		memset(&req, 0, sizeof(struct ipa_wlan_opt_dp_remove_all_filter_req_msg_v01));
 
 		ipa_wdi_opt_dpath_remove_all_filter_req(&req, &resp);
+		ipa_wdi_opt_dpath_remove_all_ctrl_filter_req();
 	}
 
 	if (ipa3_q6_clean_q6_tables()) {
@@ -5634,7 +5638,6 @@ void ipa3_q6_post_shutdown_cleanup(void)
 				 */
 			}
 		}
-
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	IPADBG_LOW("Exit with success\n");
 }
@@ -10027,6 +10030,14 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	else
 		IPADBG("ipa mini qcom_va_md_register success\n");
 #endif
+
+	result = ipa_opt_log_init();
+	if (result) {
+		IPADBG("Error: OPT LOG init failed\n");
+		result = -ENODEV;
+		goto fail_rmnet_ll_init;
+	}
+
 	return 0;
 
 fail_rmnet_ll_init:
@@ -12861,6 +12872,7 @@ static void __exit ipa_module_exit(void)
 	ipa_rtp_genl_deinit();
 #endif
 	unregister_pm_notifier(&ipa_pm_notifier);
+	ipa_ssr_driver_dump_deinit();
 	kfree(ipa3_ctx);
 	ipa3_ctx = NULL;
 }

@@ -35,11 +35,18 @@
 #define CAM_CSIPHY_CDR_SUB_TOLERANCE               2
 
 /* SENSOR driver cmd buffer meta types */
-#define CAM_SENSOR_PACKET_I2C_COMMANDS             0
-#define CAM_SENSOR_PACKET_GENERIC_BLOB             1
+#define CAM_SENSOR_PACKET_I2C_COMMANDS                  0
+#define CAM_SENSOR_PACKET_GENERIC_BLOB                  1
+/* Contains I2C config to be applied on the frame post the regular update */
+#define CAM_SENSOR_PACKET_DEFERRED_I2C_COMMANDS_META    2
+/* Contains I2C config to be applied on frame skips */
+#define CAM_SENSOR_PACKET_FRAME_SKIP_I2C_COMMANDS_META  3
+/* Contains I2C config to be applied on bubble */
+#define CAM_SENSOR_PACKET_BUBBLE_UPD_I2C_COMMANDS_META  4
 
 /* SENSOR blob types */
 #define CAM_SENSOR_GENERIC_BLOB_RES_INFO           0
+#define CAM_SENSOR_GENERIC_BLOB_FRAME_INFO         1
 
 enum camera_sensor_cmd_type {
 	CAMERA_SENSOR_CMD_TYPE_INVALID,
@@ -125,6 +132,7 @@ enum cam_sensor_packet_opcodes {
 	CAM_SENSOR_PACKET_OPCODE_SENSOR_REG_BANK_UNLOCK,
 	CAM_SENSOR_PACKET_OPCODE_SENSOR_REG_BANK_LOCK,
 	CAM_SENSOR_PACKET_OPCODE_SENSOR_BUBBLE_UPDATE,
+	CAM_SENSOR_PACKET_OPCODE_SENSOR_DEFERRED_META,
 	CAM_SENSOR_PACKET_OPCODE_SENSOR_NOP = 127,
 };
 
@@ -210,6 +218,7 @@ enum tpg_interleaving_format_t {
 	TPG_INTERLEAVING_FORMAT_LINE,
 	TPG_INTERLEAVING_FORMAT_SHDR,
 	TPG_INTERLEAVING_FORMAT_SPARSE_PD,
+	TPG_INTERLEAVING_FORMAT_SHDR_SPARSE_PD,
 	TPG_INTERLEAVING_FORMAT_MAX,
 };
 
@@ -357,6 +366,9 @@ struct cam_cmd_i2c_info {
 #define CAM_SENSOR_FEATURE_INSENSOR_HDR_3EXP_ON    BIT(3)
 #define CAM_SENSOR_FEATURE_INSENSOR_HDR_3EXP_OFF   BIT(4)
 
+#define CAM_CSIPHY_T3_PREPARE_NS_MASK              BIT(0)
+#define CAM_CSIPHY_T3_PREAMBLE_NS_MASK             BIT(1)
+
 /**
  * struct cam_cmd_sensor_res_info - Contains sensor res info
  *
@@ -385,6 +397,29 @@ struct cam_sensor_res_info {
 	__u32 num_valid_params;
 	__u32 valid_param_mask;
 	__u16 params[3];
+} __attribute__((packed));
+
+/**
+ * struct cam_sensor_frame_info - Contains sensor frame related info
+ *
+ * @frame_sync_shift  : Indicates how far the frame synchronization
+ *                      reference point from SOF, this is used to
+ *                      align with userland and kernel frame sync offset.
+ * @frame_duration    : Frame duration
+ * @blanking_duration : Vertical blanking duration for a request, and it
+ *                      is representing the blanking durations before the
+ *                      frame for this request.
+ * @num_valid_params  : Number of valid params
+ * @valid_param_mask  : Valid param mask
+ * @params            : params
+ */
+struct cam_sensor_frame_info {
+	__u64 frame_sync_shift;
+	__u64 frame_duration;
+	__u64 blanking_duration;
+	__u32 num_valid_params;
+	__u32 valid_param_mask;
+	__u64 params[4];
 } __attribute__((packed));
 
 /**
@@ -796,7 +831,7 @@ struct cam_csiphy_info_v2 {
 	__u64    settle_time;
 	__u64    data_rate;
 	__u32    channel_type;
-	__u32    num_vaild_params;
+	__u32    num_valid_params;
 	__u32    param_mask;
 	__u32    params[5];
 } __attribute__((packed));

@@ -20,11 +20,15 @@
 #include "internal.h"
 #include "lpass-cdc-clk-rsc.h"
 #include <linux/qti-regmap-debugfs.h>
+#include <linux/proc_fs.h>
 
 #define DRV_NAME "lpass-cdc"
 
 #define LPASS_CDC_VERSION_ENTRY_SIZE 32
 #define LPASS_CDC_STRING_LEN 80
+
+#define REGDUMP_PRINT_LEN 8
+#define REGDUMP_PRINT_STRIDE 4
 
 static const struct snd_soc_component_driver lpass_cdc;
 
@@ -465,14 +469,14 @@ void lpass_cdc_unregister_res_clk(struct device *dev)
 EXPORT_SYMBOL(lpass_cdc_unregister_res_clk);
 
 static u8 lpass_cdc_dmic_clk_div_get(struct snd_soc_component *component,
-				   u32 mode)
+				   u32 mode, u32 mic_pair)
 {
 	struct lpass_cdc_priv* priv = snd_soc_component_get_drvdata(component);
 	int macro = (mode ? VA_MACRO : TX_MACRO);
 	int ret = 0;
 
 	if (priv->macro_params[macro].clk_div_get) {
-		ret = priv->macro_params[macro].clk_div_get(component);
+		ret = priv->macro_params[macro].clk_div_get(component, mic_pair);
 		if (ret >= 0)
 			return ret;
 	}
@@ -487,9 +491,12 @@ int lpass_cdc_dmic_clk_enable(struct snd_soc_component *component,
 	u8  dmic_clk_en = 0x01;
 	u16 dmic_clk_reg = 0;
 	s32 *dmic_clk_cnt = NULL;
+	s32 *dmic_tx_clk_cnt = NULL;
+	s32 *dmic_va_clk_cnt = NULL;
 	u8 *dmic_clk_div = NULL;
 	u8 freq_change_mask = 0;
 	u8 clk_div = 0;
+	u32 mic_pair = 0;
 
 	dev_dbg(component->dev, "%s: enable: %d, tx_mode:%d, dmic: %d\n",
 		__func__, enable, tx_mode, dmic);
@@ -497,43 +504,58 @@ int lpass_cdc_dmic_clk_enable(struct snd_soc_component *component,
 	switch (dmic) {
 	case 0:
 	case 1:
-		dmic_clk_cnt = &(priv->dmic_0_1_clk_cnt);
+		dmic_va_clk_cnt = &(priv->dmic_0_1_va_clk_cnt);
+		dmic_tx_clk_cnt = &(priv->dmic_0_1_tx_clk_cnt);
+
 		dmic_clk_div = &(priv->dmic_0_1_clk_div);
 		dmic_clk_reg = LPASS_CDC_VA_TOP_CSR_DMIC0_CTL;
 		freq_change_mask = 0x01;
+		mic_pair = MIC_PAIR01;
 		break;
 	case 2:
 	case 3:
-		dmic_clk_cnt = &(priv->dmic_2_3_clk_cnt);
+		dmic_va_clk_cnt = &(priv->dmic_2_3_va_clk_cnt);
+		dmic_tx_clk_cnt = &(priv->dmic_2_3_tx_clk_cnt);
+
 		dmic_clk_div = &(priv->dmic_2_3_clk_div);
 		dmic_clk_reg = LPASS_CDC_VA_TOP_CSR_DMIC1_CTL;
 		freq_change_mask = 0x02;
+		mic_pair = MIC_PAIR23;
 		break;
 	case 4:
 	case 5:
-		dmic_clk_cnt = &(priv->dmic_4_5_clk_cnt);
+		dmic_va_clk_cnt = &(priv->dmic_4_5_va_clk_cnt);
+		dmic_tx_clk_cnt = &(priv->dmic_4_5_tx_clk_cnt);
+
 		dmic_clk_div = &(priv->dmic_4_5_clk_div);
 		dmic_clk_reg = LPASS_CDC_VA_TOP_CSR_DMIC2_CTL;
 		freq_change_mask = 0x04;
+		mic_pair = MIC_PAIR45;
 		break;
 	case 6:
 	case 7:
-		dmic_clk_cnt = &(priv->dmic_6_7_clk_cnt);
+		dmic_va_clk_cnt = &(priv->dmic_6_7_va_clk_cnt);
+		dmic_tx_clk_cnt = &(priv->dmic_6_7_tx_clk_cnt);
+
 		dmic_clk_div = &(priv->dmic_6_7_clk_div);
 		dmic_clk_reg = LPASS_CDC_VA_TOP_CSR_DMIC3_CTL;
 		freq_change_mask = 0x08;
+		mic_pair = MIC_PAIR67;
 		break;
 	default:
 		dev_err_ratelimited(component->dev, "%s: Invalid DMIC Selection\n",
 			__func__);
 		return -EINVAL;
 	}
-	dev_dbg(component->dev, "%s: DMIC%d dmic_clk_cnt %d\n",
-			__func__, dmic, *dmic_clk_cnt);
+
+	dmic_clk_cnt = (tx_mode) ? dmic_va_clk_cnt : dmic_tx_clk_cnt;
+
+	dev_dbg(component->dev, "%s: DMIC%d dmic_clk_cnt %d mic_pair %d\n",
+			__func__, dmic, *dmic_clk_cnt, mic_pair);
 	if (enable) {
-		clk_div = lpass_cdc_dmic_clk_div_get(component, tx_mode);
+		clk_div = lpass_cdc_dmic_clk_div_get(component, tx_mode, mic_pair);
 		(*dmic_clk_cnt)++;
-		if (*dmic_clk_cnt == 1) {
+		if ((*dmic_va_clk_cnt + *dmic_tx_clk_cnt)  == 1) {
 			snd_soc_component_update_bits(component,
 					LPASS_CDC_VA_TOP_CSR_DMIC_CFG,
 					0x80, 0x00);
@@ -558,16 +580,17 @@ int lpass_cdc_dmic_clk_enable(struct snd_soc_component *component,
 		*dmic_clk_div = clk_div;
 	} else {
 		(*dmic_clk_cnt)--;
-		if (*dmic_clk_cnt  == 0) {
+		if ((*dmic_va_clk_cnt + *dmic_tx_clk_cnt)  == 0) {
 			snd_soc_component_update_bits(component, dmic_clk_reg,
 					dmic_clk_en, 0);
 			clk_div = 0;
 			snd_soc_component_update_bits(component, dmic_clk_reg,
 							0x0E, clk_div << 0x1);
-		} else {
-			clk_div = lpass_cdc_dmic_clk_div_get(component, tx_mode);
-			if (*dmic_clk_div > clk_div) {
-				clk_div = lpass_cdc_dmic_clk_div_get(component, !tx_mode);
+		} else if (*dmic_clk_cnt == 0) {
+			clk_div = lpass_cdc_dmic_clk_div_get(component, !tx_mode, mic_pair);
+
+			if (*dmic_clk_div != clk_div) {
+			/* Reset the div factor corresponding to the enabled Macro/path. */
 				snd_soc_component_update_bits(component,
 							LPASS_CDC_VA_TOP_CSR_DMIC_CFG,
 							freq_change_mask, freq_change_mask);
@@ -576,8 +599,6 @@ int lpass_cdc_dmic_clk_enable(struct snd_soc_component *component,
 				snd_soc_component_update_bits(component,
 							LPASS_CDC_VA_TOP_CSR_DMIC_CFG,
 							freq_change_mask, 0x00);
-			} else {
-				clk_div = *dmic_clk_div;
 			}
 		}
 		*dmic_clk_div = clk_div;
@@ -1296,6 +1317,83 @@ err:
 	return;
 }
 
+static int regdump_read(struct regmap *map, int baseReg, int endReg,
+		char __user *user_buf, size_t count, loff_t *ppos)
+{
+	int i = 0, ret = 0;
+	size_t pos = 0;
+	char *buf;
+	unsigned int reg_val = 0, reg_len = 0;
+	unsigned int reg_val_len = 0, regdump_wr_len = 0;
+
+	i  = ((int) *ppos + baseReg);
+
+	buf = kzalloc(count, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	reg_len = scnprintf(buf, count, "%x", endReg);
+	reg_val_len = 2 * DIV_ROUND_UP(REGDUMP_PRINT_LEN, 8);
+	regdump_wr_len = reg_len + reg_val_len + 3;
+
+	/* Disable reading/writing from regmap-cache */
+	regcache_cache_bypass(map, true);
+	for (; i >= 0 && i <= endReg; i += REGDUMP_PRINT_STRIDE) {
+		/*
+		 * Check not to overwrite the buffer, by ensuring we have
+		 * space for writing the register data
+		 *
+		 * this is scalable if we use proc or any other fs interface
+		 * as count would take the buf_size passed from userspace
+		 */
+		if ((pos + regdump_wr_len) >= count) {
+			pr_debug("%s: Buffer full: stopping at register 0x%x\n", __func__, i);
+			break;
+		}
+
+		scnprintf(buf+pos, count-pos, "%.*x: ", reg_len, i);
+		pos += reg_len + 2;
+		ret = regmap_read(map, i, &reg_val);
+		if (ret == 0)
+			scnprintf(buf+pos, count-pos, "%.*x", reg_val_len, reg_val);
+		else
+			memset(buf+pos, 'X', reg_val_len);
+
+		pos +=  reg_val_len;
+		buf[pos++] = '\n';
+	}
+	/* Enable reading/writing from regmap-cache */
+	regcache_cache_bypass(map, false);
+
+	*ppos = i;
+	ret = pos;
+	if (copy_to_user(user_buf, buf, pos))
+		ret = -EFAULT;
+
+	kfree(buf);
+	return ret;
+}
+
+static ssize_t lpass_cdc_proc_read(struct file *filep, char __user *buf, size_t size, loff_t *ppos)
+{
+	ssize_t ret = 0;
+	struct lpass_cdc_priv *priv = NULL;
+
+	if (!size || !filep || !ppos || !buf || *ppos < 0)
+		return -EINVAL;
+
+	priv = pde_data(file_inode(filep));
+	if (!priv)
+		return -EINVAL;
+
+	ret = regdump_read(priv->regmap, TX_START_OFFSET, WSA2_MAX_OFFSET, buf, size, ppos);
+	return ret;
+}
+
+static const struct proc_ops lpass_cdc_proc_ops = {
+	.proc_read = lpass_cdc_proc_read,
+};
+
 static int lpass_cdc_probe(struct platform_device *pdev)
 {
 	struct lpass_cdc_priv *priv;
@@ -1303,6 +1401,7 @@ static int lpass_cdc_probe(struct platform_device *pdev)
 	int ret;
 	struct clk *lpass_core_hw_vote = NULL;
 	struct clk *lpass_audio_hw_vote = NULL;
+	struct proc_dir_entry *cdc_proc_regdump_file = NULL;
 
 	priv = devm_kzalloc(&pdev->dev, sizeof(struct lpass_cdc_priv),
 			    GFP_KERNEL);
@@ -1345,6 +1444,21 @@ static int lpass_cdc_probe(struct platform_device *pdev)
 	}
 
 	devm_regmap_qti_debugfs_register(priv->dev, priv->regmap);
+
+	priv->lpass_cdc_proc_entry = proc_mkdir("lpass_cdc_reginfo", NULL);
+	if (priv->lpass_cdc_proc_entry) {
+		cdc_proc_regdump_file = proc_create_data("lpass_cdc_regdump", 0444,
+				priv->lpass_cdc_proc_entry, &lpass_cdc_proc_ops, priv);
+		if (!cdc_proc_regdump_file) {
+			dev_err(&pdev->dev,
+					"%s: error creating proc read file interface\n",
+					__func__);
+			proc_remove(priv->lpass_cdc_proc_entry);
+			priv->lpass_cdc_proc_entry = NULL;
+		}
+	} else {
+		dev_err(&pdev->dev, "%s: error creating proc dir interface\n", __func__);
+	}
 
 	priv->read_dev = __lpass_cdc_reg_read;
 	priv->write_dev = __lpass_cdc_reg_write;
@@ -1396,6 +1510,9 @@ static int lpass_cdc_remove(struct platform_device *pdev)
 
 	if (!priv)
 		return -EINVAL;
+
+	if (priv->lpass_cdc_proc_entry)
+		proc_remove(priv->lpass_cdc_proc_entry);
 
 	of_platform_depopulate(&pdev->dev);
 	mutex_destroy(&priv->macro_lock);

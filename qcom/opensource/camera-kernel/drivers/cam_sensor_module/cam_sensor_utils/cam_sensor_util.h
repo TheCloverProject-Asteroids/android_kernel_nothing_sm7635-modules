@@ -142,4 +142,12 @@ static inline int cam_sensor_util_aon_registration(uint32_t phy_idx, uint32_t ao
 	return cam_csiphy_util_update_aon_registration(phy_idx, aon_camera_id);
 }
 
+void cam_sensor_utils_parse_pm_ctrl_flag(struct device_node *of_node,
+	struct camera_io_master *io_master_info);
+
+int cam_sensor_util_add_read_buf_to_list(struct list_head *read_buf_list,
+	int32_t read_buffer_handle);
+
+void cam_sensor_util_release_read_buf(struct list_head *read_buf_list);
+
 #endif /* _CAM_SENSOR_UTIL_H_ */

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_CSIPHY_DEV_H_
@@ -38,8 +38,9 @@
 #define MAX_DATA_RATES              25
 #define MAX_DATA_RATE_REGS          30
 
-#define CAMX_CSIPHY_DEV_NAME "cam-csiphy-driver"
-#define CAM_CSIPHY_RX_CLK_SRC "cphy_rx_src_clk"
+#define CAMX_CSIPHY_DEV_NAME        "cam-csiphy-driver"
+#define CAM_CSIPHY_RX_CLK_SRC       "cphy_rx_clk_src"
+#define CAM_CSIPHY_TIMER_CLK_SRC    "phytimer_clk_src"
 
 #define CSIPHY_DEFAULT_PARAMS            BIT(0)
 #define CSIPHY_LANE_ENABLE               BIT(1)
@@ -63,6 +64,7 @@
 #define CAM_CSIPHY_MAX_CPHY_LANES            3
 #define CAM_CSIPHY_MAX_CPHY_DPHY_COMBO_LN    3
 #define CAM_CSIPHY_MAX_DATARATE_VARIANTS     3
+#define CSIPHY_QMARGIN_CMN_STATUS_REG_COUNT  11
 
 #define DPHY_LANE_0    BIT(0)
 #define CPHY_LANE_0    BIT(1)
@@ -147,6 +149,7 @@ struct cam_csiphy_aon_sel_params_t {
  * struct cam_cphy_dphy_status_reg_params_t
  * @csiphy_3ph_status0_offset              : CSIPhy 3ph status addr
  * @csiphy_2ph_status0_offset              : CSIPhy 2ph status addr
+ * @refgen_offset                          : Refgen offset
  * @cphy_lane_status                       : CPHY Lane status6 register offsets for each lane
  * @csiphy_3ph_status_size                 : CSIPhy 3ph status registers size
  * @csiphy_2ph_status_size                 : CSIPhy 2ph status registers size
@@ -154,6 +157,7 @@ struct cam_csiphy_aon_sel_params_t {
 struct cam_cphy_dphy_status_reg_params_t {
 	uint32_t csiphy_3ph_status0_offset;
 	uint32_t csiphy_2ph_status0_offset;
+	uint32_t refgen_status_offset;
 	uint32_t cphy_lane_status[CAM_CSIPHY_MAX_CPHY_LANES];
 	uint16_t csiphy_3ph_status_size;
 	uint16_t csiphy_2ph_status_size;
@@ -321,10 +325,12 @@ struct csiphy_ctrl_t {
  *                                format for mink call
  * @secure_info_updated        :  If all information in the secure_info struct above
  *                                is passed and formatted properly from CSID driver
- * @conn_csid_idx              : Connected CSID core idx (Primary csid in case of dual ife)
- * @use_hw_client_voting       : Whether to use hw client voting for clk on chipsets with cesta
- * @is_drv_config_en           : If drv is configured in CSID
- * @channel_type              : Channel type for different channel settings
+ * @conn_csid_idx              :  Connected CSID core idx (Primary csid in case of dual ife)
+ * @use_hw_client_voting       :  Whether to use hw client voting for clk on chipsets with cesta
+ * @is_drv_config_en           :  If drv is configured in CSID
+ * @channel_type               :  Channel type for different channel settings
+ * @t3_prepare                 :  T3-Prepare in ns
+ * @t3_preamble                :  T3-Preamble in ns
  */
 struct cam_csiphy_param {
 	uint16_t                         lane_assign;
@@ -344,6 +350,8 @@ struct cam_csiphy_param {
 	bool                             use_hw_client_voting;
 	bool                             is_drv_config_en;
 	uint32_t                         channel_type;
+	uint32_t                         t3_prepare;
+	uint32_t                         t3_preamble;
 };
 
 struct csiphy_work_queue {
@@ -357,29 +365,52 @@ struct csiphy_work_queue {
  *
  * @cdr_tolerance       : cdr tolerance
  * @tolerance_op_type   : if tolerance needs to be added/subtracted
- * @cdr_config_ptr      : Ptr to the cmd buffer, in which
- *                        configured CDR values will be
  *                        published
  * @cdr_sweep_enabled   : cdr sweep enabled
  */
 struct cam_csiphy_dev_cdr_sweep_params {
 	uint32_t  cdr_tolerance;
 	uint32_t  tolerance_op_type;
-	uint32_t *cdr_config_ptr;
 	bool      cdr_sweep_enabled;
 };
 
 /**
- * struct cam_csiphy_dev_aux_setting_params
+ * struct csiphy_qmargin_csid_output
  *
- * @aux_config_ptr      : Ptr to the cmd buffer, in which
- *                        auxiliary settings that are enabled for different
- *                        data rates will be published
- * @aux_mem_update_en   : Set if aux mem buffer provided
+ * @csi2_rx_status       : RX status register value of CSID PHY is
+ *                         connected to
+ * @csi2_total_crc_err   : Total CRC errors seen by CSID while
+ *                         streaming
+ * @csi2_total_pkts_rcvd : Total packets received by CSID while
+ *                         streaming
+ * @csi2_err_seen        : If CSID receiver encountered error(s)
+ *                         while streaming
+ * @epd_enabled          : If EPD was enabled for stream
  */
-struct cam_csiphy_dev_aux_setting_params {
-	uint32_t *aux_config_ptr;
-	bool      aux_mem_update_en;
+struct csiphy_qmargin_csid_output {
+	uint32_t csi2_rx_status;
+	uint32_t csi2_total_crc_err;
+	uint32_t csi2_total_pkts_rcvd;
+	bool csi2_err_seen;
+	bool epd_enabled;
+};
+
+/**
+ * struct csiphy_qmargin_sweep_data
+ *
+ * @qmargin_csid_output         : Set of CSID register values sent over
+ *                                by CSID through cam_subdev_notify_message
+ * @cdr_regs                    : Default CDR values needed by Qmargin
+ * @csiphy_qmargin_output_regs  : Register values needed by Qmargin to
+ *                                determine sweep results
+ * @bw                          : BW at which PHY is streaming at
+ */
+struct csiphy_qmargin_sweep_data {
+	struct csiphy_qmargin_csid_output qmargin_csid_output;
+	struct csiphy_reg_t cdr_regs[CAM_CSIPHY_MAX_CPHY_LANES];
+	unsigned int csiphy_qmargin_output_regs[
+		CSIPHY_QMARGIN_CMN_STATUS_REG_COUNT];
+	uint64_t bw;
 };
 
 /**
@@ -390,28 +421,27 @@ struct cam_csiphy_dev_aux_setting_params {
  * @clk_lane                   : Clock lane
  * @acquire_count              : Acquire device count
  * @start_dev_count            : Start count
- * @csiphy_max_clk             : Max timer clock rate
  * @cpas_handle                : CPAS handle
  * @session_max_device_support : Max number of devices supported in a session
  * @combo_mode                 : Info regarding combo_mode is enable / disable
  * @cphy_dphy_combo_mode       : Info regarding 2ph/3ph combo modes
- * @rx_clk_src_idx             : Phy src clk index
+ * @rx_clk_src_idx             : Phy rx clk index
+ * @timer_clk_src_idx          : Phy timer clk index
  * @is_divisor_32_comp         : 32 bit hw compatibility
  * @curr_data_rate_idx         : Index of the datarate array which is being used currently by phy
  * @csiphy_state               : CSIPhy state
  * @ctrl_reg                   : CSIPhy control registers
- * @csiphy_3p_clk_info         : 3Phase clock information
- * @csiphy_3p_clk              : 3Phase clocks structure
  * @ref_count                  : Reference count
  * @v4l2_dev_str               : V4L2 related data
  * @csiphy_info                : Sensor specific csiphy info
  * @soc_info                   : SOC information
  * @current_data_rate          : Data rate in mbps
+ * @curr_clk_vote_level        : Currently applied clock vote level
  * @csiphy_cpas_cp_reg_mask    : Secure csiphy lane mask
  * @ops                        : KMD operations
  * @crm_cb                     : Callback API pointers
  * @cdr_params                 : CDR sweep params
- * @aux_params                 : AUX settings buffer params
+ * @qmargin_data               : Qmargin params
  * @prgm_cmn_reg_across_csiphy : Flag to decide if com settings need to be programmed for all PHYs
  * @en_common_status_reg_dump  : Debugfs flag to enable common status register dump
  * @en_lane_status_reg_dump    : Debugfs flag to enable cphy/dphy lane status dump
@@ -427,30 +457,29 @@ struct csiphy_device {
 	uint32_t                                 clk_lane;
 	uint32_t                                 acquire_count;
 	uint32_t                                 start_dev_count;
-	uint32_t                                 csiphy_max_clk;
 	uint32_t                                 cpas_handle;
 	uint8_t                                  session_max_device_support;
 	uint8_t                                  combo_mode;
 	uint8_t                                  cphy_dphy_combo_mode;
 	uint8_t                                  rx_clk_src_idx;
+	uint8_t                                  timer_clk_src_idx;
 	uint8_t                                  is_divisor_32_comp;
 	uint8_t                                  curr_data_rate_idx;
 	enum cam_csiphy_state                    csiphy_state;
 	struct csiphy_ctrl_t                    *ctrl_reg;
-	struct msm_cam_clk_info                  csiphy_3p_clk_info[2];
-	struct clk                              *csiphy_3p_clk[2];
 	int32_t                                  ref_count;
 	struct cam_subdev                        v4l2_dev_str;
 	struct cam_csiphy_param                  csiphy_info[
 					CSIPHY_MAX_INSTANCES_PER_PHY];
 	struct cam_hw_soc_info                   soc_info;
 	uint64_t                                 current_data_rate;
+	enum cam_vote_level                      curr_clk_vote_level;
 	uint64_t                                 csiphy_cpas_cp_reg_mask[
 					CSIPHY_MAX_INSTANCES_PER_PHY];
 	struct cam_req_mgr_kmd_ops               ops;
 	struct cam_req_mgr_crm_cb               *crm_cb;
 	struct cam_csiphy_dev_cdr_sweep_params   cdr_params;
-	struct cam_csiphy_dev_aux_setting_params aux_params;
+	struct csiphy_qmargin_sweep_data         qmargin_data;
 	bool                                     prgm_cmn_reg_across_csiphy;
 	bool                                     en_common_status_reg_dump;
 	bool                                     en_lane_status_reg_dump;

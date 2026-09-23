@@ -285,7 +285,7 @@ static int gpr_callback(struct rpmsg_device *rpdev, void *buf,
 	unsigned long flags;
 	//uint32_t opcode_type;
 
-	if (len <= GPR_HDR_SIZE) {
+	if (len < GPR_HDR_SIZE) {
 		dev_err_ratelimited(gpr->dev, "GPR: Improper gpr pkt received:%p %d\n",
 			buf, len);
 		return -EINVAL;

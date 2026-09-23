@@ -146,13 +146,11 @@ static const uint8_t opcls_136_cfis_arr[] = {
 };
 
 /* CFIs for global opclass 137: (start Freq=5950 BW=320MHz) */
-#ifdef WLAN_FEATURE_11BE
 static const uint8_t opcls_137_cfis_arr[] = {
 #ifdef CONFIG_AFC_SUPPORT
 	31, 63, 95, 127, 159, 191,
 #endif
 };
-#endif
 
 /* Create the CFIS static constant lists */
 CREATE_CFIS_LST(131);
@@ -161,9 +159,7 @@ CREATE_CFIS_LST(133);
 CREATE_CFIS_LST(134);
 CREATE_CFIS_LST(135);
 CREATE_CFIS_LST(136);
-#ifdef WLAN_FEATURE_11BE
 CREATE_CFIS_LST(137);
-#endif
 
 static const struct reg_dmn_op_class_map_t global_op_class[] = {
 	{81, 25, BW20, BIT(BEHAV_NONE), 2407,
@@ -284,7 +280,6 @@ static const struct reg_dmn_op_class_map_t global_op_class[] = {
 	{136, 20, BW20, BIT(BEHAV_NONE), 5925,
 	 {2},
 	&CFISLST(136)},
-#ifdef WLAN_FEATURE_11BE
 	{137, 320, BW20, BIT(BEHAV_NONE), 5950,
 	 {1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41,
 	  45, 49, 53, 57, 61, 65, 69, 73, 77, 81,
@@ -294,7 +289,6 @@ static const struct reg_dmn_op_class_map_t global_op_class[] = {
 	  185, 189, 193, 197, 201, 205, 209, 213,
 	  217, 221, 225, 229, 233},
 	&CFISLST(137)},
-#endif
 #endif
 	{0, 0, 0, 0, 0, {0},
 	NULL_CFIS_LST },
@@ -735,6 +729,41 @@ reg_dmn_fill_cfis(const struct reg_dmn_op_class_map_t *op_class_tbl,
 }
 
 /**
+ * reg_is_opclass_not_80p80_supported() - Checks if the given opclass is 80p80
+ * supported or not.
+ * @pdev: Pointer to pdev.
+ * @op_class: Opclass number.
+ *
+ * Return: True if opclass is 80p80 supported, else false.
+ */
+static bool
+reg_is_opclass_not_80p80_supported(struct wlan_objmgr_pdev *pdev,
+				   uint8_t op_class)
+{
+	return ((op_class == GLOBAL_6G_OPCLASS_80P80) &&
+		(!reg_is_dev_supports_80p80(pdev)));
+}
+
+/**
+ * reg_is_opclass_not_11ax_supported() - Checks if the given opclass is not
+ * 11ax supported.
+ * @pdev: Pointer to pdev.
+ * @op_class: Opclass number.
+ *
+ * Return: True if opclass is not 11ax supported, else false.
+ */
+static bool
+reg_is_opclass_not_11ax_supported(struct wlan_objmgr_pdev *pdev,
+				  uint8_t op_class)
+{
+	uint16_t max_bw;
+
+	max_bw = reg_find_afc_max_bw_from_chip_cap(pdev);
+
+	return ((max_bw == AFC_BW_160) && (op_class == MAX_6GHZ_OPER_CLASS));
+}
+
+/**
  * reg_is_unsupported_opclass() - Checks if the given opclass is unsupported or
  * not.
  * @pdev: Pointer to pdev.
@@ -745,8 +774,8 @@ reg_dmn_fill_cfis(const struct reg_dmn_op_class_map_t *op_class_tbl,
 static bool
 reg_is_unsupported_opclass(struct wlan_objmgr_pdev *pdev, uint8_t op_class)
 {
-	return ((op_class == GLOBAL_6G_OPCLASS_80P80) &&
-		(!reg_is_dev_supports_80p80(pdev)));
+	return ((reg_is_opclass_not_80p80_supported(pdev, op_class)) ||
+		(reg_is_opclass_not_11ax_supported(pdev, op_class)));
 }
 
 /**
@@ -1431,7 +1460,6 @@ uint16_t reg_chan_opclass_to_freq(uint8_t chan,
 		}
 		op_class_tbl++;
 	}
-	reg_err_rl("Invalid opclass");
 	return 0;
 }
 

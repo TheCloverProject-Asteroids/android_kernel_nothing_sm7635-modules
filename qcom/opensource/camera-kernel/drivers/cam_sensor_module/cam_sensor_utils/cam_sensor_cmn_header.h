@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _CAM_SENSOR_CMN_HEADER_
@@ -245,6 +245,7 @@ struct i2c_settings_array {
 	struct list_head list_head;
 	int32_t is_settings_valid;
 	int64_t request_id;
+	struct timespec64 applied_timestamp;
 };
 
 struct i2c_data_settings {
@@ -254,6 +255,7 @@ struct i2c_data_settings {
 	struct i2c_settings_array streamoff_settings;
 	struct i2c_settings_array read_settings;
 	struct i2c_settings_array *per_frame;
+	struct i2c_settings_array *deferred_frame_update;
 	struct i2c_settings_array *frame_skip;
 	struct i2c_settings_array *bubble_update;
 	struct i2c_settings_array reg_bank_unlock_settings;
@@ -361,6 +363,11 @@ struct msm_camera_gpio_conf {
 	uint32_t *camera_on_table;
 	uint8_t camera_on_table_size;
 	struct msm_camera_gpio_num_info *gpio_num_info;
+};
+
+struct cam_sensor_read_buf_list {
+	int32_t read_buf_handle;
+	struct list_head list;
 };
 
 /**

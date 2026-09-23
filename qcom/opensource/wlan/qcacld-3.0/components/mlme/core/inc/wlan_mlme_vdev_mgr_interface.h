@@ -606,6 +606,61 @@ void wlan_ll_sap_free_chan_info(struct sap_sel_ch_info *ch_param);
  */
 bool wlan_ll_sap_freq_present_in_pcl(struct policy_mgr_pcl_list *pcl,
 				     qdf_freq_t freq);
+
+/**
+ * wlan_ll_sap_send_continue_vdev_restart() - Continue vdev restart
+ * @vdev: pointer to vdev object
+ *
+ * Return: None
+ */
+void wlan_ll_sap_send_continue_vdev_restart(struct wlan_objmgr_vdev *vdev);
+
+/**
+ * wlan_ll_sap_send_action_frame() - Send csa param via action frame
+ * @vdev: pointer to vdev object
+ * @macaddr: peer mac addr
+ *
+ * Return: None
+ */
+void wlan_ll_sap_send_action_frame(struct wlan_objmgr_vdev *vdev,
+				   uint8_t *macaddr);
+
+/**
+ * wlan_ll_sap_notify_chan_switch_started() - Notify channel switch started
+ * @vdev: pointer to vdev object
+ *
+ * Return: None
+ */
+void wlan_ll_sap_notify_chan_switch_started(struct wlan_objmgr_vdev *vdev);
+
+/**
+ * wlan_ll_sap_csa_bearer_switch_rsp() - LL_LT_SAP csa bearer switch rsp
+ * @vdev_id: vdev id
+ *
+ * Return: None
+ */
+void wlan_ll_sap_csa_bearer_switch_rsp(uint8_t vdev_id);
+#else
+static inline
+void wlan_ll_sap_send_continue_vdev_restart(struct wlan_objmgr_vdev *vdev)
+{
+}
+
+static inline
+void wlan_ll_sap_send_action_frame(struct wlan_objmgr_vdev *vdev,
+				   uint8_t *macaddr)
+{
+}
+
+static inline
+void wlan_ll_sap_notify_chan_switch_started(struct wlan_objmgr_vdev *vdev)
+{
+}
+
+static inline
+void wlan_ll_sap_csa_bearer_switch_rsp(uint8_t vdev_id)
+{
+}
 #endif
 
 /**
@@ -613,10 +668,10 @@ bool wlan_ll_sap_freq_present_in_pcl(struct policy_mgr_pcl_list *pcl,
  * @vdev_id: Vdev Id
  * @filter: Filter to apply to get scan result
  *
- * Return: None
+ * Return: QDF_STATUS
  *
  */
-void
+QDF_STATUS
 wlan_sap_get_user_config_acs_ch_list(uint8_t vdev_id,
 				     struct scan_filter *filter);
 #endif

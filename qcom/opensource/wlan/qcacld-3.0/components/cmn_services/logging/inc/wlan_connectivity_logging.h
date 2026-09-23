@@ -393,8 +393,34 @@ struct wlan_diag_mlo_cmn_info {
 	uint8_t link_addr[QDF_MAC_ADDR_SIZE];
 } qdf_packed;
 
+/**
+ * struct wlan_diag_mlo_cmn_info_ext - Extended MLO common info
+ * @band: Indicates link on which mlo setup is initiated.
+ * Refer enum enum wlan_diag_wifi_band.
+ * @link_id: Link id of the link when link is accepted
+ * @vdev_id: vdev id associated with the link
+ * @tid_ul: TID-to-link mapping information on the uplink
+ * @tid_dl: TID-to-link mapping information on the downlink
+ * @status: MLO setup status. 0 - Success, 1 - failure
+ * @link_addr: Link address of the link.
+ * @freq: frequency on which MLO setup is performed.
+ */
+struct wlan_diag_mlo_cmn_info_ext {
+	uint8_t band;
+	uint8_t link_id;
+	uint8_t vdev_id;
+	uint8_t tid_ul;
+	uint8_t tid_dl;
+	uint8_t status;
+	uint8_t link_addr[QDF_MAC_ADDR_SIZE];
+	uint32_t freq;
+} qdf_packed;
+
 #define DIAG_MLO_SETUP_VERSION 1
 #define DIAG_MLO_SETUP_VERSION_V2 2
+
+/* The mlo setup version 3 logs the frequency on which the link is associated */
+#define DIAG_MLO_SETUP_VERSION_V3 3
 
 #define MAX_NUM_LINKS_PER_EVENT 3
 /**
@@ -402,16 +428,21 @@ struct wlan_diag_mlo_cmn_info {
  * @diag_cmn: Common diag info
  * @version: structure version
  * @num_links: Number of links associated for MLO setup
- * @reserved: Reserved field
- * @status: status code of the link. Non-zero value when link is rejected
+ * @num_link_ext: Extended num links
+ * @max_links_ext: Maximum number of links
  * @mlo_cmn_info: MLO common info
+ * @ext_link_info_size: Extended mlo common link info size
+ * @mlo_cmn_info_ext: Extended MLO common info
  */
 struct wlan_diag_mlo_setup {
 	struct wlan_connectivity_log_diag_cmn diag_cmn;
 	uint8_t version;
 	uint8_t num_links;
-	uint16_t reserved;
+	uint8_t num_link_ext;
+	uint8_t max_links_ext;
 	struct wlan_diag_mlo_cmn_info mlo_cmn_info[MAX_NUM_LINKS_PER_EVENT];
+	uint32_t ext_link_info_size;
+	struct wlan_diag_mlo_cmn_info_ext mlo_cmn_info_ext[MAX_NUM_LINKS_PER_EVENT];
 } qdf_packed;
 
 #define DIAG_MLO_RECONFIG_VERSION 1
@@ -597,6 +628,9 @@ struct wlan_diag_bcn_rpt {
 #define DIAG_ROAM_CAND_VERSION 1
 #define DIAG_ROAM_CAND_VERSION_V2 2
 
+/* Version 3 includes the etp value of Current AP */
+#define DIAG_ROAM_CAND_VERSION_V3 3
+
 /**
  * struct wlan_diag_roam_candidate_info  - Roam candidate information for
  * logging
@@ -650,7 +684,11 @@ struct wlan_diag_roam_scan_done {
 	uint32_t scan_freq[WLAN_MAX_LOGGING_FREQ];
 } qdf_packed;
 
-#define DIAG_ROAM_RESULT_VERSION 1
+/*
+ * The version 3 for Roam Result event will log the Roam Fail reason
+ * in NO ROAM scenario
+ */
+#define DIAG_ROAM_RESULT_VERSION 2
 
 /**
  * struct wlan_diag_roam_result - Roam result data
@@ -768,6 +806,9 @@ struct wlan_diag_btm_info {
 
 #define DIAG_MGMT_VERSION 1
 #define DIAG_MGMT_VERSION_V2 2
+
+/* this version mandates to print the tx failure reason for DP events */
+#define DIAG_MGMT_VERSION_V3 3
 #define MAX_VSIE_LEN 255
 
 /**
@@ -788,7 +829,6 @@ struct wlan_diag_btm_info {
  * @is_tx: Packet direction indicator. 0 - RX, 1 - TX
  * @supported_links: link id bitmap indicates the links involved
  * in MLO connection.
- * @reserved: Reserved field
  * @subtype: Diag event defined in  enum qca_conn_diag_log_event_type
  * @assoc_id: Association ID
  * @eap_len: EAP data length
@@ -1446,6 +1486,16 @@ wlan_populate_vsie(struct wlan_objmgr_vdev *vdev,
 enum wlan_diag_wifi_band
 wlan_convert_freq_to_diag_band(uint16_t ch_freq);
 
+/**
+ * wlan_get_qdf_to_diag_txrx_status() - API to convert qdf_dp_tx_rx_status
+ * to wlan_diag_tx_rx_status
+ * @tx_status: TX status of the frame
+ *
+ * Return: Converted QDF TX status value of Diag TX status of frame
+ */
+enum wlan_diag_tx_rx_status
+wlan_get_qdf_to_diag_txrx_status(enum qdf_dp_tx_rx_status tx_status);
+
 static inline void wlan_connectivity_logging_stop(void)
 {}
 
@@ -1585,6 +1635,19 @@ enum wlan_diag_wifi_band
 wlan_convert_freq_to_diag_band(uint16_t ch_freq);
 
 /**
+ * wlan_get_qdf_to_diag_txrx_status() - API to convert qdf_dp_tx_rx_status
+ * to wlan_diag_tx_rx_status
+ * @tx_status: TX status of outgoing frame. Refer enum qdf_dp_tx_rx_status
+ *
+ * Return: TX status of the frame.
+ */
+static inline enum wlan_diag_tx_rx_status
+wlan_get_qdf_to_diag_txrx_status(enum qdf_dp_tx_rx_status tx_status)
+{
+	return WLAN_DIAG_TX_RX_STATUS_INVALID;
+}
+
+/**
  * wlan_populate_vsie() - Populate VSIE field for logging
  * @vdev: vdev pointer
  * @data: Diag packet info data
@@ -1684,6 +1747,12 @@ wlan_connectivity_t2lm_req_resp_event(struct wlan_objmgr_vdev *vdev,
 				      qdf_freq_t freq,
 				      bool is_rx, uint8_t subtype)
 {}
+
+static inline enum wlan_diag_tx_rx_status
+wlan_get_qdf_to_diag_txrx_status(enum qdf_dp_tx_rx_status tx_status)
+{
+	return WLAN_DIAG_TX_RX_STATUS_INVALID;
+}
 
 static inline void
 wlan_connectivity_t2lm_status_event(struct wlan_objmgr_vdev *vdev)

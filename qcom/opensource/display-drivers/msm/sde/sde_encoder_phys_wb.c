@@ -43,7 +43,7 @@ static const u32 cwb_irq_tbl[PINGPONG_MAX] = {SDE_NONE, INTR_IDX_PP1_OVFL,
 	INTR_IDX_PP5_OVFL, SDE_NONE, SDE_NONE};
 
 static const u32 dcwb_irq_tbl[PINGPONG_MAX] = {SDE_NONE, SDE_NONE,
-	SDE_NONE, SDE_NONE, SDE_NONE, SDE_NONE,
+	SDE_NONE, SDE_NONE, SDE_NONE, SDE_NONE, SDE_NONE, SDE_NONE,
 	INTR_IDX_PP_CWB_OVFL, SDE_NONE, INTR_IDX_PP_CWB2_OVFL, SDE_NONE};
 
 /**
@@ -348,6 +348,7 @@ static void _sde_enc_phys_wb_get_out_resolution(struct drm_crtc_state *crtc_stat
 			struct drm_connector_state *conn_state, u32 *out_width, u32 *out_height)
 {
 	struct sde_crtc_state *cstate = to_sde_crtc_state(crtc_state);
+	struct sde_crtc *sde_crtc = to_sde_crtc(crtc_state->crtc);
 	const struct drm_display_mode *mode = &crtc_state->mode;
 	struct sde_io_res ds_res = {0, }, dnsc_blur_res = {0, };
 	u32 ds_tap_pt = sde_crtc_get_property(cstate, CRTC_PROP_CAPTURE_OUTPUT);
@@ -355,6 +356,7 @@ static void _sde_enc_phys_wb_get_out_resolution(struct drm_crtc_state *crtc_stat
 
 	sde_crtc_get_ds_io_res(crtc_state, &ds_res);
 	sde_connector_get_dnsc_blur_io_res(conn_state, &dnsc_blur_res);
+	sde_crtc_get_ai_scaler_io_res(crtc_state);
 	rotation_type = sde_connector_get_property(conn_state, CONNECTOR_PROP_WB_ROT_TYPE);
 
 	if (dnsc_blur_res.enabled) {
@@ -371,6 +373,17 @@ static void _sde_enc_phys_wb_get_out_resolution(struct drm_crtc_state *crtc_stat
 			*out_width = mode->hdisplay;
 			*out_height = mode->vdisplay;
 		}
+	} else if (sde_crtc->ai_scaler_res.enabled) {
+		if (ds_tap_pt == CAPTURE_DSPP_OUT) {
+			*out_width = sde_crtc->ai_scaler_res.dst_w;
+			*out_height = sde_crtc->ai_scaler_res.dst_h;
+		} else if (ds_tap_pt == CAPTURE_MIXER_OUT) {
+			*out_width = sde_crtc->ai_scaler_res.src_w;
+			*out_height = sde_crtc->ai_scaler_res.src_h;
+		} else {
+			*out_width = mode->hdisplay;
+			*out_height = mode->vdisplay;
+		}
 	} else {
 		*out_width = mode->hdisplay;
 		*out_height = mode->vdisplay;
@@ -378,6 +391,19 @@ static void _sde_enc_phys_wb_get_out_resolution(struct drm_crtc_state *crtc_stat
 
 	if (rotation_type != WB_ROT_NONE)
 		swap(*out_width, *out_height);
+}
+
+static void _sde_encoder_phys_wb_get_pu_roi(struct sde_crtc_state *cstate,
+	struct sde_connector_state *c_conn_state, u32 ds_tap_pt,
+	struct sde_rect *pu_roi)
+{
+	if (!cstate || !c_conn_state || !pu_roi)
+		return;
+
+	if (ds_tap_pt == CAPTURE_MIXER_OUT)
+		sde_kms_rect_merge_rectangles(&cstate->user_roi_list, pu_roi);
+	else
+		sde_kms_rect_merge_rectangles(&c_conn_state->rois, pu_roi);
 }
 
 static void _sde_encoder_phys_wb_setup_cdp(struct sde_encoder_phys *phys_enc,
@@ -411,27 +437,38 @@ static void _sde_encoder_phys_wb_setup_roi(struct sde_encoder_phys *phys_enc,
 	struct drm_crtc_state *crtc_state = wb_enc->crtc->state;
 	struct sde_crtc_state *cstate = to_sde_crtc_state(crtc_state);
 	struct sde_rect pu_roi = {0,};
+	struct sde_connector_state *c_conn_state;
+	u32 ds_tap_pt = sde_crtc_get_property(cstate, CRTC_PROP_CAPTURE_OUTPUT);
+	bool crop_enabled = false;
 
 	if (!hw_wb->ops.setup_roi)
 		return;
 
 	if (hw_wb->ops.setup_crop && phys_enc->in_clone_mode) {
+	c_conn_state = to_sde_connector_state(phys_enc->connector->state);
+
 		wb_cfg->crop.x = wb_cfg->roi.x;
 		wb_cfg->crop.y = wb_cfg->roi.y;
 
-		if (cstate->user_roi_list.num_rects) {
-			sde_kms_rect_merge_rectangles(&cstate->user_roi_list, &pu_roi);
+		if (cstate->user_roi_list.num_rects || c_conn_state->rois.num_rects) {
+			_sde_encoder_phys_wb_get_pu_roi(cstate, c_conn_state, ds_tap_pt, &pu_roi);
 
 			if ((wb_cfg->roi.w != pu_roi.w) || (wb_cfg->roi.h != pu_roi.h)) {
 				/* offset cropping region to PU region */
 				wb_cfg->crop.x = wb_cfg->crop.x - pu_roi.x;
 				wb_cfg->crop.y = wb_cfg->crop.y - pu_roi.y;
 				hw_wb->ops.setup_crop(hw_wb, wb_cfg, true);
+				crop_enabled = true;
 			} else {
 				hw_wb->ops.setup_crop(hw_wb, wb_cfg, false);
 			}
-		} else if ((wb_cfg->roi.w != out_width) || (wb_cfg->roi.h != out_height)) {
+			/* Align ROI to top left corner, when PU is enabled */
+			wb_cfg->roi.x = 0;
+			wb_cfg->roi.y = 0;
+		} else if (((wb_cfg->roi.w != out_width) || (wb_cfg->roi.h != out_height))
+				&& !phys_enc->quad_cwb_roi) {
 			hw_wb->ops.setup_crop(hw_wb, wb_cfg, true);
+			crop_enabled = true;
 		} else {
 			hw_wb->ops.setup_crop(hw_wb, wb_cfg, false);
 		}
@@ -443,7 +480,9 @@ static void _sde_encoder_phys_wb_setup_roi(struct sde_encoder_phys *phys_enc,
 		}
 
 		SDE_EVT32(DRMID(phys_enc->parent), WBID(wb_enc), wb_cfg->crop.x, wb_cfg->crop.y,
-				pu_roi.x, pu_roi.y, pu_roi.w, pu_roi.h);
+				pu_roi.x, pu_roi.y, pu_roi.w, pu_roi.h,
+				wb_cfg->roi.x, wb_cfg->roi.y, wb_cfg->roi.w, wb_cfg->roi.h,
+				crop_enabled, ds_tap_pt);
 	}
 
 	hw_wb->ops.setup_roi(hw_wb, wb_cfg);
@@ -622,23 +661,21 @@ static void _sde_encoder_phys_wb_setup_cwb(struct sde_encoder_phys *phys_enc, bo
 	int i = 0, num_mixers = 0;
 	const int num_wb = 1;
 
-	if (!phys_enc->in_clone_mode) {
-		SDE_DEBUG("[enc:%d wb:%d] not in CWB mode. early return\n",
-				DRMID(phys_enc->parent), WBID(wb_enc));
-		return;
-	}
-
-	if (!hw_pp || !hw_ctl || !hw_wb || hw_pp->idx >= PINGPONG_MAX) {
-		SDE_ERROR("[enc:%d wb:%d] invalid hw resources - return\n",
-				DRMID(phys_enc->parent), WBID(wb_enc));
-		return;
-	}
-
-	if (crtc->num_mixers > MAX_CWB_PER_CTL_V1) {
-		SDE_ERROR("[enc:%d wb:%d] %d LM %d CWB case not supported\n",
-				DRMID(phys_enc->parent), WBID(wb_enc),
-				crtc->num_mixers, MAX_CWB_PER_CTL_V1);
-		return;
+	/**
+	 * 3d_merge active or cwb active for cwb path has to be set based upon
+	 * LMs in a CTL path. On cwb disable commit both 3d_merge active and cwb
+	 * active for a particular CTL path has to be disabled.
+	 */
+	if (enable) {
+		need_merge = !(_sde_encoder_is_single_lm_partial_update(wb_enc));
+		num_mixers = need_merge ? crtc->num_mixers : CRTC_SINGLE_MIXER_ONLY;
+		if (phys_enc->quad_cwb_roi) {
+			need_merge = true;
+			num_mixers = CRTC_DUAL_MIXERS_ONLY;
+		}
+	} else {
+		need_merge = (crtc->num_mixers > CRTC_SINGLE_MIXER_ONLY) ? true : false;
+		num_mixers = crtc->num_mixers;
 	}
 
 	/**
@@ -720,6 +757,37 @@ static void _sde_encoder_phys_wb_setup_cwb(struct sde_encoder_phys *phys_enc, bo
 	}
 }
 
+static void _sde_encoder_phys_wb_setup_cwb(struct sde_encoder_phys *phys_enc, bool enable)
+{
+	struct sde_encoder_phys_wb *wb_enc = to_sde_encoder_phys_wb(phys_enc);
+	struct sde_hw_wb *hw_wb = wb_enc->hw_wb;
+	struct sde_hw_ctl *hw_ctl = phys_enc->hw_ctl;
+	struct sde_crtc *crtc = to_sde_crtc(wb_enc->crtc);
+	struct sde_hw_pingpong *hw_pp = phys_enc->hw_pp;
+	enum sde_dcwb;
+
+	if (!phys_enc->in_clone_mode) {
+		SDE_DEBUG("[enc:%d wb:%d] not in CWB mode. early return\n",
+				DRMID(phys_enc->parent), WBID(wb_enc));
+		return;
+	}
+
+	if (!hw_pp || !hw_ctl || !hw_wb || hw_pp->idx >= PINGPONG_MAX) {
+		SDE_ERROR("[enc:%d wb:%d] invalid hw resources - return\n",
+				DRMID(phys_enc->parent), WBID(wb_enc));
+		return;
+	}
+
+	if (crtc->num_mixers > MAX_CWB_PER_CTL_V1) {
+		SDE_ERROR("[enc:%d wb:%d] %d LM %d CWB case not supported\n",
+				DRMID(phys_enc->parent), WBID(wb_enc),
+				crtc->num_mixers, MAX_CWB_PER_CTL_V1);
+		return;
+	}
+
+	_sde_encoder_phys_wb_setup_cwb_source(phys_enc, enable);
+}
+
 static void _sde_encoder_phys_wb_setup_ctl(struct sde_encoder_phys *phys_enc,
 		const struct sde_format *format)
 {
@@ -748,6 +816,9 @@ static void _sde_encoder_phys_wb_setup_ctl(struct sde_encoder_phys *phys_enc,
 	hw_dnsc_blur = phys_enc->hw_dnsc_blur;
 	ctl = phys_enc->hw_ctl;
 	need_merge = !(_sde_encoder_is_single_lm_partial_update(wb_enc));
+
+	need_merge = phys_enc->quad_cwb_roi ? true :
+			!(_sde_encoder_is_single_lm_partial_update(wb_enc));
 
 	if (test_bit(SDE_CTL_ACTIVE_CFG, &ctl->caps->features) &&
 			(phys_enc->hw_ctl && phys_enc->hw_ctl->ops.setup_intf_cfg_v1)) {
@@ -967,10 +1038,14 @@ static int _sde_enc_phys_wb_validate_cwb(struct sde_encoder_phys *phys_enc,
 {
 	struct drm_framebuffer *fb;
 	struct sde_crtc_state *cstate = to_sde_crtc_state(crtc_state);
+	struct sde_connector_state *c_conn_state;
 	struct sde_rect wb_roi = {0,}, pu_roi = {0,};
-	u32  out_width = 0, out_height = 0;
+	u32  out_width = 0, out_height = 0, ds_tap_pt;
 	const struct sde_format *fmt;
 	int num_lm, prog_line, ret = 0;
+
+	ds_tap_pt = sde_crtc_get_property(cstate, CRTC_PROP_CAPTURE_OUTPUT);
+	c_conn_state = to_sde_connector_state(conn_state);
 
 	fb = sde_wb_connector_state_get_output_fb(conn_state);
 	if (!fb) {
@@ -1040,6 +1115,13 @@ static int _sde_enc_phys_wb_validate_cwb(struct sde_encoder_phys *phys_enc,
 		return -EINVAL;
 	}
 
+	if (num_lm == 4 && !((wb_roi.w == out_width/2) && (wb_roi.x == out_width / 2 ||
+			wb_roi.x == out_width / 4 || wb_roi.x == 0))) {
+		SDE_ERROR("invalid cwb roi for quad pipe[%d %d] out[%d]", wb_roi.x,
+			wb_roi.w, out_width);
+		return -EINVAL;
+	}
+
 	/*
 	 * If output size is equal to input size ensure wb_roi with x and y offset
 	 * will be within buffer. If output size is smaller, only width and height are taken
@@ -1061,11 +1143,21 @@ static int _sde_enc_phys_wb_validate_cwb(struct sde_encoder_phys *phys_enc,
 	}
 
 	/* validate wb roi against pu rect */
-	if (cstate->user_roi_list.num_rects) {
-		sde_kms_rect_merge_rectangles(&cstate->user_roi_list, &pu_roi);
+	if (cstate->user_roi_list.num_rects || c_conn_state->rois.num_rects) {
+		_sde_encoder_phys_wb_get_pu_roi(cstate, c_conn_state, ds_tap_pt, &pu_roi);
+
 		if (wb_roi.w > pu_roi.w || wb_roi.h > pu_roi.h) {
 			SDE_ERROR("invalid wb roi with pu [%dx%d vs %dx%d]\n",
 					wb_roi.w, wb_roi.h, pu_roi.w, pu_roi.h);
+			return -EINVAL;
+		}
+
+		if (wb_roi.y < pu_roi.y || wb_roi.x < pu_roi.x ||
+			wb_roi.y + wb_roi.h > pu_roi.y + pu_roi.h ||
+			wb_roi.x + wb_roi.w > pu_roi.x + pu_roi.w) {
+			SDE_ERROR("invalid wb roi with pu [%dx%dx%dx%d vs %dx%dx%dx%d]\n",
+					wb_roi.x, wb_roi.y, wb_roi.w, wb_roi.h,
+					pu_roi.x, pu_roi.y, pu_roi.w, pu_roi.h);
 			return -EINVAL;
 		}
 	}
@@ -1471,6 +1563,7 @@ static void _sde_encoder_phys_wb_update_cwb_flush_helper(
 	enum sde_dcwb dcwb_idx = 0;
 	size_t dither_sz = 0;
 	void *dither_cfg = NULL;
+	enum sde_cwb src_pp_cwb_idx = 0;
 
 	/* In CWB mode, program actual source master sde_hw_ctl from crtc */
 	crtc = to_sde_crtc(wb_enc->crtc);
@@ -1513,6 +1606,27 @@ static void _sde_encoder_phys_wb_update_cwb_flush_helper(
 
 	for (i = 0; i < num_mixers; i++) {
 		src_pp_idx = (enum sde_cwb) (src_pp_idx + i);
+		/* Mapping between hw_pp and src_pp for quad pipe CWB ROI
+		 *+---------+---------+---------+-----+
+		 *| HW pp   | src_pp_idx | ROI        |
+		 *+---------+---------+---------+-----+
+		 *| 0,1     | 1, 2       | Left ROI   |
+		 *| 2,1     | 3, 2       | Centre ROI |
+		 *| 2,3     | 3, 4       | Right ROI  |
+		 *+---------+---------+---------+-----+
+		 */
+		if (phys_enc->quad_cwb_roi) {
+			switch (phys_enc->quad_cwb_roi) {
+			case CWB_RIGHT_ROI:
+				src_pp_cwb_idx = src_pp_idx + 2;
+				break;
+			case CWB_CENTER_ROI:
+				src_pp_cwb_idx = src_pp_idx % 2 + 2;
+				break;
+			default:
+				src_pp_cwb_idx = src_pp_idx;
+			}
+		}
 
 		if (test_bit(SDE_WB_DCWB_CTRL, &hw_wb->caps->features)) {
 			dcwb_idx = hw_pp->dcwb_idx + i;
@@ -1521,7 +1635,10 @@ static void _sde_encoder_phys_wb_update_cwb_flush_helper(
 				hw_wb->ops.program_cwb_dither_ctrl(hw_wb,
 					dcwb_idx, dither_cfg, dither_sz, enable);
 			}
-			if (hw_wb->ops.program_dcwb_ctrl)
+			if (hw_wb->ops.program_dcwb_ctrl && phys_enc->quad_cwb_roi)
+				hw_wb->ops.program_dcwb_ctrl(hw_wb, dcwb_idx,
+					src_pp_cwb_idx, cwb_capture_mode, enable);
+			else
 				hw_wb->ops.program_dcwb_ctrl(hw_wb, dcwb_idx,
 					src_pp_idx, cwb_capture_mode, enable);
 			if (hw_ctl->ops.update_bitmask)
@@ -1771,7 +1888,7 @@ static void sde_encoder_phys_wb_setup(struct sde_encoder_phys *phys_enc)
 	struct drm_crtc_state *crtc_state = wb_enc->crtc->state;
 	struct drm_framebuffer *fb;
 	struct sde_rect *wb_roi = &wb_enc->wb_roi;
-	u32 out_width = 0, out_height = 0;
+	u32 out_width = 0, out_height = 0, num_lm;
 
 	SDE_DEBUG("[enc:%d wb:%d] mode_set:\"%s\",%d,%d]\n", DRMID(phys_enc->parent),
 			WBID(wb_enc), mode.name, mode.hdisplay, mode.vdisplay);
@@ -1796,6 +1913,8 @@ static void sde_encoder_phys_wb_setup(struct sde_encoder_phys *phys_enc)
 		return;
 	}
 
+	num_lm = sde_crtc_get_num_datapath(crtc_state->crtc, conn_state->connector, crtc_state);
+
 	SDE_DEBUG("[fb_id:%u][fb:%u,%u]\n", fb->base.id, fb->width, fb->height);
 
 	_sde_enc_phys_wb_get_out_resolution(crtc_state, conn_state, &out_width, &out_height);
@@ -1804,6 +1923,17 @@ static void sde_encoder_phys_wb_setup(struct sde_encoder_phys *phys_enc)
 		wb_roi->y = 0;
 		wb_roi->w = out_width;
 		wb_roi->h = out_height;
+	}
+
+	phys_enc->quad_cwb_roi = CWB_ROI_DISABLED;
+
+	if (num_lm == 4) {
+		if (wb_roi->x == out_width / 2 && wb_roi->w == out_width / 2)
+			phys_enc->quad_cwb_roi = CWB_RIGHT_ROI;
+		else if (wb_roi->x == out_width / 4 && wb_roi->w == out_width / 2)
+			phys_enc->quad_cwb_roi = CWB_CENTER_ROI;
+		else if (wb_roi->x == 0 && wb_roi->w == out_width / 2)
+			phys_enc->quad_cwb_roi = CWB_LEFT_ROI;
 	}
 
 	wb_enc->wb_fmt = sde_get_sde_format_ext(fb->format->format,
@@ -1819,7 +1949,8 @@ static void sde_encoder_phys_wb_setup(struct sde_encoder_phys *phys_enc)
 		fb->format->format, fb->modifier, wb_roi->x, wb_roi->y, wb_roi->w, wb_roi->h);
 
 	SDE_EVT32(DRMID(phys_enc->parent), WBID(wb_enc), wb_roi->x, wb_roi->y, wb_roi->w, wb_roi->h,
-			out_width, out_height, fb->width, fb->height, mode.hdisplay, mode.vdisplay);
+			out_width, out_height, fb->width, fb->height, mode.hdisplay, mode.vdisplay,
+			DPUID(phys_enc->parent->dev));
 
 	sde_encoder_phys_wb_set_ot_limit(phys_enc);
 
@@ -1853,7 +1984,7 @@ static void sde_encoder_phys_wb_ctl_start_irq(void *arg, int irq_idx)
 	struct sde_encoder_phys_wb *wb_enc = arg;
 	struct sde_encoder_phys *phys_enc;
 	struct sde_hw_wb *hw_wb;
-	u32 line_cnt = 0;
+	u32 line_cnt = 0, frame_count = 0;
 
 	if (!wb_enc)
 		return;
@@ -1867,14 +1998,20 @@ static void sde_encoder_phys_wb_ctl_start_irq(void *arg, int irq_idx)
 	if (hw_wb->ops.get_line_count)
 		line_cnt = hw_wb->ops.get_line_count(hw_wb);
 
+	if (hw_wb->ops.get_frame_count)
+		frame_count = hw_wb->ops.get_frame_count(hw_wb);
+
 	SDE_ATRACE_END("ctl_start_irq");
-	SDE_EVT32_IRQ(DRMID(phys_enc->parent), WBID(wb_enc), line_cnt);
+	SDE_EVT32_IRQ(DRMID(phys_enc->parent), WBID(wb_enc), line_cnt, frame_count,
+		DPUID(phys_enc->parent->dev));
 }
 
 static void _sde_encoder_phys_wb_frame_done_helper(void *arg, bool frame_error)
 {
 	struct sde_encoder_phys_wb *wb_enc = arg;
 	struct sde_encoder_phys *phys_enc = &wb_enc->base;
+	struct sde_cesta_scc_status scc_status = {0, };
+	struct sde_cesta_client *cesta_client = sde_encoder_get_cesta_client(phys_enc->parent);
 	u32 event = frame_error ? SDE_ENCODER_FRAME_EVENT_ERROR : 0;
 	u32 ubwc_error = 0;
 	bool in_clone_mode = phys_enc->in_clone_mode;
@@ -1911,6 +2048,8 @@ static void _sde_encoder_phys_wb_frame_done_helper(void *arg, bool frame_error)
 	if (!in_clone_mode && phys_enc->parent_ops.handle_vblank_virt)
 		phys_enc->parent_ops.handle_vblank_virt(phys_enc->parent, phys_enc);
 
+	if (wb_enc->hw_wb->ops.get_frame_count)
+		frame_count = wb_enc->hw_wb->ops.get_frame_count(wb_enc->hw_wb);
 end:
 	if (frame_error && wb_enc->hw_wb->ops.get_ubwc_error
 			&& wb_enc->hw_wb->ops.clear_ubwc_error) {
@@ -1920,7 +2059,9 @@ end:
 	SDE_EVT32_IRQ(DRMID(phys_enc->parent), WBID(wb_enc), in_clone_mode,
 			phys_enc->enable_state, event, atomic_read(&phys_enc->pending_kickoff_cnt),
 			atomic_read(&phys_enc->pending_retire_fence_cnt),
-			ubwc_error, frame_error);
+			ubwc_error, frame_error, frame_count, DPUID(phys_enc->parent->dev));
+	if (cesta_client)
+		sde_cesta_get_status(cesta_client, &scc_status);
 
 	wake_up_all(&phys_enc->pending_kickoff_wq);
 }
@@ -2007,6 +2148,9 @@ static void sde_encoder_phys_wb_irq_ctrl(struct sde_encoder_phys *phys, bool ena
 	if (wb_cfg->features & BIT(SDE_WB_HAS_CWB)) {
 		max_num_of_irqs = CRTC_DUAL_MIXERS_ONLY;
 		irq_table = cwb_irq_tbl;
+	} else {
+		max_num_of_irqs = 0;
+		irq_table = NULL;
 	}
 
 	if (enable && atomic_inc_return(&phys->wbirq_refcount) == 1) {
@@ -2259,7 +2403,8 @@ static int _sde_encoder_phys_wb_wait_for_ctl_start(struct sde_encoder_phys *phys
 	 * if hwfencing enabled, try again to wait for up to the extended timeout time in
 	 * increments as long as fence has not been signaled.
 	 */
-	if (rc == -ETIMEDOUT && phys_enc->sde_kms->catalog->hw_fence_rev && hw_ctl)
+	if (rc == -ETIMEDOUT && (phys_enc->sde_kms->catalog->hw_fence_rev ||
+			phys_enc->sde_kms->catalog->is_vrr_hw_fence_enable) && hw_ctl)
 		rc = sde_encoder_helper_hw_fence_extended_wait(phys_enc, hw_ctl,
 			&wait_info, INTR_IDX_CTL_START);
 
@@ -2267,7 +2412,8 @@ static int _sde_encoder_phys_wb_wait_for_ctl_start(struct sde_encoder_phys *phys
 		atomic_add_unless(&phys_enc->pending_ctl_start_cnt, -1, 0);
 
 		/* if we timeout after the extended wait, reset mixers and do sw override */
-		if (phys_enc->sde_kms->catalog->hw_fence_rev)
+		if (phys_enc->sde_kms->catalog->hw_fence_rev ||
+				phys_enc->sde_kms->catalog->is_vrr_hw_fence_enable)
 			sde_encoder_helper_hw_fence_sw_override(phys_enc, hw_ctl);
 
 		SDE_ERROR("[enc:%d wb:%d] ctl_start timed out\n",
@@ -2522,6 +2668,7 @@ static void _sde_encoder_phys_wb_destroy_internal_fb(
 		drm_framebuffer_unregister_private(wb_enc->fb_disable);
 		drm_framebuffer_remove(wb_enc->fb_disable);
 		wb_enc->fb_disable = NULL;
+		wb_enc->bo_disable[0] = NULL;
 	}
 
 	if (wb_enc->bo_disable[0]) {
@@ -2754,6 +2901,16 @@ void sde_encoder_phys_wb_add_enc_to_minidump(struct sde_encoder_phys *phys_enc)
 	sde_mini_dump_add_va_region("sde_enc_phys_wb", sizeof(*wb_enc), wb_enc);
 }
 
+void sde_encoder_phys_wb_cesta_ctrl_cfg(struct sde_encoder_phys *phys_enc,
+		struct sde_cesta_ctrl_cfg *cfg, bool *req_flush, bool *req_scc)
+{
+	cfg->enable = true;
+	cfg->wb = true;
+	cfg->req_mode = SDE_CESTA_CTRL_REQ_IMMEDIATE;
+	cfg->hw_sleep_enable = false;
+	*req_flush = true;
+}
+
 /**
  * sde_encoder_phys_wb_init_ops - initialize writeback operations
  * @ops:	Pointer to encoder operation table
@@ -2776,6 +2933,7 @@ static void sde_encoder_phys_wb_init_ops(struct sde_encoder_phys_ops *ops)
 	ops->hw_reset = sde_encoder_helper_hw_reset;
 	ops->irq_control = sde_encoder_phys_wb_irq_ctrl;
 	ops->add_to_minidump = sde_encoder_phys_wb_add_enc_to_minidump;
+	ops->cesta_ctrl_cfg = sde_encoder_phys_wb_cesta_ctrl_cfg;
 }
 
 /**
@@ -2915,7 +3073,7 @@ struct sde_encoder_phys *sde_encoder_phys_wb_init(struct sde_enc_phys_init_param
 		irq->intr_idx = INTR_IDX_PP_CWB_OVFL;
 		irq->cb.func = sde_encoder_phys_cwb_ovflow;
 
-	} else {
+	} else if (wb_cfg && (wb_cfg->features & BIT(SDE_WB_HAS_CWB))) {
 		irq = &phys_enc->irq[INTR_IDX_PP1_OVFL];
 		irq->name = "pp1_overflow";
 		irq->hw_idx = CWB_1;

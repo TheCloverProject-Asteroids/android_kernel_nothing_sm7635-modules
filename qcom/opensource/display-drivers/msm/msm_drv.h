@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
@@ -62,6 +62,7 @@
 #define GET_MAJOR_REV(rev)		((rev) >> 28)
 #define GET_MINOR_REV(rev)		(((rev) >> 16) & 0xFFF)
 #define GET_STEP_REV(rev)		((rev) & 0xFFFF)
+#define DPUID(dev)			dev->primary->index
 
 struct msm_kms;
 struct msm_gpu;
@@ -77,7 +78,7 @@ struct msm_gem_vma;
 
 #define NUM_DOMAINS    4    /* one for KMS, then one per gpu core (?) */
 #define MAX_CRTCS      16
-#define MAX_PLANES     20
+#define MAX_PLANES     32
 #define MAX_ENCODERS   16
 #define MAX_BRIDGES    16
 #define MAX_CONNECTORS 16
@@ -150,6 +151,8 @@ enum msm_mdp_plane_property {
 	PLANE_PROP_FP16_UNMULT,
 	PLANE_PROP_UCSC_UNMULT,
 	PLANE_PROP_UCSC_ALPHA_DITHER,
+	PLANE_PROP_BG_ALPHA,
+	PLANE_PROP_SRC_IMG_SIZE,
 
 	/* enum/bitmask properties */
 	PLANE_PROP_BLEND_OP,
@@ -158,7 +161,10 @@ enum msm_mdp_plane_property {
 	PLANE_PROP_MULTIRECT_MODE,
 	PLANE_PROP_UCSC_IGC,
 	PLANE_PROP_UCSC_GC,
-
+	PLANE_PROP_CAC_TYPE,
+	PLANE_PROP_SRC_RECT_EXT,
+	PLANE_PROP_DST_RECT_EXT,
+	PLANE_PROP_COLOR_MASK_OVERRIDE,
 
 	/* total # of properties */
 	PLANE_PROP_COUNT
@@ -199,6 +205,8 @@ enum msm_mdp_crtc_property {
 	CRTC_PROP_NOISE_LAYER_V1,
 	CRTC_PROP_FRAME_DATA_BUF,
 	CRTC_PROP_HANDLE_FENCE_ERROR,
+	CRTC_PROP_UBWC_CLK,
+	CRTC_PROP_FLUSH_SYNC_EN,
 
 	/* total # of properties */
 	CRTC_PROP_COUNT
@@ -251,6 +259,8 @@ enum msm_mdp_conn_property {
 	CONNECTOR_PROP_AVR_STEP_STATE,
 	CONNECTOR_PROP_EPT,
 	CONNECTOR_PROP_EPT_FPS,
+	CONNECTOR_PROP_FRAME_INTERVAL,
+	CONNECTOR_PROP_USECASE_IDX,
 	CONNECTOR_PROP_CACHE_STATE,
 	CONNECTOR_PROP_DSC_MODE,
 	CONNECTOR_PROP_WB_USAGE_TYPE,
@@ -322,6 +332,44 @@ static const char *msm_spr_pack_type_str[MSM_DISPLAY_SPR_TYPE_MAX] = {
 };
 
 /**
+ * enum msm_display_spr_pack_type_mode - spr pack type mode supported
+ * @MSM_DISPLAY_SPR_PENTILE_NONE_TYPE:      Bypass, no special packing
+ * @MSM_DISPLAY_SPR_PENTILE_RG_BG_TYPE_A:   RG/BG Type A
+ * @MSM_DISPLAY_SPR_PENTILE_BG_RG_TYPE_A:   BG/RG Type A
+ * @MSM_DISPLAY_SPR_PENTILE_GR_GB_TYPE_A:   GR/GB Type A
+ * @MSM_DISPLAY_SPR_PENTILE_GB_GR_TYPE_A:   GB/GR Type A
+ * @MSM_DISPLAY_SPR_PENTILE_RG_BG_TYPE_B:   RG/BG Type B
+ * @MSM_DISPLAY_SPR_PENTILE_BG_RG_TYPE_B:   BG/RG Type B
+ * @MSM_DISPLAY_SPR_PENTILE_GR_GB_TYPE_B:   GR/GB Type B
+ * @MSM_DISPLAY_SPR_PENTILE_GB_GR_TYPE_B:   GB/GR Type B
+ * @MSM_DISPLAY_SPR_PENTILE_MAX_TYPE:       max and invalid
+ */
+enum msm_display_spr_pack_type_mode {
+	MSM_DISPLAY_SPR_PENTILE_NONE_TYPE,
+	MSM_DISPLAY_SPR_PENTILE_RG_BG_TYPE_A,
+	MSM_DISPLAY_SPR_PENTILE_BG_RG_TYPE_A,
+	MSM_DISPLAY_SPR_PENTILE_GR_GB_TYPE_A,
+	MSM_DISPLAY_SPR_PENTILE_GB_GR_TYPE_A,
+	MSM_DISPLAY_SPR_PENTILE_RG_BG_TYPE_B,
+	MSM_DISPLAY_SPR_PENTILE_BG_RG_TYPE_B,
+	MSM_DISPLAY_SPR_PENTILE_GR_GB_TYPE_B,
+	MSM_DISPLAY_SPR_PENTILE_GB_GR_TYPE_B,
+	MSM_DISPLAY_SPR_PACK_TYPE_MODE_MAX
+};
+
+static const char *msm_spr_pack_type_mode_str[MSM_DISPLAY_SPR_PACK_TYPE_MODE_MAX] = {
+	[MSM_DISPLAY_SPR_PENTILE_NONE_TYPE] = "None",
+	[MSM_DISPLAY_SPR_PENTILE_RG_BG_TYPE_A] = "RG-BG Type A",
+	[MSM_DISPLAY_SPR_PENTILE_BG_RG_TYPE_A] = "BG-RG Type A",
+	[MSM_DISPLAY_SPR_PENTILE_GR_GB_TYPE_A] = "GR-GB Type A",
+	[MSM_DISPLAY_SPR_PENTILE_GB_GR_TYPE_A] = "GB-GR Type A",
+	[MSM_DISPLAY_SPR_PENTILE_RG_BG_TYPE_B] = "RG-BG Type B",
+	[MSM_DISPLAY_SPR_PENTILE_BG_RG_TYPE_B] = "BG-RG Type B",
+	[MSM_DISPLAY_SPR_PENTILE_GR_GB_TYPE_B] = "GR-GB Type B",
+	[MSM_DISPLAY_SPR_PENTILE_GB_GR_TYPE_B] = "GB-GR Type B",
+};
+
+/**
  * enum msm_display_caps - features/capabilities supported by displays
  * @MSM_DISPLAY_CAP_VID_MODE:           Video or "active" mode supported
  * @MSM_DISPLAY_CAP_CMD_MODE:           Command mode supported
@@ -330,6 +378,7 @@ static const char *msm_spr_pack_type_str[MSM_DISPLAY_SPR_TYPE_MAX] = {
  * @MSM_DISPLAY_ESD_ENABLED:            ESD feature enabled
  * @MSM_DISPLAY_CAP_MST_MODE:           Display with MST support
  * @MSM_DISPLAY_SPLIT_LINK:             Split Link enabled
+ * @MSM_DISPLAY_LOOPBACK_MODE:          Display in loopback mode
  */
 enum msm_display_caps {
 	MSM_DISPLAY_CAP_VID_MODE	= BIT(0),
@@ -339,6 +388,7 @@ enum msm_display_caps {
 	MSM_DISPLAY_ESD_ENABLED		= BIT(4),
 	MSM_DISPLAY_CAP_MST_MODE	= BIT(5),
 	MSM_DISPLAY_SPLIT_LINK		= BIT(6),
+	MSM_DISPLAY_LOOPBACK_MODE	= BIT(7),
 };
 
 /**
@@ -479,6 +529,7 @@ struct msm_roi_caps {
  * @half_panel_pu            True for single and dual dsc encoders if partial
  *                           update sets the roi width to half of mode width
  *                           False in all other cases
+ * @rc_override_v1:          Using sde_dsc_rc_range_bpg_override_v1
  */
 struct msm_display_dsc_info {
 	struct drm_dsc_config config;
@@ -502,6 +553,7 @@ struct msm_display_dsc_info {
 	u32 dsc_4hsmerge_padding;
 	u32 dsc_4hsmerge_alignment;
 	bool half_panel_pu;
+	bool rc_override_v1;
 };
 
 
@@ -784,6 +836,67 @@ struct msm_display_topology {
 };
 
 /**
+ * struct msm_freq_step_pattern - Frequency pattern
+ * @freq_stepping_seq: Frequency stepping sequence
+ * @length:            Total number of steps
+ * @frame_interval:    Frame interval for given pattern
+ * @num_freq_steps:    Number of frequency steps
+ * @usecase_idx:       Usecase for given pattern.
+ *                     Pattern can be differet for video playback.
+ * @frame_pattern_seq_idx: Sequential pattern index. Example: 0, 1, 2, 3 etc.
+ * @needs_ap_refresh:  If the refresh pattern needs first refresh from AP.
+ */
+struct msm_freq_step_pattern {
+	u32 *freq_stepping_seq;
+	u32 length;
+	u32 frame_interval;
+	u32 num_freq_steps;
+	u32 usecase_idx;
+	u32 frame_pattern_seq_idx;
+	bool needs_ap_refresh;
+};
+
+/**
+ * struct msm_debugfs_freq_pattern - Debugfs Frequency pattern
+ * @freq_stepping_seq: Frequency stepping sequence
+ * @length:            Total number of steps
+ * @frame_interval:    Frame interval for given pattern
+ * @num_freq_steps:    Number of frequency steps
+ * @index:       index for the given pattern
+ */
+struct msm_debugfs_freq_pattern {
+	u32 *freq_stepping_seq;
+	u32 length;
+	u32 frame_interval;
+	u32 num_freq_steps;
+	u32 index;
+};
+
+/**
+ * struct msm_freq_step_list - List of Frequency patterns
+ * @freq_pattern: Array of frequency patterns
+ * @count:        Total frequency patterns supported
+ */
+struct msm_freq_step_list {
+	struct msm_freq_step_pattern *freq_pattern;
+	u32 count;
+};
+
+/**
+ * struct msm_vrr_capabilities - VRR capabilities
+ * @vrr_support: True for any VRR supported panel
+ * @video_psr_support: True if it is Video hybrid mode panel
+ * @video_mrr_support: True if it is Video MRR feature for VHM panel
+ * @arp_support:    True if it is ARP panel
+ */
+struct msm_vrr_capabilities {
+	bool vrr_support;
+	bool video_psr_support;
+	bool video_mrr_support;
+	bool arp_support;
+};
+
+/**
  * struct msm_dyn_clk_list - list of dynamic clock rates.
  * @count: number of supported clock rates
  * @rates: list of supported clock rates
@@ -842,10 +955,12 @@ struct msm_display_wd_jitter_config {
  * @allowed_mode_switches: bit mask to indicate supported mode switch.
  * @disable_rsc_solver: Dynamically disable RSC solver for the timing mode due to lower bitclk rate.
  * @dyn_clk_list: List of dynamic clock rates for RFI.
+ * @freq_step_list: List of Frequency steping pattrerns.
  * @qsync_min_fps: qsync min fps rate
  * @avr_step_fps: AVR step fps rate
  * @wd_jitter:         Info for WD jitter.
  * @vpadding:        panel stacking height
+ * @te_pulse_width_ns: pulse width of the TE in microseconds
  */
 struct msm_mode_info {
 	uint32_t frame_rate;
@@ -859,6 +974,7 @@ struct msm_mode_info {
 	struct msm_compression_info comp_info;
 	struct msm_roi_caps roi_caps;
 	bool wide_bus_en;
+	u32 pclk_factor;
 	u32 panel_mode_caps;
 	u32 pixel_format_caps;
 	u32 bpp;
@@ -868,10 +984,12 @@ struct msm_mode_info {
 	u32 allowed_mode_switches;
 	bool disable_rsc_solver;
 	struct msm_dyn_clk_list dyn_clk_list;
+	struct msm_freq_step_list *freq_step_list;
 	u32 qsync_min_fps;
 	u32 avr_step_fps;
 	struct msm_display_wd_jitter_config wd_jitter;
 	u32 vpadding;
+	u32 te_pulse_width_us;
 };
 
 /**
@@ -919,11 +1037,22 @@ struct msm_resource_caps_info {
  * @qsync_min_fps      Minimum fps supported by Qsync feature
  * @has_qsync_min_fps_list True if dsi-supported-qsync-min-fps-list exits
  * @avr_step_fps        AVR step fps supported
+ * @vrr_caps            Capabilities of VRR panel
+ * @hwfence_sw_override_always	whether to trigger fence software override every flush (only
+ *				intended for TVM)
+ * @esync_enabled:      esync is supported
+ * @esync_milli_skew:   esync skew, in 1/1000ths of a line
+ * @esync_hsync_milli_pulse_width: esync's hsync pulse width, in 1/1000ths of a line
+ * @esync_emsync_fps:   esync's EM pulse rate in Hz
+ * @esync_emsync_milli_pulse_width: esync's EM pulse width, in 1/1000ths of a line
  * @te_source		vsync source pin information
  * @dsc_count:		max dsc hw blocks used by display (only available
  *			for dsi display)
  * @lm_count:		max layer mixer blocks used by display (only available
  *			for dsi display)
+ * @ctl_op_sync:        Indicates dual display panels are operating in sync mode
+ * @is_master:          Flag indicating the Master display which drives the displays in sync mode
+ * @disable_cesta_hw_sleep: Disable cesta hardware sleep & panic/wakeup_en for the display
  */
 struct msm_display_info {
 	int intf_type;
@@ -949,11 +1078,24 @@ struct msm_display_info {
 	uint32_t qsync_min_fps;
 	bool has_qsync_min_fps_list;
 	uint32_t avr_step_fps;
+	struct msm_vrr_capabilities vrr_caps;
+	bool hwfence_sw_override_always;
+
+	bool esync_enabled;
+	uint32_t esync_milli_skew;
+	uint32_t esync_hsync_milli_pulse_width;
+	uint32_t esync_emsync_fps;
+	uint32_t esync_emsync_milli_pulse_width;
+
+	bool event_notification_disabled;
 
 	uint32_t te_source;
 
 	uint32_t dsc_count;
 	uint32_t lm_count;
+	bool ctl_op_sync;
+	bool is_master;
+	bool disable_cesta_hw_sleep;
 };
 
 #define MSM_MAX_ROI	4
@@ -985,10 +1127,19 @@ struct msm_display_kickoff_params {
  * struct - msm_display_conn_params - info of dpu display features
  * @qsync_mode: Qsync mode, where 0: disabled 1: continuous mode 2: oneshot
  * @qsync_update: Qsync settings were changed/updated
+ * @cmd_bit_mask: Bit mask of commands to be sent.
+ * @peripheral_flush: True if peripheral flush needs to be set
+ * @freq_pattern: Frequency pattern to be set
+ * @arp_t2_in_us: Time when TE shall be asserted relative to next frame
+ *		  update deadline(T1) in case of ARP
  */
 struct msm_display_conn_params {
 	uint32_t qsync_mode;
 	bool qsync_update;
+	uint64_t cmd_bit_mask;
+	bool peripheral_flush;
+	struct msm_freq_step_pattern *freq_pattern;
+	uint16_t arp_t2_in_us;
 };
 
 /**
@@ -1160,6 +1311,9 @@ struct msm_drm_private {
 
 	struct mutex fence_error_client_lock;
 	struct list_head fence_error_client_list;
+
+	/* list of component registered for notification */
+	struct blocking_notifier_head component_notifier_list;
 };
 
 /* get struct msm_kms * from drm_device * */
@@ -1375,15 +1529,13 @@ void msm_fbdev_free(struct drm_device *dev);
 
 struct hdmi;
 #if IS_ENABLED(CONFIG_DRM_MSM_HDMI)
-int msm_hdmi_modeset_init(struct hdmi *hdmi, struct drm_device *dev,
-		struct drm_encoder *encoder);
-void __init msm_hdmi_register(void);
-void __exit msm_hdmi_unregister(void);
+void __init hdmi_display_register(void);
+void __exit hdmi_display_unregister(void);
 #else
-static inline void __init msm_hdmi_register(void)
+static inline void __init hdmi_display_register(void)
 {
 }
-static inline void __exit msm_hdmi_unregister(void)
+static inline void __exit hdmi_display_unregister(void)
 {
 }
 #endif /* CONFIG_DRM_MSM_HDMI */
@@ -1482,6 +1634,19 @@ static inline void __exit dsi_display_unregister(void)
 }
 #endif /* CONFIG_DRM_MSM_DSI */
 
+#if IS_ENABLED(CONFIG_DRM_SDE_SHD)
+void __init sde_shd_register(void);
+void __exit sde_shd_unregister(void);
+#else
+static inline void __init sde_shd_register(void)
+{
+}
+
+static inline void __exit sde_shd_unregister(void)
+{
+}
+#endif /* CONFIG_DRM_SDE_SHD */
+
 #if IS_ENABLED(CONFIG_HDCP_QSEECOM)
 void __init msm_hdcp_register(void);
 void __exit msm_hdcp_unregister(void);
@@ -1522,6 +1687,18 @@ static inline void __init sde_rsc_rpmh_register(void)
 }
 #endif /* CONFIG_DRM_SDE_RSC */
 
+#if IS_ENABLED(CONFIG_DRM_SDE_CESTA)
+void __init sde_cesta_register(void);
+void __exit sde_cesta_unregister(void);
+#else
+static inline void __init sde_cesta_register(void)
+{
+}
+static inline void __exit sde_cesta_unregister(void)
+{
+}
+#endif /* CONFIG_DRM_SDE_CESTA */
+
 #if IS_ENABLED(CONFIG_DRM_SDE_WB)
 void __init sde_wb_register(void);
 void __exit sde_wb_unregister(void);
@@ -1557,6 +1734,19 @@ static inline void sde_rotator_smmu_driver_unregister(void)
 {
 }
 #endif /* CONFIG_MSM_SDE_ROTATOR */
+
+#if IS_ENABLED(CONFIG_DRM_MSM_LEASE)
+void __init msm_lease_drm_register(void);
+void __exit msm_lease_drm_unregister(void);
+#else
+static inline void __init msm_lease_drm_register(void)
+{
+}
+
+static inline void __exit msm_lease_drm_unregister(void)
+{
+}
+#endif /* CONFIG_DRM_MSM_LEASE */
 
 struct clk *msm_clk_get(struct platform_device *pdev, const char *name);
 int msm_clk_bulk_get(struct device *dev, struct clk_bulk_data **bulk);
@@ -1615,5 +1805,39 @@ int msm_get_dsc_count(struct msm_drm_private *priv,
 		u32 hdisplay, u32 *num_dsc);
 
 int msm_get_src_bpc(int chroma_format, int bpc);
+
+/**
+ * enum msm_component_event - type of component events
+ * @MSM_COMP_OBJECT_CREATED - notify when all builtin objects are created
+ */
+enum msm_component_event {
+	MSM_COMP_OBJECT_CREATED = 0,
+};
+
+/**
+ * msm_drm_register_component - register a component notifier
+ * @dev: drm device
+ * @nb: notifier block to callback on events
+ *
+ * This function registers a notifier callback function
+ * to msm_drm_component_list, which would be called during module init.
+ */
+int msm_drm_register_component(struct drm_device *dev, struct notifier_block *nb);
+
+/**
+ * msm_drm_unregister_component - unregister a component notifier
+ * @dev: drm device
+ * @nb: notifier block to callback on events
+ *
+ * This function registers a notifier callback function
+ * to msm_drm_component_list, which would be called during module deinit.
+ */
+int msm_drm_unregister_component(struct drm_device *dev, struct notifier_block *nb);
+
+/**
+ * msm_drm_notify_components - notify components of msm_component_event
+ * @event: defined in msm_component_event
+ */
+int msm_drm_notify_components(struct drm_device *dev, enum msm_component_event event);
 
 #endif /* __MSM_DRV_H__ */

@@ -39,6 +39,7 @@
 #include "osif_psoc_sync.h"
 #include "wlan_osif_features.h"
 #include "wlan_p2p_ucfg_api.h"
+#include "wlan_mlo_mgr_public_api.h"
 
 #define REG_RULE_2412_2462    REG_RULE(2412-10, 2462+10, 40, 0, 20, 0)
 
@@ -896,7 +897,8 @@ int hdd_reg_set_country(struct hdd_context *hdd_ctx, char *country_code)
 		qdf_mutex_release(&hdd_ctx->regulatory_status_lock);
 	}
 
-	hdd_reg_wait_for_country_change(hdd_ctx);
+	if (!cds_is_driver_loading())
+		hdd_reg_wait_for_country_change(hdd_ctx);
 
 	return qdf_status_to_os_return(status);
 }
@@ -958,6 +960,15 @@ int hdd_reg_set_band(struct net_device *dev, uint32_t band_bitmap)
 		return 0;
 	}
 
+	if (hdd_is_chan_switch_in_progress()) {
+		hdd_debug("channel switch is in progress");
+		status = policy_mgr_wait_chan_switch_complete_evt(hdd_ctx->psoc);
+		if (!QDF_IS_STATUS_SUCCESS(status)) {
+			hdd_err("qdf wait for csa event failed");
+			return QDF_STATUS_E_FAILURE;
+		}
+	}
+
 	hdd_ctx->curr_band = wlan_reg_band_bitmap_to_band_info(band_bitmap);
 
 	if (QDF_IS_STATUS_ERROR(ucfg_reg_set_band(hdd_ctx->pdev,
@@ -969,6 +980,8 @@ int hdd_reg_set_band(struct net_device *dev, uint32_t band_bitmap)
 
 	status = ucfg_cm_set_roam_band_update(hdd_ctx->psoc,
 					      adapter->deflink->vdev_id);
+	ucfg_cm_set_roam_band_mask(hdd_ctx->psoc,
+				   adapter->deflink->vdev_id, band_bitmap);
 	if (QDF_IS_STATUS_ERROR(status))
 		hdd_err("Failed to send RSO update to fw on set band");
 
@@ -1462,7 +1475,25 @@ static inline void hdd_set_dfs_pri_multiplier(struct hdd_context *hdd_ctx,
 }
 #endif
 
-void hdd_send_wiphy_regd_sync_event(struct hdd_context *hdd_ctx)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)) || \
+	defined(CFG80211_WIPHY_REGD_NO_RTNL_SUPPORT)
+static int
+hdd_regulatory_set_wiphy_regd_sync(struct wiphy *wiphy,
+				   struct ieee80211_regdomain *regd)
+{
+	return regulatory_set_wiphy_regd_sync(wiphy, regd);
+}
+#else
+static int
+hdd_regulatory_set_wiphy_regd_sync(struct wiphy *wiphy,
+				   struct ieee80211_regdomain *regd)
+{
+	return regulatory_set_wiphy_regd_sync_rtnl(wiphy, regd);
+}
+#endif
+
+void hdd_send_wiphy_regd_sync_event(struct hdd_context *hdd_ctx,
+				    bool send_sync_event)
 {
 	struct ieee80211_regdomain *regd;
 	struct ieee80211_reg_rule *regd_rules;
@@ -1525,7 +1556,14 @@ void hdd_send_wiphy_regd_sync_event(struct hdd_context *hdd_ctx)
 			  regd_rules[i].flags);
 	}
 
-	regulatory_set_wiphy_regd(hdd_ctx->wiphy, regd);
+	if (send_sync_event && hdd_hold_rtnl_lock()) {
+		hdd_wiphy_lock(hdd_ctx->wiphy, NULL);
+		hdd_regulatory_set_wiphy_regd_sync(hdd_ctx->wiphy, regd);
+		hdd_wiphy_unlock(hdd_ctx->wiphy, NULL);
+		hdd_release_rtnl_lock();
+	} else {
+		regulatory_set_wiphy_regd(hdd_ctx->wiphy, regd);
+	}
 
 	hdd_debug("regd sync event sent with reg rules info");
 	qdf_mem_free(regd);
@@ -1758,10 +1796,12 @@ hdd_restart_sap_with_new_phymode(struct wlan_hdd_link_info *link_info,
 	hostapd_state = WLAN_HDD_GET_HOSTAP_STATE_PTR(link_info);
 	sap_ctx = WLAN_HDD_GET_SAP_CTX_PTR(link_info);
 
+	mutex_lock(&hdd_ctx->sap_lock);
 	if (!test_bit(SOFTAP_BSS_STARTED, &link_info->link_flags)) {
 		sap_config->sap_orig_hw_mode = sap_config->SapHw_mode;
 		sap_config->SapHw_mode = csr_phy_mode;
 		hdd_err("Can't restart AP because it is not started");
+		mutex_unlock(&hdd_ctx->sap_lock);
 		return;
 	}
 
@@ -1769,12 +1809,14 @@ hdd_restart_sap_with_new_phymode(struct wlan_hdd_link_info *link_info,
 	status = wlansap_stop_bss(sap_ctx);
 	if (!QDF_IS_STATUS_SUCCESS(status)) {
 		hdd_err("SAP Stop Bss fail");
+		mutex_unlock(&hdd_ctx->sap_lock);
 		return;
 	}
 	status = qdf_wait_single_event(&hostapd_state->qdf_stop_bss_event,
 				       SME_CMD_STOP_BSS_TIMEOUT);
 	if (!QDF_IS_STATUS_SUCCESS(status)) {
 		hdd_err("SAP Stop timeout");
+		mutex_unlock(&hdd_ctx->sap_lock);
 		return;
 	}
 
@@ -1784,10 +1826,9 @@ hdd_restart_sap_with_new_phymode(struct wlan_hdd_link_info *link_info,
 	sap_config->sap_orig_hw_mode = sap_config->SapHw_mode;
 	sap_config->SapHw_mode = csr_phy_mode;
 
-	mutex_lock(&hdd_ctx->sap_lock);
 	qdf_event_reset(&hostapd_state->qdf_event);
 	status = wlansap_start_bss(sap_ctx, hdd_hostapd_sap_event_cb,
-				   sap_config, adapter->dev);
+				   sap_config);
 	if (!QDF_IS_STATUS_SUCCESS(status)) {
 		mutex_unlock(&hdd_ctx->sap_lock);
 		hdd_err("SAP Start Bss fail");
@@ -1970,6 +2011,10 @@ static void hdd_regulatory_dyn_cbk(struct wlan_objmgr_psoc *psoc,
 	bool reg_flag;
 
 	pdev_priv = wlan_pdev_get_ospriv(pdev);
+	if (!pdev_priv) {
+		hdd_err("pdev_priv null");
+		return;
+	}
 	wiphy = pdev_priv->wiphy;
 	hdd_ctx = wiphy_priv(wiphy);
 
@@ -2004,7 +2049,7 @@ sync_chanlist:
 #if defined CFG80211_USER_HINT_CELL_BASE_SELF_MANAGED || \
 	    (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 18, 0))
 	if (wiphy->registered)
-		hdd_send_wiphy_regd_sync_event(hdd_ctx);
+		hdd_send_wiphy_regd_sync_event(hdd_ctx, false);
 #endif
 
 	hdd_config_tdls_with_band_switch(hdd_ctx);
@@ -2085,7 +2130,7 @@ int hdd_regulatory_init(struct hdd_context *hdd_ctx, struct wiphy *wiphy)
 	fill_wiphy_band_channels(wiphy, cur_chan_list, NL80211_BAND_2GHZ);
 	fill_wiphy_band_channels(wiphy, cur_chan_list, NL80211_BAND_5GHZ);
 	fill_wiphy_6ghz_band_channels(wiphy, cur_chan_list);
-	qdf_mem_zero(hdd_ctx->reg.alpha2, REG_ALPHA2_LEN + 1);
+	ucfg_reg_get_current_country(hdd_ctx->psoc, hdd_ctx->reg.alpha2);
 
 	qdf_mem_free(cur_chan_list);
 	return 0;
@@ -2148,3 +2193,39 @@ void hdd_update_regdb_offload_config(struct hdd_context *hdd_ctx)
 	hdd_debug("Ignore regdb offload Indication from FW");
 	ucfg_set_ignore_fw_reg_offload_ind(hdd_ctx->psoc);
 }
+
+void hdd_remove_vlp_depriority_channels(struct wlan_objmgr_pdev *pdev,
+					uint16_t *ch_freq_list,
+					uint32_t *num_channels)
+{
+	uint32_t num_chan_temp = 0;
+	uint16_t i;
+	uint8_t country[REG_ALPHA2_LEN + 1];
+	struct wlan_objmgr_psoc *psoc;
+
+	psoc = wlan_pdev_get_psoc(pdev);
+	if (!psoc)
+		return;
+
+	if (!(*num_channels > 1))
+		return;
+
+	ucfg_reg_get_current_country(psoc, country);
+	if (!ucfg_reg_get_num_rules_of_ap_pwr_type(pdev,
+						   REG_VERY_LOW_POWER_AP)) {
+		hdd_debug("Current country %.2s don't support VLP", country);
+		return;
+	}
+
+	for (i = 0; i < *num_channels; i++) {
+		if (ucfg_reg_is_vlp_depriority_freq(pdev,
+						    ch_freq_list[i])) {
+			hdd_nofl_debug("skip freq %u", ch_freq_list[i]);
+			continue;
+		}
+		ch_freq_list[num_chan_temp++] = ch_freq_list[i];
+	}
+
+	*num_channels = num_chan_temp;
+}
+

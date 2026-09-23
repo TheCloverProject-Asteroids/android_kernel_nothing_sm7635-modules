@@ -8,6 +8,7 @@
 #include <linux/of_device.h>
 #include <linux/of_platform.h>
 #include <linux/err.h>
+#include <linux/version.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/soc.h>
@@ -34,7 +35,8 @@
 
 enum {
         DP_CONTROLLER0 = 0,
-        DP_CONTROLLER_MAX,
+        HDMI_CONTROLLER = 1,
+        DP_CONTROLLER_MAX = 2,
 };
 
 enum {
@@ -127,7 +129,7 @@ static int msm_ext_disp_edid_ctl_info(struct snd_kcontrol *kcontrol,
 		codec_data->ctl[dai_id], codec_data->stream[dai_id]);
 
 	mutex_lock(&codec_data->dp_ops_lock);
-	if (dai_id == HDMI_MS_DAI)
+	if (dai_id == HDMI_DAI || dai_id == HDMI_MS_DAI)
 		type = EXT_DISPLAY_TYPE_HDMI;
 	else
 		type = EXT_DISPLAY_TYPE_DP;
@@ -179,7 +181,7 @@ static int msm_ext_disp_edid_get(struct snd_kcontrol *kcontrol,
 		codec_data->ctl[dai_id], codec_data->stream[dai_id]);
 
 	mutex_lock(&codec_data->dp_ops_lock);
-	if (dai_id == HDMI_MS_DAI)
+	if (dai_id == HDMI_DAI || dai_id == HDMI_MS_DAI)
 		type = EXT_DISPLAY_TYPE_HDMI;
 	else
 		type = EXT_DISPLAY_TYPE_DP;
@@ -246,7 +248,7 @@ static int msm_ext_disp_audio_type_get(struct snd_kcontrol *kcontrol,
 		codec_data->ctl[dai_id], codec_data->stream[dai_id]);
 
 	mutex_lock(&codec_data->dp_ops_lock);
-	if (dai_id == HDMI_MS_DAI)
+	if (dai_id == HDMI_DAI || dai_id == HDMI_MS_DAI)
 		type = EXT_DISPLAY_TYPE_HDMI;
 	else
 		type = EXT_DISPLAY_TYPE_DP;
@@ -338,7 +340,7 @@ static int msm_ext_disp_audio_ack_set(struct snd_kcontrol *kcontrol,
 		codec_data->ctl[dai_id], codec_data->stream[dai_id]);
 
 	mutex_lock(&codec_data->dp_ops_lock);
-	if (dai_id == HDMI_MS_DAI)
+	if (dai_id == HDMI_DAI || dai_id == HDMI_MS_DAI)
 		type = EXT_DISPLAY_TYPE_HDMI;
 	else
 		type = EXT_DISPLAY_TYPE_DP;
@@ -408,7 +410,7 @@ static int msm_ext_disp_audio_device_get(struct snd_kcontrol *kcontrol,
 	int rc = 0;
 	int dai_id = ctl->dai_idx;
 
-	if (dai_id < 0 || dai_id > DP_DAI2) {
+	if (dai_id < 0 || dai_id >= DP_DAI_MAX) {
 		dev_err_ratelimited(component->dev,
 			"%s: invalid dai id: %d\n", __func__, dai_id);
 		rc = -EINVAL;
@@ -441,7 +443,7 @@ static int msm_ext_disp_audio_device_set(struct snd_kcontrol *kcontrol,
 		(struct msm_ext_disp_device_mxr_ctl *)kcontrol->private_value;
 	int dai_id = ctl->dai_idx;
 
-	if (dai_id < 0 || dai_id > DP_DAI2) {
+	if (dai_id < 0 || dai_id > DP_DAI_MAX) {
 		dev_err_ratelimited(component->dev,
 			"%s: invalid dai id: %d\n", __func__, dai_id);
 		rc = -EINVAL;
@@ -548,7 +550,11 @@ static int msm_ext_disp_audio_codec_rx_dai_startup(
 	struct msm_ext_disp_audio_codec_rx_data *codec_data =
 			dev_get_drvdata(dai->component->dev);
 	int type;
+#if (KERNEL_VERSION(6, 7, 0) <= LINUX_VERSION_CODE)
+	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
+#else
 	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
+#endif
 
 	if (!codec_data) {
 		dev_err_ratelimited(dai->dev, "%s() codec_data is null\n",
@@ -564,7 +570,7 @@ static int msm_ext_disp_audio_codec_rx_dai_startup(
 		codec_data->ctl[dai->id], codec_data->stream[dai->id]);
 
 	mutex_lock(&codec_data->dp_ops_lock);
-	if (dai->id == HDMI_MS_DAI)
+	if (dai->id == HDMI_DAI || dai->id == HDMI_MS_DAI)
 		type = EXT_DISPLAY_TYPE_HDMI;
 	else
 		type = EXT_DISPLAY_TYPE_DP;
@@ -625,7 +631,7 @@ static int msm_ext_disp_audio_codec_rx_dai_hw_params(
 		codec_data->ctl[dai->id], codec_data->stream[dai->id]);
 
 	mutex_lock(&codec_data->dp_ops_lock);
-	if (dai->id == HDMI_MS_DAI)
+	if (dai->id == HDMI_DAI || dai->id == HDMI_MS_DAI)
 		type = EXT_DISPLAY_TYPE_HDMI;
 	else
 		type = EXT_DISPLAY_TYPE_DP;
@@ -739,7 +745,7 @@ static void msm_ext_disp_audio_codec_rx_dai_shutdown(
 		codec_data->ctl[dai->id], codec_data->stream[dai->id]);
 
 	mutex_lock(&codec_data->dp_ops_lock);
-	if (dai->id == HDMI_MS_DAI)
+	if (dai->id == HDMI_DAI || dai->id == HDMI_MS_DAI)
 		type = EXT_DISPLAY_TYPE_HDMI;
 	else
 		type = EXT_DISPLAY_TYPE_DP;
@@ -888,10 +894,12 @@ static struct snd_soc_dai_driver msm_ext_disp_audio_codec_rx_dais[] = {
 			.stream_name = "Display Port1 Playback",
 			.channels_min = 1,
 			.channels_max = 8,
-			.rate_min = 48000,
+			.rate_min = 32000,
 			.rate_max = 192000,
-			.rates = SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_96000 |
-				SNDRV_PCM_RATE_192000,
+			.rates = SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_48000 |
+				SNDRV_PCM_RATE_96000 | SNDRV_PCM_RATE_192000 |
+				SNDRV_PCM_RATE_44100 | SNDRV_PCM_RATE_88200 |
+				SNDRV_PCM_RATE_176400,
 			.formats = SNDRV_PCM_FMTBIT_S16_LE |
 				SNDRV_PCM_FMTBIT_S24_LE |
 				SNDRV_PCM_FMTBIT_S24_3LE,

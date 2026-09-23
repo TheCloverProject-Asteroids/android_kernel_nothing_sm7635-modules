@@ -889,8 +889,7 @@ int tdls_validate_mgmt_request(struct tdls_action_frame_request *tdls_mgmt_req)
 	 * STA or P2P client should be connected and authenticated before
 	 *  sending any TDLS frames
 	 */
-	if ((wlan_vdev_is_up(vdev) != QDF_STATUS_SUCCESS) ||
-	    !tdls_is_vdev_authenticated(vdev)) {
+	if (!tdls_is_vdev_allowed_to_tx(vdev)) {
 		tdls_err("STA is not connected or not authenticated.");
 		return -EAGAIN;
 	}
@@ -1830,6 +1829,10 @@ tdls_wma_update_peer_state(struct tdls_soc_priv_obj *soc_obj,
 {
 	struct scheduler_msg msg = {0,};
 	QDF_STATUS status;
+
+	status = tdls_validate_current_mode(soc_obj);
+	if (QDF_IS_STATUS_ERROR(status))
+		return status;
 
 	tdls_debug("update TDLS peer " QDF_MAC_ADDR_FMT " vdev %d, state %d",
 		   QDF_MAC_ADDR_REF(peer_state->peer_macaddr),

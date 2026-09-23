@@ -248,10 +248,14 @@ static void wlan_pmo_init_cfg(struct wlan_objmgr_psoc *psoc,
 			cfg_get(psoc, CFG_PMO_ENABLE_HOST_NSOFFLOAD);
 	psoc_cfg->sta_dynamic_dtim = cfg_get(psoc, CFG_PMO_ENABLE_DYNAMIC_DTIM);
 	wlan_pmo_get_igmp_version_support_cfg(psoc, psoc_cfg);
+	psoc_cfg->sta_teles_dtim = cfg_get(psoc, CFG_PMO_ENABLE_TELESCOPIC_DTIM);
+	psoc_cfg->min_teles_dtim = cfg_get(psoc, CFG_PMO_MIN_TELESDTIM_LVL);
 	psoc_cfg->sta_mod_dtim = cfg_get(psoc, CFG_PMO_ENABLE_MODULATED_DTIM);
 	psoc_cfg->enable_mc_list = cfg_get(psoc, CFG_PMO_MC_ADDR_LIST_ENABLE);
 	psoc_cfg->power_save_mode = cfg_get(psoc, CFG_PMO_POWERSAVE_MODE);
 	psoc_cfg->sta_forced_dtim = cfg_get(psoc, CFG_PMO_ENABLE_FORCED_DTIM);
+	psoc_cfg->is_teles_dtim_only_on_sys_suspend_enabled =
+			cfg_get(psoc, CFG_PMO_TELES_DTIM_ONLY_ON_SYS_SUSPEND);
 	psoc_cfg->is_mod_dtim_on_sys_suspend_enabled =
 			cfg_get(psoc, CFG_PMO_MOD_DTIM_ON_SYS_SUSPEND);
 	psoc_cfg->is_bus_suspend_enabled_in_sap_mode =
@@ -259,7 +263,7 @@ static void wlan_pmo_init_cfg(struct wlan_objmgr_psoc *psoc,
 	psoc_cfg->is_bus_suspend_enabled_in_go_mode =
 		cfg_get(psoc, CFG_ENABLE_BUS_SUSPEND_IN_GO_MODE);
 	if (wlan_ipa_config_is_enabled() &&
-	    !ipa_config_is_opt_wifi_dp_enabled()) {
+	    !wlan_ipa_config_is_opt_wifi_dp_enabled()) {
 		pmo_info("ipa is enabled and hence disable sap/go d3 wow");
 		psoc_cfg->is_bus_suspend_enabled_in_sap_mode = 0;
 		psoc_cfg->is_bus_suspend_enabled_in_go_mode = 0;
@@ -306,6 +310,7 @@ static void wlan_pmo_init_cfg(struct wlan_objmgr_psoc *psoc,
 				CFG_INTERVAL_FOR_PAGEFAULT_WAKEUP_COUNT);
 	psoc_cfg->ssr_frequency_on_pagefault =
 			cfg_get(psoc, CFG_SSR_FREQUENCY_ON_PAGEFAULT);
+	psoc_cfg->ra_priority_enable = cfg_get(psoc, CFG_RA_PRIORITY);
 }
 
 QDF_STATUS pmo_psoc_open(struct wlan_objmgr_psoc *psoc)
@@ -543,6 +548,20 @@ uint32_t pmo_get_ssr_frequency_on_pagefault(struct wlan_objmgr_psoc *psoc)
 		return 0;
 
 	return pmo_psoc_ctx->psoc_cfg.ssr_frequency_on_pagefault;
+}
+
+bool pmo_rate_limit_needed(struct wlan_objmgr_psoc *psoc)
+{
+	bool rate_limit_needed = false;
+	int pending_cmds = pmo_tgt_psoc_get_pending_cmnds(psoc);
+
+	if (pending_cmds > WMI_MAX_CMDS / 2) {
+		rate_limit_needed = true;
+		pmo_debug_rl("pending_cmds %d max %d", pending_cmds,
+			     WMI_MAX_CMDS);
+	}
+
+	return rate_limit_needed;
 }
 
 QDF_STATUS pmo_get_vdev_bridge_addr(struct wlan_objmgr_vdev *vdev,

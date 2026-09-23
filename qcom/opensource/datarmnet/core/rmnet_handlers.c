@@ -77,44 +77,11 @@ void rmnet_set_skb_proto(struct sk_buff *skb)
 }
 EXPORT_SYMBOL(rmnet_set_skb_proto);
 
-bool (*rmnet_shs_slow_start_detect)(u32 hash_key) __rcu __read_mostly;
-EXPORT_SYMBOL(rmnet_shs_slow_start_detect);
-
-bool rmnet_slow_start_on(u32 hash_key)
-{
-	bool (*rmnet_shs_slow_start_on)(u32 hash_key);
-
-	rmnet_shs_slow_start_on = rcu_dereference(rmnet_shs_slow_start_detect);
-	if (rmnet_shs_slow_start_on)
-		return rmnet_shs_slow_start_on(hash_key);
-
-	return false;
-}
-EXPORT_SYMBOL(rmnet_slow_start_on);
-
-/* Shs hook handler */
-int (*rmnet_shs_skb_entry)(struct sk_buff *skb,
-			   struct rmnet_shs_clnt_s *cfg) __rcu __read_mostly;
-EXPORT_SYMBOL(rmnet_shs_skb_entry);
-
-int (*rmnet_shs_switch)(struct sk_buff *skb,
-			   struct rmnet_shs_clnt_s *cfg) __rcu __read_mostly;
-EXPORT_SYMBOL(rmnet_shs_switch);
-
-
-/* Shs hook handler for work queue*/
-int (*rmnet_shs_skb_entry_wq)(struct sk_buff *skb,
-			      struct rmnet_shs_clnt_s *cfg) __rcu __read_mostly;
-EXPORT_SYMBOL(rmnet_shs_skb_entry_wq);
-
 /* Generic handler */
 
 void
 rmnet_deliver_skb(struct sk_buff *skb, struct rmnet_port *port)
 {
-	int (*rmnet_shs_stamp)(struct sk_buff *skb,
-			       struct rmnet_shs_clnt_s *cfg);
-
 	trace_rmnet_low(RMNET_MODULE, RMNET_DLVR_SKB, 0xDEF, 0xDEF,
 			0xDEF, 0xDEF, (void *)skb, NULL);
 	skb_reset_network_header(skb);
@@ -127,14 +94,8 @@ rmnet_deliver_skb(struct sk_buff *skb, struct rmnet_port *port)
 	if (skb->priority == 0xda1a)
 		goto skip_shs;
 
-	rcu_read_lock();
-	rmnet_shs_stamp = rcu_dereference(rmnet_shs_skb_entry);
-	if (rmnet_shs_stamp) {
-		rmnet_shs_stamp(skb, &port->shs_cfg);
-		rcu_read_unlock();
+	if (rmnet_module_hook_shs_skb_entry(NULL, skb, &port->shs_cfg))
 		return;
-	}
-	rcu_read_unlock();
 
 skip_shs:
 	if (rmnet_module_hook_shs_skb_ll_entry(NULL, skb, &port->shs_cfg))
@@ -149,8 +110,6 @@ void
 rmnet_deliver_skb_wq(struct sk_buff *skb, struct rmnet_port *port,
 		     enum rmnet_packet_context ctx)
 {
-	int (*rmnet_shs_stamp)(struct sk_buff *skb,
-			       struct rmnet_shs_clnt_s *cfg);
 	struct rmnet_priv *priv = netdev_priv(skb->dev);
 
 	trace_rmnet_low(RMNET_MODULE, RMNET_DLVR_SKB, 0xDEF, 0xDEF,
@@ -165,15 +124,10 @@ rmnet_deliver_skb_wq(struct sk_buff *skb, struct rmnet_port *port,
 	/* packets coming from work queue context due to packet flush timer
 	 * must go through the special workqueue path in SHS driver
 	 */
-	rcu_read_lock();
-	rmnet_shs_stamp = (!ctx) ? rcu_dereference(rmnet_shs_skb_entry) :
-				   rcu_dereference(rmnet_shs_skb_entry_wq);
-	if (rmnet_shs_stamp) {
-		rmnet_shs_stamp(skb, &port->shs_cfg);
-		rcu_read_unlock();
-		return;
+	if (!ctx) {
+		if (rmnet_module_hook_shs_skb_entry(NULL, skb, &port->shs_cfg))
+			return;
 	}
-	rcu_read_unlock();
 
 	if (ctx == RMNET_NET_RX_CTX)
 		netif_receive_skb(skb);
@@ -269,10 +223,6 @@ free_skb:
 	kfree_skb(skb);
 }
 
-int (*rmnet_perf_deag_entry)(struct sk_buff *skb,
-			     struct rmnet_port *port) __rcu __read_mostly;
-EXPORT_SYMBOL(rmnet_perf_deag_entry);
-
 static void
 rmnet_map_ingress_handler(struct sk_buff *skb,
 			  struct rmnet_port *port)
@@ -305,20 +255,6 @@ rmnet_map_ingress_handler(struct sk_buff *skb,
 		return;
 	}
 
-	if (skb->priority == 0xda1a)
-		goto no_perf;
-
-	/* Pass off handling to rmnet_perf module, if present */
-	rcu_read_lock();
-	rmnet_perf_core_deaggregate = rcu_dereference(rmnet_perf_deag_entry);
-	if (rmnet_perf_core_deaggregate) {
-		rmnet_perf_core_deaggregate(skb, port);
-		rcu_read_unlock();
-		return;
-	}
-	rcu_read_unlock();
-
-no_perf:
 	/* Deaggregation and freeing of HW originating
 	 * buffers is done within here
 	 */
@@ -481,7 +417,6 @@ rx_handler_result_t rmnet_rx_handler(struct sk_buff **pskb)
 				return RX_HANDLER_CONSUMED;
 			}
 		}
-		rcu_read_unlock();
 
 		rmnet_map_ingress_handler(skb, port);
 		break;

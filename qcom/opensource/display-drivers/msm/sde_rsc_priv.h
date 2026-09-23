@@ -168,7 +168,8 @@ enum sde_rsc_bw_delta {
  * @version:		rsc sequence version
  * @hw_drv_ver:		rscc hw version
  * @phandle:		module power handle for clocks
- * @fs:			"MDSS GDSC" handle
+ * @fs:			"MDSS GDSC" regulator handle, only fs or pd_fs will be valid
+ * @pd_fs:		"MDSS GDSC" power domain device, only pd_fs or fs will be valid
  * @sw_fs_enabled:	track "MDSS GDSC" sw vote during probe
  * @need_hwinit:	rsc hw init is required for the next update
  *
@@ -218,6 +219,7 @@ struct sde_rsc_priv {
 	u32 hw_drv_ver;
 	struct sde_power_handle phandle;
 	struct regulator *fs;
+	struct device *pd_fs;
 	bool sw_fs_enabled;
 	bool need_hwinit;
 

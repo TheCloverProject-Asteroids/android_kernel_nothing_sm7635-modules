@@ -39,7 +39,7 @@ int cam_tpg_publish_dev_info(
 	}
 
 	info->dev_id = CAM_REQ_MGR_DEVICE_TPG;
-	strlcpy(info->name, CAM_TPG_NAME, sizeof(info->name));
+	strscpy(info->name, CAM_TPG_NAME, sizeof(info->name));
 	/* Hard code for now */
 	info->p_delay = 1;
 	info->trigger = CAM_TRIGGER_POINT_SOF;
@@ -126,10 +126,44 @@ static int cam_tpg_apply_req(
 }
 
 static int cam_tpg_flush_req(
-	struct cam_req_mgr_flush_request *flush)
+	struct cam_req_mgr_flush_request *flush_req)
 {
-	CAM_DBG(CAM_TPG, "Got Flush request from crm");
-	return 0;
+	int rc = 0;
+	struct cam_tpg_device *tpg_dev = NULL;
+
+	if (!flush_req) {
+		CAM_ERR(CAM_TPG, "Invalid flush request handle encountered");
+		return -EINVAL;
+	}
+
+	tpg_dev = (struct cam_tpg_device *)
+		cam_get_device_priv(flush_req->dev_hdl);
+	if (!tpg_dev) {
+		CAM_ERR(CAM_TPG, "Invalid TPG handle encountered during flush req");
+		return -EINVAL;
+	}
+	CAM_DBG(CAM_TPG, "Got flush request from crm. Flush Type: %d Req: %lld",
+		flush_req->type, flush_req->req_id);
+
+	mutex_lock(&tpg_dev->mutex);
+	switch (flush_req->type) {
+	case CAM_REQ_MGR_FLUSH_TYPE_ALL:
+		rc = tpg_hw_flush_requests(&tpg_dev->tpg_hw, flush_req->req_id, true);
+		break;
+
+	case CAM_REQ_MGR_FLUSH_TYPE_CANCEL_REQ:
+		rc = tpg_hw_flush_requests(&tpg_dev->tpg_hw, flush_req->req_id, false);
+		break;
+
+	default:
+		CAM_ERR(CAM_TPG, "Invalid TPG flush type [%d] rcvd", flush_req->type);
+		rc = -EINVAL;
+	}
+	if (rc != 0)
+		CAM_ERR(CAM_TPG, "Flushing active/waiting queue failed");
+
+	mutex_unlock(&tpg_dev->mutex);
+	return rc;
 }
 
 static int cam_tpg_process_crm_evt(
@@ -370,7 +404,7 @@ static int __cam_tpg_handle_stop_dev(
 		return -EINVAL;
 	}
 	if (tpg_dev->state != CAM_TPG_STATE_START) {
-		CAM_WARN(CAM_TPG, "TPG[%d] not in right state[%d] to stop",
+		CAM_ERR(CAM_TPG, "TPG[%d] not in right state[%d] to stop",
 				tpg_dev->soc_info.index, tpg_dev->state);
 	}
 	if (!tpg_dev->hw_no_ops)
@@ -384,6 +418,18 @@ static int __cam_tpg_handle_stop_dev(
 				tpg_dev->soc_info.index, tpg_dev->hw_no_ops);
 	}
 
+	if ((!rc) && (!tpg_dev->hw_no_ops))
+		rc = tpg_hw_stop(&tpg_dev->tpg_hw);
+
+
+	if (rc) {
+		CAM_ERR(CAM_TPG, "TPG[%d] STOP_DEV failed  hw_no_ops: %d",
+				tpg_dev->soc_info.index, tpg_dev->hw_no_ops);
+	} else {
+		tpg_dev->state = CAM_TPG_STATE_ACQUIRE;
+		CAM_INFO(CAM_TPG, "TPG[%d] STOP_DEV done hw_no_ops: %d.",
+				tpg_dev->soc_info.index, tpg_dev->hw_no_ops);
+	}
 	return rc;
 }
 
@@ -523,6 +569,8 @@ static int cam_tpg_validate_cmd_descriptor(
 		break;
 	}
 	case TPG_CMD_TYPE_SETTINGS_CONFIG: {
+		struct tpg_settings_config_t *settings;
+
 		if (cmd_header->size != sizeof(struct tpg_settings_config_t)) {
 			CAM_ERR(CAM_TPG, "Got invalid settings config command recv: %d exp: %d",
 					cmd_header->size,
@@ -530,6 +578,20 @@ static int cam_tpg_validate_cmd_descriptor(
 			rc = -EINVAL;
 			goto end;
 		}
+
+		settings = (struct tpg_settings_config_t *)cmd_header;
+		if ((cmd_desc->offset + settings->settings_array_offset) >
+			(len_of_buff -
+			settings->settings_array_size * sizeof(struct tpg_reg_settings))) {
+			CAM_ERR(CAM_TPG,
+				"Got invalid setting config, cmd offset: %u, setting array offset: %u, num reg settings: %u, size of reg setting: %zu, len of buf: %zu",
+				cmd_desc->offset, settings->settings_array_offset,
+				settings->settings_array_size, sizeof(struct tpg_reg_settings),
+				len_of_buff);
+			rc = -EINVAL;
+			goto end;
+		}
+
 		CAM_INFO(CAM_TPG, "Got settings config command");
 		*cmd_type = TPG_CMD_TYPE_SETTINGS_CONFIG;
 		break;
@@ -539,10 +601,6 @@ static int cam_tpg_validate_cmd_descriptor(
 		rc = -EINVAL;
 		CAM_ERR(CAM_TPG, "invalid config command");
 		goto end;
-	}
-	if ((ssize_t)cmd_desc->offset > (len_of_buff - cmd_header->size)) {
-		CAM_ERR(CAM_TPG, "cmd header offset mismatch");
-		rc = -EINVAL;
 	}
 
 	*cmd_addr = (uintptr_t)cmd_header;
@@ -558,6 +616,7 @@ static int cam_tpg_cmd_buf_parse(
 	int rc = 0, i = 0;
 	struct cam_cmd_buf_desc *cmd_desc = NULL;
 	struct tpg_hw_request *req = NULL;
+	uintptr_t cmd_addr = 0;
 
 	if (!tpg_dev || !packet)
 		return -EINVAL;
@@ -580,7 +639,6 @@ static int cam_tpg_cmd_buf_parse(
 
 	for (i = 0; i < packet->num_cmd_buf; i++) {
 		uint32_t cmd_type = TPG_CMD_TYPE_INVALID;
-		uintptr_t cmd_addr;
 		struct tpg_command_header_t *cmd_header = NULL;
 
 		cmd_desc = (struct cam_cmd_buf_desc *)
@@ -590,10 +648,8 @@ static int cam_tpg_cmd_buf_parse(
 
 		rc = cam_tpg_validate_cmd_descriptor(cmd_desc,
 				&cmd_type, &cmd_addr);
-		if (rc < 0) {
-			kfree(req);
-			goto end;
-		}
+		if (rc < 0)
+			goto free_request;
 
 		cmd_header = (struct tpg_command_header_t *)cmd_addr;
 
@@ -645,15 +701,20 @@ static int cam_tpg_cmd_buf_parse(
 			goto free_request;
 			break;
 		}
+		CAM_MEM_FREE((void *)cmd_addr);
+		cmd_addr = 0;
 	}
 	if (!tpg_dev->hw_no_ops)
 		tpg_hw_add_request(&tpg_dev->tpg_hw, req);
 end:
 	return rc;
 free_request:
+	if (cmd_addr != 0) {
+		CAM_MEM_FREE((void *)cmd_addr);
+		cmd_addr = 0;
+	}
 	/* free the request and return the failure */
 	tpg_hw_free_request(&tpg_dev->tpg_hw, req);
-	kfree(req);
 	return rc;
 }
 
@@ -664,6 +725,7 @@ static int cam_tpg_packet_parse(
 	int rc = 0;
 	uintptr_t generic_ptr;
 	size_t len_of_buff = 0, remain_len = 0;
+	struct cam_packet *csl_packet_u = NULL;
 	struct cam_packet *csl_packet = NULL;
 	struct cam_packet *csl_packet_u = NULL;
 

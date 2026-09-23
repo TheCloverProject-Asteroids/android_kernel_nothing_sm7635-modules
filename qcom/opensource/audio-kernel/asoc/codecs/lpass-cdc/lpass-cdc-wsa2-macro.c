@@ -38,6 +38,8 @@
 		SNDRV_PCM_FMTBIT_S24_LE |\
 		SNDRV_PCM_FMTBIT_S24_3LE | SNDRV_PCM_FMTBIT_S32_LE)
 
+#define LPASS_CDC_WSA2_MACRO_VI_FEEDBACK_RATES (SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |\
+			SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_96000)
 #define LPASS_CDC_WSA2_MACRO_ECHO_RATES (SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |\
 			SNDRV_PCM_RATE_48000)
 #define LPASS_CDC_WSA2_MACRO_ECHO_FORMATS (SNDRV_PCM_FMTBIT_S16_LE |\
@@ -65,6 +67,9 @@
 #define LPASS_CDC_WSA2_MACRO_FS_RATE_MASK 0x0F
 #define LPASS_CDC_WSA2_MACRO_EC_MIX_TX0_MASK 0x03
 #define LPASS_CDC_WSA2_MACRO_EC_MIX_TX1_MASK 0x18
+#define LPASS_AUDIO_WSA_DATA_FS_CTL_VALUE 0x16
+#define LPASS_CDC_WSA2_TOP_SEQ_CTL0_VALUE 0x40
+#define LPASS_CDC_WSA2_TOP_SEQ_CTL0_MASK 0x40
 
 #define LPASS_CDC_WSA2_MACRO_MAX_DMA_CH_PER_PORT 0x2
 #define LPASS_CDC_WSA2_MACRO_THERMAL_MAX_STATE 11
@@ -234,6 +239,7 @@ struct lpass_cdc_wsa2_macro_swr_ctrl_platform_data {
 enum {
 	LPASS_CDC_WSA2_MACRO_AIF_INVALID = 0,
 	LPASS_CDC_WSA2_MACRO_AIF1_PB,
+	LPASS_CDC_WSA2_MACRO_AIF1_PCM_PB,
 	LPASS_CDC_WSA2_MACRO_AIF_MIX1_PB,
 	LPASS_CDC_WSA2_MACRO_AIF_VI,
 	LPASS_CDC_WSA2_MACRO_AIF_ECHO,
@@ -323,6 +329,7 @@ struct lpass_cdc_wsa2_macro_priv {
 	int pbr_clk_users;
 	char __iomem *wsa2_fs_reg_base;
 	bool wsa2_2ch_dma_enable;
+	bool wsa2_pcm_hapt_enable;
 };
 
 static struct snd_soc_dai_driver lpass_cdc_wsa2_macro_dai[];
@@ -472,6 +479,20 @@ static struct snd_soc_dai_driver lpass_cdc_wsa2_macro_dai[] = {
 		.ops = &lpass_cdc_wsa2_macro_dai_ops,
 	},
 	{
+		.name = "wsa2_macro_pcm_rx1",
+		.id = LPASS_CDC_WSA2_MACRO_AIF1_PCM_PB,
+		.playback = {
+			.stream_name = "WSA2_AIF1_PCM Playback",
+			.rates = LPASS_CDC_WSA2_MACRO_RX_RATES,
+			.formats = LPASS_CDC_WSA2_MACRO_RX_FORMATS,
+			.rate_max = 192000,
+			.rate_min = 8000,
+			.channels_min = 1,
+			.channels_max = 2,
+		},
+		.ops = &lpass_cdc_wsa2_macro_dai_ops,
+	},
+	{
 		.name = "wsa2_macro_rx_mix",
 		.id = LPASS_CDC_WSA2_MACRO_AIF_MIX1_PB,
 		.playback = {
@@ -492,7 +513,7 @@ static struct snd_soc_dai_driver lpass_cdc_wsa2_macro_dai[] = {
 			.stream_name = "WSA2_AIF_VI Capture",
 			.rates = LPASS_CDC_WSA2_MACRO_VI_RATES,
 			.formats = LPASS_CDC_WSA2_MACRO_RX_FORMATS,
-			.rate_max = 48000,
+			.rate_max = 96000,
 			.rate_min = 8000,
 			.channels_min = 1,
 			.channels_max = 4,
@@ -865,6 +886,10 @@ static int lpass_cdc_wsa2_macro_get_channel_map(struct snd_soc_dai *dai,
 		*rx_slot = mask;
 		*rx_num = cnt;
 		break;
+	case LPASS_CDC_WSA2_MACRO_AIF1_PCM_PB:
+		*rx_slot = 0x1;
+		*rx_num = 0x01;
+		break;
 	case LPASS_CDC_WSA2_MACRO_AIF_ECHO:
 		val = snd_soc_component_read(component,
 			LPASS_CDC_WSA2_RX_INP_MUX_RX_MIX_CFG0);
@@ -883,6 +908,9 @@ static int lpass_cdc_wsa2_macro_get_channel_map(struct snd_soc_dai *dai,
 		dev_err(wsa2_dev, "%s: Invalid AIF\n", __func__);
 		break;
 	}
+	dev_dbg(wsa2_priv->dev,
+		"%s: dai->id:%d, rx_mask:%d, rx_ch_cnt:%d, tx_mask:%d, tx_ch_cnt:%d\n",
+		__func__, dai->id, *rx_slot, *rx_num, *tx_slot, *tx_num);
 	return 0;
 }
 
@@ -912,6 +940,7 @@ static int lpass_cdc_wsa2_macro_mute_stream(struct snd_soc_dai *dai, int mute, i
 	struct device *wsa2_dev = NULL;
 	struct lpass_cdc_wsa2_macro_priv *wsa2_priv = NULL;
 	uint32_t temp;
+	struct regmap *regmap = NULL;
 
 	bool adie_lb = false;
 
@@ -920,11 +949,28 @@ static int lpass_cdc_wsa2_macro_mute_stream(struct snd_soc_dai *dai, int mute, i
 
 	if (!lpass_cdc_wsa2_macro_get_data(component, &wsa2_dev, &wsa2_priv, __func__))
 		return -EINVAL;
+
 	switch (dai->id) {
 	case LPASS_CDC_WSA2_MACRO_AIF1_PB:
 	case LPASS_CDC_WSA2_MACRO_AIF_MIX1_PB:
 		lpass_cdc_wsa_pa_on(wsa2_dev, adie_lb);
 		lpass_cdc_wsa2_unmute_interpolator(dai);
+		lpass_cdc_wsa2_macro_enable_vi_decimator(component);
+		break;
+	case LPASS_CDC_WSA2_MACRO_AIF1_PCM_PB:
+		regmap = dev_get_regmap(wsa2_priv->dev->parent, NULL);
+		regmap_update_bits(regmap,
+				LPASS_CDC_WSA2_TX0_SPKR_PROT_PATH_CFG0,
+				0x03, 0x00);
+		regmap_update_bits(regmap,
+				LPASS_CDC_WSA2_TX1_SPKR_PROT_PATH_CFG0,
+				0x03, 0x00);
+		regmap_update_bits(regmap,
+				LPASS_CDC_WSA2_TX2_SPKR_PROT_PATH_CFG0,
+				0x03, 0x00);
+		regmap_update_bits(regmap,
+				LPASS_CDC_WSA2_TX3_SPKR_PROT_PATH_CFG0,
+				0x03, 0x00);
 		lpass_cdc_wsa2_macro_enable_vi_decimator(component);
 		break;
 	default:
@@ -953,6 +999,7 @@ static int lpass_cdc_wsa2_macro_mclk_enable(
 {
 	struct regmap *regmap = dev_get_regmap(wsa2_priv->dev->parent, NULL);
 	int ret = 0;
+	uint32_t temp = 0;
 
 	if (regmap == NULL) {
 		dev_err_ratelimited(wsa2_priv->dev, "%s: regmap is NULL\n", __func__);
@@ -981,6 +1028,30 @@ static int lpass_cdc_wsa2_macro_mclk_enable(
 			regcache_sync_region(regmap,
 					WSA2_START_OFFSET,
 					WSA2_MAX_OFFSET);
+
+			/*Update registers to enable PCM Hapt SWR Path*/
+			if (wsa2_priv->wsa2_pcm_hapt_enable) {
+				if (wsa2_priv->wsa2_fs_reg_base) {
+					temp = ioread32(wsa2_priv->wsa2_fs_reg_base);
+					if (temp != LPASS_AUDIO_WSA_DATA_FS_CTL_VALUE) {
+						temp = LPASS_AUDIO_WSA_DATA_FS_CTL_VALUE;
+						iowrite32(temp, wsa2_priv->wsa2_fs_reg_base);
+					}
+					dev_dbg(wsa2_priv->dev,
+					"%s: LPASS_AUDIO_WSA_DATA_FS_CTL: %d", __func__, temp);
+				} else {
+					dev_err_ratelimited(wsa2_priv->dev,
+					"%s: Failed to read LPASS_AUDIO_WSA_DATA_FS_CTL", __func__);
+				}
+
+				regmap_update_bits(regmap,
+					LPASS_CDC_WSA2_TOP_SEQ_CTL0,
+					LPASS_CDC_WSA2_TOP_SEQ_CTL0_MASK,
+					LPASS_CDC_WSA2_TOP_SEQ_CTL0_VALUE);
+
+				dev_dbg(wsa2_priv->dev, "%s: LPASS_CDC_WSA2_TOP_SEQ_CTL0: %d",
+						__func__, LPASS_CDC_WSA2_TOP_SEQ_CTL0_VALUE);
+			}
 			/* 9.6MHz MCLK, set value 0x00 if other frequency */
 			regmap_update_bits(regmap,
 				LPASS_CDC_WSA2_TOP_FREQ_MCLK, 0x01, 0x01);
@@ -989,10 +1060,10 @@ static int lpass_cdc_wsa2_macro_mclk_enable(
 				0x01, 0x01);
 			/* Toggle fs_cntr_clr bit*/
 			regmap_update_bits(regmap,
-				LPASS_CDC_WSA_CLK_RST_CTRL_FS_CNT_CONTROL,
+				LPASS_CDC_WSA2_CLK_RST_CTRL_FS_CNT_CONTROL,
 				0x02, 0x02);
 			regmap_update_bits(regmap,
-				LPASS_CDC_WSA_CLK_RST_CTRL_FS_CNT_CONTROL,
+				LPASS_CDC_WSA2_CLK_RST_CTRL_FS_CNT_CONTROL,
 				0x02, 0x0);
 			regmap_update_bits(regmap,
 				LPASS_CDC_WSA2_CLK_RST_CTRL_FS_CNT_CONTROL,
@@ -1122,11 +1193,17 @@ static int lpass_cdc_wsa2_macro_enable_vi_decimator(struct snd_soc_component *co
 	usleep_range(5000, 5500);
 	dev_dbg(wsa2_dev, "%s: wsa2_priv->pcm_rate_vi %d\n", __func__, wsa2_priv->pcm_rate_vi);
 	switch (wsa2_priv->pcm_rate_vi) {
+	case 96000:
+		val = 0x05;
+		break;
 	case 48000:
 		val = 0x04;
 		break;
-	case 24000:
-		val = 0x02;
+	case 32000:
+		val = 0x03;
+		break;
+	case 16000:
+		val = 0x01;
 		break;
 	case 8000:
 	default:
@@ -1136,7 +1213,7 @@ static int lpass_cdc_wsa2_macro_enable_vi_decimator(struct snd_soc_component *co
 
         if (test_bit(LPASS_CDC_WSA2_MACRO_TX0,
 		&wsa2_priv->active_ch_mask[LPASS_CDC_WSA2_MACRO_AIF_VI])) {
-		dev_dbg(wsa2_dev, "%s: spkr1 enabled\n", __func__);
+		dev_dbg(wsa2_dev, "%s: decimator 0/1 enabled\n", __func__);
 		/* Enable V&I sensing */
 		snd_soc_component_update_bits(component,
 			LPASS_CDC_WSA2_TX0_SPKR_PROT_PATH_CTL,
@@ -1166,7 +1243,7 @@ static int lpass_cdc_wsa2_macro_enable_vi_decimator(struct snd_soc_component *co
 
 	if (test_bit(LPASS_CDC_WSA2_MACRO_TX1,
 		&wsa2_priv->active_ch_mask[LPASS_CDC_WSA2_MACRO_AIF_VI])) {
-		dev_dbg(wsa2_dev, "%s: spkr2 enabled\n", __func__);
+		dev_dbg(wsa2_dev, "%s: decimator 2/3 enabled\n", __func__);
 		/* Enable V&I sensing */
 		snd_soc_component_update_bits(component,
 			LPASS_CDC_WSA2_TX2_SPKR_PROT_PATH_CTL,
@@ -2708,6 +2785,36 @@ static int lpass_cdc_wsa2_macro_2ch_dma_enable_put(struct snd_kcontrol *kcontrol
 	return 0;
 }
 
+static int lpass_cdc_wsa2_macro_hapt_pcm_enable_get(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component =
+		snd_soc_kcontrol_component(kcontrol);
+	struct device *wsa2_dev = NULL;
+	struct lpass_cdc_wsa2_macro_priv *wsa2_priv = NULL;
+
+	if (!lpass_cdc_wsa2_macro_get_data(component, &wsa2_dev, &wsa2_priv, __func__))
+		return -EINVAL;
+
+	ucontrol->value.integer.value[0] = wsa2_priv->wsa2_pcm_hapt_enable;
+	return 0;
+}
+
+static int lpass_cdc_wsa2_macro_hapt_pcm_enable_put(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component =
+		snd_soc_kcontrol_component(kcontrol);
+	struct device *wsa2_dev = NULL;
+	struct lpass_cdc_wsa2_macro_priv *wsa2_priv = NULL;
+
+	if (!lpass_cdc_wsa2_macro_get_data(component, &wsa2_dev, &wsa2_priv, __func__))
+		return -EINVAL;
+
+	wsa2_priv->wsa2_pcm_hapt_enable = ucontrol->value.integer.value[0];
+	return 0;
+}
+
 static const struct snd_kcontrol_new lpass_cdc_wsa2_macro_snd_controls[] = {
 	SOC_ENUM_EXT("WSA2_GSM mode Enable", lpass_cdc_wsa2_macro_vbat_bcl_gsm_mode_enum,
 		     lpass_cdc_wsa2_macro_vbat_bcl_gsm_mode_func_get,
@@ -2764,6 +2871,9 @@ static const struct snd_kcontrol_new lpass_cdc_wsa2_macro_snd_controls[] = {
 	SOC_SINGLE_EXT("WSA2 2CH_DMA ENABLE", SND_SOC_NOPM, 0, 1,
 			0, lpass_cdc_wsa2_macro_2ch_dma_enable_get,
 			lpass_cdc_wsa2_macro_2ch_dma_enable_put),
+	SOC_SINGLE_EXT("WSA2 HAPT_PCM ENABLE", SND_SOC_NOPM, 0, 1,
+			0, lpass_cdc_wsa2_macro_hapt_pcm_enable_get,
+			lpass_cdc_wsa2_macro_hapt_pcm_enable_put),
 };
 
 static const struct soc_enum rx_mux_enum =
@@ -2967,6 +3077,9 @@ static const struct snd_soc_dapm_widget lpass_cdc_wsa2_macro_dapm_widgets[] = {
 	SND_SOC_DAPM_AIF_IN("WSA2 AIF_MIX1 PB", "WSA2_AIF_MIX1 Playback", 0,
 		SND_SOC_NOPM, 0, 0),
 
+	SND_SOC_DAPM_AIF_IN("WSA2 AIF_PCM PB", "WSA2_AIF1_PCM Playback", 0,
+		SND_SOC_NOPM, 0, 0),
+
 	SND_SOC_DAPM_AIF_OUT_E("WSA2 AIF_VI", "WSA2_AIF_VI Capture", 0,
 		SND_SOC_NOPM, LPASS_CDC_WSA2_MACRO_AIF_VI, 0,
 		lpass_cdc_wsa2_macro_disable_vi_feedback,
@@ -3088,6 +3201,7 @@ static const struct snd_soc_dapm_widget lpass_cdc_wsa2_macro_dapm_widgets[] = {
 
 	SND_SOC_DAPM_OUTPUT("WSA2_SPK1 OUT"),
 	SND_SOC_DAPM_OUTPUT("WSA2_SPK2 OUT"),
+	SND_SOC_DAPM_OUTPUT("WSA2_HAPT OUT"),
 
 	SND_SOC_DAPM_SUPPLY_S("WSA2_MCLK", 0, SND_SOC_NOPM, 0, 0,
 	lpass_cdc_wsa2_macro_mclk_event, SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
@@ -3113,6 +3227,9 @@ static const struct snd_soc_dapm_route wsa2_audio_map[] = {
 	{"WSA2 AIF_ECHO", NULL, "WSA2 RX_MIX EC0_MUX"},
 	{"WSA2 AIF_ECHO", NULL, "WSA2 RX_MIX EC1_MUX"},
 	{"WSA2 AIF_ECHO", NULL, "WSA2_MCLK"},
+
+	{"WSA2 AIF_PCM PB", NULL, "WSA2_MCLK"},
+	{"WSA2_HAPT OUT", NULL, "WSA2 AIF_PCM PB"},
 
 	{"WSA2 AIF1 PB", NULL, "WSA2_MCLK"},
 	{"WSA2 AIF_MIX1 PB", NULL, "WSA2_MCLK"},
@@ -3657,6 +3774,9 @@ static int lpass_cdc_wsa2_macro_init(struct snd_soc_component *component)
 		dev_err(wsa2_dev, "%s: Failed to add snd_ctls\n", __func__);
 		return ret;
 	}
+
+	snd_soc_dapm_ignore_suspend(dapm, "WSA2_AIF1_PCM Playback");
+	snd_soc_dapm_ignore_suspend(dapm, "WSA2_HAPT OUT");
 	snd_soc_dapm_ignore_suspend(dapm, "WSA2_AIF1 Playback");
 	snd_soc_dapm_ignore_suspend(dapm, "WSA2_AIF_MIX1 Playback");
 	snd_soc_dapm_ignore_suspend(dapm, "WSA2_AIF_VI Capture");

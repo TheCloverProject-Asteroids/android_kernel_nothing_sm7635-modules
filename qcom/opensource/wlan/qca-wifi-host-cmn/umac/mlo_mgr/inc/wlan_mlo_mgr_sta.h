@@ -127,13 +127,13 @@ bool mlo_is_mld_sta(struct wlan_objmgr_vdev *vdev);
 bool ucfg_mlo_is_mld_disconnected(struct wlan_objmgr_vdev *vdev);
 
 /**
- * mlo_is_mld_disconnecting_connecting - Check whether MLD is disconnecting or
- * connecting
+ * mlo_is_mld_connecting - Check whether MLD is connecting
+ *
  * @vdev: pointer to vdev
  *
- * Return: true if mld is disconnecting or connecting, false otherwise
+ * Return: true if mld is connecting, false otherwise
  */
-bool mlo_is_mld_disconnecting_connecting(struct wlan_objmgr_vdev *vdev);
+bool mlo_is_mld_connecting(struct wlan_objmgr_vdev *vdev);
 
 /**
  * mlo_is_ml_connection_in_progress - Check whether MLD assoc or link vdev is
@@ -146,6 +146,23 @@ bool mlo_is_mld_disconnecting_connecting(struct wlan_objmgr_vdev *vdev);
  */
 bool mlo_is_ml_connection_in_progress(struct wlan_objmgr_psoc *psoc,
 				      uint8_t vdev_id);
+/**
+ * mlo_is_mld_vdevs_active() - Check whether the VDEV state of all VDEVs in
+ * MLD are in active state or not.
+ * @vdev: VDEV object manager pointer.
+ *
+ * Return: True if all VDEVs are in active state or otherwise false.
+ */
+bool mlo_is_mld_vdevs_active(struct wlan_objmgr_vdev *vdev);
+
+/**
+ * mlo_is_mld_connected - Check whether MLD is connected
+ *
+ * @vdev: pointer to vdev
+ *
+ * Return: true if mld is connected, false otherwise
+ */
+bool mlo_is_mld_connected(struct wlan_objmgr_vdev *vdev);
 
 #ifndef WLAN_FEATURE_11BE_MLO_ADV_FEATURE
 /**
@@ -355,6 +372,15 @@ static inline
 void mlo_clear_bridge_sta_ctx(struct wlan_objmgr_vdev *vdev)
 { }
 #endif
+
+/**
+ * mlo_free_copied_conn_req() - API to free copied conn request
+ * @sta_ctx: mlo sta context
+ *
+ * Return: Free copied connect request
+ */
+void mlo_free_copied_conn_req(struct wlan_mlo_sta *sta_ctx);
+
 /**
  * wlan_mlo_get_tdls_link_vdev() - API to get tdls link vdev
  * @vdev: vdev object
@@ -404,42 +430,24 @@ void mlo_clear_connected_links_bmap(struct wlan_objmgr_vdev *vdev);
 /**
  * mlo_set_cu_bpcc() - set the bpcc per link id
  * @vdev: vdev object
- * @vdev_id: the id of vdev
+ * @link_id: Link ID to set BPCC for
  * @bpcc: bss parameters change count
  *
  * Return: QDF_STATUS
  */
-QDF_STATUS mlo_set_cu_bpcc(struct wlan_objmgr_vdev *vdev, uint8_t vdev_id,
+QDF_STATUS mlo_set_cu_bpcc(struct wlan_objmgr_vdev *vdev, uint8_t link_id,
 			   uint8_t bpcc);
 
 /**
  * mlo_get_cu_bpcc() - get the bpcc per link id
  * @vdev: vdev object
- * @vdev_id: the id of vdev
+ * @link_id: Link ID to get BPCC for
  * @bpcc: the bss parameters change count pointer to save value
  *
  * Return: QDF_STATUS
  */
-QDF_STATUS mlo_get_cu_bpcc(struct wlan_objmgr_vdev *vdev, uint8_t vdev_id,
+QDF_STATUS mlo_get_cu_bpcc(struct wlan_objmgr_vdev *vdev, uint8_t link_id,
 			   uint8_t *bpcc);
-
-/**
- * mlo_init_cu_bpcc() - initialize the bpcc for vdev
- * @mlo_dev_ctx: wlan mlo dev context
- * @vdev_id: vdev id
- *
- * Return: void
- */
-void mlo_init_cu_bpcc(struct wlan_mlo_dev_context *mlo_dev_ctx,
-		      uint8_t vdev_id);
-
-/**
- * mlo_clear_cu_bpcc() - clear the bpcc info
- * @vdev: vdev object
- *
- * Return: void
- */
-void mlo_clear_cu_bpcc(struct wlan_objmgr_vdev *vdev);
 
 /**
  * typedef mlo_vdev_op_handler() - API to have operation on ml vdevs
@@ -572,6 +580,15 @@ void mlo_iterate_ml_standalone_vdev_list(struct wlan_objmgr_vdev *vdev,
 		}
 	}
 }
+
+/**
+ * mlo_sta_set_all_vdevs_connect_req_bmap() - Set connect request bitmap
+ * for all VDEVs in the MLO dev context
+ * @vdev: VDEV object manager.
+ *
+ * Return: void
+ */
+void mlo_sta_set_all_vdevs_connect_req_bmap(struct wlan_objmgr_vdev *vdev);
 
 /**
  * mlo_update_connect_req_links: update connect req links index
@@ -803,6 +820,28 @@ QDF_STATUS mlo_sta_handle_csa_standby_link(
 			uint8_t link_id,
 			struct csa_offload_params *csa_param,
 			struct wlan_objmgr_vdev *vdev);
+
+/**
+ * mlo_mgr_validate_connection_partner_links() - Validate the partner links
+ * info in mlo dev ctx.
+ * @vdev: VDEV object manager.
+ * @partner_info: Pointer to partner info to validate from.
+ *
+ * Validate the partner links in mlo dev ctx with the partner links in
+ * @partner_info. The VDEV pointed by @vdev will be treated as assoc link and
+ * will not be checked.
+ *
+ * If any partner link is not found in mlo dev ctx that is part of @partner_info
+ * it will be cleared in mlo dev ctx and vice versa.
+ *
+ * Finally updates the count of overlapping partner links in @partner_info.
+ *
+ * Return: void.
+ */
+void
+mlo_mgr_validate_connection_partner_links(struct wlan_objmgr_vdev *vdev,
+					  struct mlo_partner_info *partner_info);
+
 #else
 static inline
 QDF_STATUS mlo_sta_handle_csa_standby_link(
@@ -812,6 +851,12 @@ QDF_STATUS mlo_sta_handle_csa_standby_link(
 			struct wlan_objmgr_vdev *vdev)
 {
 	return QDF_STATUS_SUCCESS;
+}
+
+void
+mlo_mgr_validate_connection_partner_links(struct wlan_objmgr_vdev *vdev,
+					  struct mlo_partner_info *partner_info)
+{
 }
 #endif
 /**
@@ -1026,7 +1071,7 @@ bool ucfg_mlo_is_mld_disconnected(struct wlan_objmgr_vdev *vdev)
 #endif
 
 static inline
-bool mlo_is_mld_disconnecting_connecting(struct wlan_objmgr_vdev *vdev)
+bool mlo_is_mld_connecting(struct wlan_objmgr_vdev *vdev)
 {
 	return false;
 }
@@ -1049,6 +1094,11 @@ struct wlan_objmgr_vdev *
 ucfg_mlo_get_assoc_link_vdev(struct wlan_objmgr_vdev *vdev)
 {
 	return vdev;
+}
+
+static inline void
+mlo_sta_set_all_vdevs_connect_req_bmap(struct wlan_objmgr_vdev *vdev)
+{
 }
 
 static inline void
@@ -1153,6 +1203,13 @@ void wlan_mlo_send_vdev_pause(struct wlan_objmgr_psoc *psoc,
 			      uint16_t session_id,
 			      uint16_t vdev_pause_dur)
 {}
+#endif
+
+#ifdef WLAN_FEATURE_11BE_MLO_TTLM
+QDF_STATUS
+ttlm_get_ttlm_send_cmd_context(struct wlan_objmgr_psoc *psoc,
+			       get_ttlm_send_ind_cb *resp_cb, void **context,
+			       uint8_t vdev_id);
 #endif
 
 #if defined(WLAN_FEATURE_11BE_MLO_ADV_FEATURE) && defined(WLAN_FEATURE_11BE_MLO)

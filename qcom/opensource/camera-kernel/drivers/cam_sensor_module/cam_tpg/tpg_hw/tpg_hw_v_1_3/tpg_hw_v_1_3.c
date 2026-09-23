@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "tpg_hw_v_1_3.h"
@@ -19,6 +19,7 @@ enum tpg_hw_v_1_3_encode_fomat_t {
 #define  LINE_INTERLEAVE            0x1
 #define  SHDR_INTERLEAVE            0x2
 #define  SPARSE_PD_INTERLEAVE       0x3
+#define  SHDR_SPARSE_PD_INTERLEAVE  0x4
 #define  CFA_PATTERN_ROW_WIDTH      8
 #define  CFA_PATTERN_BITS_PER_INDEX 2
 #define  Invalid 0x0
@@ -42,6 +43,8 @@ static int get_tpg_vc_dt_pattern_id(
 		return SHDR_INTERLEAVE;
 	case TPG_INTERLEAVING_FORMAT_SPARSE_PD:
 		return SPARSE_PD_INTERLEAVE;
+	case TPG_INTERLEAVING_FORMAT_SHDR_SPARSE_PD:
+		return SHDR_SPARSE_PD_INTERLEAVE;
 
 	}
 	return FRAME_INTERLEAVE;
@@ -863,7 +866,6 @@ DEFINE_SIMPLE_ATTRIBUTE(tpg_1_3_shdr_line_offset1,
 
 int tpg_1_3_layer_init(struct tpg_hw *hw)
 {
-	int rc = 0;
 	struct dentry *dbgfileptr_parent = NULL;
 	char dir_name[160];
 
@@ -873,8 +875,9 @@ int tpg_1_3_layer_init(struct tpg_hw *hw)
 	dbgfileptr_parent = debugfs_create_dir(dir_name, NULL);
 	if (!dbgfileptr_parent) {
 		CAM_ERR(CAM_TPG, "Debug fs could not create directory");
-		rc = -ENOENT;
+		return -ENOENT;
 	}
+
 	debugfs_create_file("tpg_xcfa_test", 0644,
 		dbgfileptr_parent, hw, &tpg_1_3_xcfa_test);
 	debugfs_create_file("tpg_shdr_overlap_test", 0644,
@@ -886,5 +889,6 @@ int tpg_1_3_layer_init(struct tpg_hw *hw)
 	debugfs_create_file("tpg_shdr_line_offset1", 0644,
 		dbgfileptr_parent, hw, &tpg_1_3_shdr_line_offset1);
 	CAM_INFO(CAM_TPG, "Layer init called");
-	return rc;
+
+	return 0;
 }

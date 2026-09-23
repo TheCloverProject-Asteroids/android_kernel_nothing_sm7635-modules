@@ -132,6 +132,28 @@ static struct vdev_osif_priv *wlan_objmgr_vdev_get_osif_priv(
 	return osif_priv;
 }
 
+#ifdef FEATURE_WLAN_SUPPORT_USD
+/**
+ * wlan_vdev_mlme_set_wfd_mode() - set WFD mode in VDEV MLME object
+ * @vdev: VDEV object
+ * @params: VDEV create params
+ *
+ * Return: void
+ */
+static inline void
+wlan_vdev_mlme_set_wfd_mode(struct wlan_objmgr_vdev *vdev,
+			    struct wlan_vdev_create_params *params)
+{
+	vdev->vdev_mlme.wfd_mode = params->wfd_mode;
+}
+#else
+static inline void
+wlan_vdev_mlme_set_wfd_mode(struct wlan_objmgr_vdev *vdev,
+			    struct wlan_vdev_create_params *params)
+{
+}
+#endif
+
 struct wlan_objmgr_vdev *wlan_objmgr_vdev_obj_create(
 			struct wlan_objmgr_pdev *pdev,
 			struct wlan_vdev_create_params *params)
@@ -225,6 +247,8 @@ struct wlan_objmgr_vdev *wlan_objmgr_vdev_obj_create(
 	vdev->vdev_objmgr.c_flags = params->flags;
 	/* store os-specific pointer */
 	vdev->vdev_nif.osdev = wlan_objmgr_vdev_get_osif_priv(vdev);
+	/* set WFD mode */
+	wlan_vdev_mlme_set_wfd_mode(vdev, params);
 
 	/* peer count to 0 */
 	vdev->vdev_objmgr.wlan_peer_count = 0;
@@ -435,8 +459,6 @@ wlan_objmgr_vdev_mlo_dev_ctxt_detach(struct wlan_objmgr_vdev *vdev)
 				    (uint8_t *)mld_addr)
 				    != QDF_STATUS_SUCCESS) {
 		obj_mgr_err("Failed to detach DP vdev from DP MLO Dev ctxt");
-		QDF_BUG(0);
-		return QDF_STATUS_E_FAILURE;
 	}
 	return QDF_STATUS_SUCCESS;
 }
@@ -1555,6 +1577,8 @@ QDF_STATUS wlan_vdev_get_bss_peer_mac(struct wlan_objmgr_vdev *vdev,
 
 	return QDF_STATUS_SUCCESS;
 }
+
+qdf_export_symbol(wlan_vdev_get_bss_peer_mac);
 
 #ifdef WLAN_FEATURE_11BE_MLO
 QDF_STATUS wlan_vdev_get_bss_peer_mld_mac(struct wlan_objmgr_vdev *vdev,

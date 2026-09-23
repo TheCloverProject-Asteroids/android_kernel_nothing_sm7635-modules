@@ -278,7 +278,8 @@ static const uint8_t *os_if_ndi_get_if_name(struct wlan_objmgr_vdev *vdev)
 	return osif_priv->wdev->netdev->name;
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0) || \
+(defined CFG80211_CHANGE_NETDEV_REGISTRATION_SEMANTICS))
 static int os_if_nan_ndi_open(struct wlan_objmgr_psoc *psoc,
 			      const char *iface_name)
 {
@@ -403,7 +404,8 @@ static int osif_net_dev_from_ifname(struct wlan_objmgr_psoc *psoc,
 	return 0;
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0) || \
+(defined CFG80211_CHANGE_NETDEV_REGISTRATION_SEMANTICS))
 static int os_if_nan_process_ndi_create(struct wlan_objmgr_psoc *psoc,
 					struct nlattr **tb,
 					struct wireless_dev *wdev)
@@ -544,7 +546,8 @@ static int __os_if_nan_process_ndi_delete(struct wlan_objmgr_psoc *psoc,
 	return cb_obj.ndi_delete(vdev_id, iface_name, transaction_id);
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0) || \
+(defined CFG80211_CHANGE_NETDEV_REGISTRATION_SEMANTICS))
 static int os_if_nan_process_ndi_delete(struct wlan_objmgr_psoc *psoc,
 					struct nlattr **tb)
 {
@@ -2039,6 +2042,7 @@ static void os_if_new_peer_ind_handler(struct wlan_objmgr_vdev *vdev,
 
 	active_peers++;
 	ucfg_nan_set_active_peers(vdev, active_peers);
+	ucfg_nan_cache_ndp_peer_mac_addr(psoc, &peer_ind->peer_mac_addr);
 	osif_debug("num_peers: %d", active_peers);
 }
 
@@ -2810,8 +2814,10 @@ static int os_if_process_nan_disable_req(struct wlan_objmgr_psoc *psoc,
 
 	data = nla_data(tb[QCA_WLAN_VENDOR_ATTR_NAN_CMD_DATA]);
 	data_len = nla_len(tb[QCA_WLAN_VENDOR_ATTR_NAN_CMD_DATA]);
+	status = ucfg_nan_cache_disable_req_info(psoc, NAN_DISABLE_REQ_NB);
 
-	status = ucfg_disable_nan_discovery(psoc, data, data_len);
+	if (QDF_IS_STATUS_SUCCESS(status))
+		status = ucfg_disable_nan_discovery(psoc, data, data_len);
 
 	return qdf_status_to_os_return(status);
 }

@@ -173,6 +173,7 @@ struct wlan_fils_con_info {
  * @CM_MLO_LINK_SWITCH_CONNECT: Connect req triggered for mlo link switch
  * @CM_MLO_LINK_SWITCH_DISCONNECT: Disconnect req triggered for mlo link switch
  * @CM_ROAMING_USER: Roaming request initiated by user
+ * @CM_ROAMING_STA_SAP_MCC: Roaming request initiated by STA+SAP MCC
  * @CM_SOURCE_MAX: max value of connection manager source
  * @CM_SOURCE_INVALID: Invalid connection manager req source
  */
@@ -196,6 +197,7 @@ enum wlan_cm_source {
 	CM_MLO_LINK_SWITCH_CONNECT,
 	CM_MLO_LINK_SWITCH_DISCONNECT,
 	CM_ROAMING_USER,
+	CM_ROAMING_STA_SAP_MCC,
 	CM_SOURCE_MAX,
 	CM_SOURCE_INVALID = CM_SOURCE_MAX,
 };
@@ -294,6 +296,7 @@ struct wlan_cm_connect_req {
  * @is_non_assoc_link: non assoc link
  * @ml_parnter_info: ml partner link info
  * @owe_trans_ssid: owe trans ssid to be used when scan entry ssid is wildcard
+ * @rsno_gen_used: RSN generation of the candidate
  */
 struct wlan_cm_vdev_connect_req {
 	uint8_t vdev_id;
@@ -316,6 +319,7 @@ struct wlan_cm_vdev_connect_req {
 	struct mlo_partner_info ml_parnter_info;
 #endif
 	struct wlan_ssid owe_trans_ssid;
+	uint8_t rsno_gen_used;
 };
 
 /**
@@ -326,6 +330,7 @@ struct wlan_cm_vdev_connect_req {
  * @bssid: bssid given
  * @prev_bssid: prev AP bssid, given in case supplican want to roam to new BSSID
  * @chan_freq: channel of the AP
+ * @crypto: crypto related info
  */
 struct wlan_cm_roam_req {
 	uint8_t forced_roaming:1;
@@ -334,6 +339,7 @@ struct wlan_cm_roam_req {
 	struct qdf_mac_addr bssid;
 	struct qdf_mac_addr prev_bssid;
 	uint32_t chan_freq;
+	struct wlan_cm_connect_crypto_info crypto;
 };
 
 /**
@@ -710,12 +716,14 @@ enum wlan_cm_active_request_type {
  * @SLO: Non-ML or Single link ML
  * @MLSR: Multi link Single Radio, indicates that both links
  *        have to be on one mac
+ * @EMLSR: Enhanced multi link single radio
  * @MLMR: Multi link Multi Radio, indicates that both links
  *        can be on different macs
  */
 enum MLO_TYPE {
 	SLO,
 	MLSR,
+	EMLSR,
 	MLMR,
 	MLO_TYPE_MAX
 };

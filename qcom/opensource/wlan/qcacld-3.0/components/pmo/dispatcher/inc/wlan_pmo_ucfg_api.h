@@ -202,6 +202,46 @@ uint8_t
 ucfg_pmo_get_sta_dynamic_dtim(struct wlan_objmgr_psoc *psoc);
 
 /**
+ * ucfg_pmo_get_sta_teles_dtim() - Get telescopic dtim
+ * @psoc: pointer to psoc object
+ *
+ * Return: telescopic dtim
+ */
+uint8_t
+ucfg_pmo_get_sta_teles_dtim(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * ucfg_pmo_set_sta_teles_dtim() - Set telescopic dtim
+ * @psoc: pointer to psoc object
+ * @val:  telescopic dtim
+ *
+ * Return: None
+ */
+void
+ucfg_pmo_set_sta_teles_dtim(struct wlan_objmgr_psoc *psoc,
+			    uint8_t val);
+
+/**
+ * ucfg_pmo_get_sta_min_teles_dtim() - Get minimum telescopic dtim level
+ * @psoc: pointer to psoc object
+ *
+ * Return: minimum telescopic dtim level
+ */
+uint8_t
+ucfg_pmo_get_sta_min_teles_dtim(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * ucfg_pmo_set_sta_min_teles_dtim() - Set minimum telescopic dtim level
+ * @psoc: pointer to psoc object
+ * @val:  minimum telescopic dtim level
+ *
+ * Return: None
+ */
+void
+ucfg_pmo_set_sta_min_teles_dtim(struct wlan_objmgr_psoc *psoc,
+				uint8_t val);
+
+/**
  * ucfg_pmo_get_sta_mod_dtim() - Get modulated dtim
  * @psoc: pointer to psoc object
  *
@@ -501,6 +541,15 @@ QDF_STATUS ucfg_pmo_disable_hw_filter_in_fwr(struct wlan_objmgr_vdev *vdev);
 uint8_t ucfg_pmo_max_mc_addr_supported(struct wlan_objmgr_psoc *psoc);
 
 /**
+ * ucfg_pmo_rate_limit_needed() -  check allow or not to set mc addr list
+ * wmi cmd to fw based on pending cmds
+ * @psoc: objmgr psoc
+ *
+ * Return: bool
+ */
+bool ucfg_pmo_rate_limit_needed(struct wlan_objmgr_psoc *psoc);
+
+/**
  * ucfg_pmo_cache_mc_addr_list(): API to cache mc addr list in pmo vdev priv obj
  * @mc_list_config: list configuration
  *
@@ -542,6 +591,15 @@ ucfg_pmo_enhanced_mc_filter_disable(struct wlan_objmgr_vdev *vdev)
 {
 	return pmo_core_enhanced_mc_filter_disable(vdev);
 }
+
+/**
+ * ucfg_pmo_tgt_psoc_get_runtime_pm_in_progress() - get runtime status
+ * @psoc: objmgr psoc
+ *
+ * Return: true if runtime pm is in progress else false
+ */
+bool
+ucfg_pmo_tgt_psoc_get_runtime_pm_in_progress(struct wlan_objmgr_psoc *psoc);
 
 #ifdef FEATURE_WLAN_DYNAMIC_ARP_NS_OFFLOAD
 /**
@@ -1668,6 +1726,11 @@ ucfg_pmo_cache_mc_addr_list(
 	return QDF_STATUS_SUCCESS;
 }
 
+bool ucfg_pmo_rate_limit_needed(struct wlan_objmgr_psoc *psoc)
+{
+	return false;
+}
+
 static inline QDF_STATUS
 ucfg_pmo_flush_mc_addr_list(
 		struct wlan_objmgr_psoc *psoc,
@@ -2079,6 +2142,30 @@ ucfg_pmo_get_sta_dynamic_dtim(struct wlan_objmgr_psoc *psoc)
 }
 
 static inline uint8_t
+ucfg_pmo_get_sta_teles_dtim(struct wlan_objmgr_psoc *psoc)
+{
+	return 0;
+}
+
+static inline uint8_t
+ucfg_pmo_set_sta_teles_dtim(struct wlan_objmgr_psoc *psoc, uint8_t val)
+{
+	return 0;
+}
+
+static inline uint8_t
+ucfg_pmo_get_sta_min_teles_dtim(struct wlan_objmgr_psoc *psoc)
+{
+	return 0;
+}
+
+static inline uint8_t
+ucfg_pmo_set_sta_min_teles_dtim(struct wlan_objmgr_psoc *psoc, uint8_t val)
+{
+	return 0;
+}
+
+static inline uint8_t
 ucfg_pmo_get_sta_mod_dtim(struct wlan_objmgr_psoc *psoc)
 {
 	return 0;
@@ -2475,4 +2562,35 @@ QDF_STATUS ucfg_pmo_set_vdev_bridge_addr(struct wlan_objmgr_vdev *vdev,
  */
 QDF_STATUS ucfg_pmo_get_vdev_bridge_addr(struct wlan_objmgr_vdev *vdev,
 					 struct qdf_mac_addr *bridgeaddr);
+
+/**
+ * ucfg_pmo_is_fw_debug_enable() - This function tells if FW logging debug
+ * is enable or not.
+ * @psoc: pointer to psoc object
+ *
+ * Return: true if FW debug is enable otherwise false
+ */
+bool ucfg_pmo_is_fw_debug_enable(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * ucfg_pmo_get_ns_offload_enable_dynamic() - get NS offload dynamic enable
+ * @vdev: vdev objmgr handle
+ *
+ * Return: true is NS offload is dynamically disabled else false
+ */
+bool
+ucfg_pmo_get_ns_offload_enable_dynamic(struct wlan_objmgr_vdev *vdev);
+
+/**
+ * ucfg_pmo_set_ns_offload_enable_dynamic() - Set NS offload dynamic enable
+ * @vdev: vdev objmgr handle
+ * @trigger: pmo trigger
+ * @ns_offload_enable_dyn: NS offload enable dynamic
+ *
+ * Return: None
+ */
+void
+ucfg_pmo_set_ns_offload_enable_dynamic(struct wlan_objmgr_vdev *vdev,
+				       enum pmo_offload_trigger trigger,
+				       bool ns_offload_enable_dyn);
 #endif /* end  of _WLAN_PMO_UCFG_API_H_ */

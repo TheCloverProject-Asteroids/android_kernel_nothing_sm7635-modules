@@ -1303,7 +1303,7 @@ slice_getd_error:
 rotator_open_error:
 	return ERR_PTR(rc);
 }
-EXPORT_SYMBOL(sde_rotator_inline_open);
+EXPORT_SYMBOL_GPL(sde_rotator_inline_open);
 
 int sde_rotator_inline_release(void *handle)
 {
@@ -1334,7 +1334,7 @@ int sde_rotator_inline_release(void *handle)
 
 	return sde_rotator_ctx_release(ctx, NULL);
 }
-EXPORT_SYMBOL(sde_rotator_inline_release);
+EXPORT_SYMBOL_GPL(sde_rotator_inline_release);
 
 /*
  * sde_rotator_inline_get_dst_pixfmt - determine output pixel format
@@ -1364,7 +1364,7 @@ int sde_rotator_inline_get_dst_pixfmt(struct platform_device *pdev,
 
 	return 0;
 }
-EXPORT_SYMBOL(sde_rotator_inline_get_dst_pixfmt);
+EXPORT_SYMBOL_GPL(sde_rotator_inline_get_dst_pixfmt);
 
 /*
  * sde_rotator_inline_get_downscale_caps - get scaling capability
@@ -1396,7 +1396,7 @@ int sde_rotator_inline_get_downscale_caps(struct platform_device *pdev,
 
 	return rc;
 }
-EXPORT_SYMBOL(sde_rotator_inline_get_downscale_caps);
+EXPORT_SYMBOL_GPL(sde_rotator_inline_get_downscale_caps);
 
 /*
  * sde_rotator_inline_get_maxlinewidth - get maximum line width of rotator
@@ -1425,7 +1425,7 @@ int sde_rotator_inline_get_maxlinewidth(struct platform_device *pdev)
 
 	return maxlinewidth;
 }
-EXPORT_SYMBOL(sde_rotator_inline_get_maxlinewidth);
+EXPORT_SYMBOL_GPL(sde_rotator_inline_get_maxlinewidth);
 
 /*
  * sde_rotator_inline_get_pixfmt_caps - get pixel format capability
@@ -1464,7 +1464,7 @@ int sde_rotator_inline_get_pixfmt_caps(struct platform_device *pdev,
 
 	return i;
 }
-EXPORT_SYMBOL(sde_rotator_inline_get_pixfmt_caps);
+EXPORT_SYMBOL_GPL(sde_rotator_inline_get_pixfmt_caps);
 
 /*
  * _sde_rotator_inline_cleanup - perform inline related request cleanup
@@ -1830,7 +1830,7 @@ error_init_request:
 	mutex_unlock(&rot_dev->lock);
 	return ret;
 }
-EXPORT_SYMBOL(sde_rotator_inline_commit);
+EXPORT_SYMBOL_GPL(sde_rotator_inline_commit);
 
 void sde_rotator_inline_reg_dump(struct platform_device *pdev)
 {
@@ -1851,7 +1851,7 @@ void sde_rotator_inline_reg_dump(struct platform_device *pdev)
 	sde_rotator_core_dump(rot_dev->mgr);
 	sde_rot_mgr_unlock(rot_dev->mgr);
 }
-EXPORT_SYMBOL(sde_rotator_inline_reg_dump);
+EXPORT_SYMBOL_GPL(sde_rotator_inline_reg_dump);
 
 /*
  * sde_rotator_open - Rotator device open method.
@@ -1925,8 +1925,8 @@ static int sde_rotator_querycap(struct file *file,
 	void *fh, struct v4l2_capability *cap)
 {
 	cap->bus_info[0] = 0;
-	strlcpy(cap->driver, SDE_ROTATOR_DRV_NAME, sizeof(cap->driver));
-	strlcpy(cap->card, SDE_ROTATOR_DRV_NAME, sizeof(cap->card));
+	strscpy(cap->driver, SDE_ROTATOR_DRV_NAME, sizeof(cap->driver));
+	strscpy(cap->card, SDE_ROTATOR_DRV_NAME, sizeof(cap->card));
 	cap->device_caps = V4L2_CAP_STREAMING | V4L2_CAP_VIDEO_M2M |
 			V4L2_CAP_VIDEO_OUTPUT | V4L2_CAP_VIDEO_CAPTURE;
 	cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS;
@@ -1974,7 +1974,7 @@ static int sde_rotator_enum_fmt_vid_cap(struct file *file,
 		return -EINVAL;
 
 	f->pixelformat = pixfmt;
-	strlcpy(f->description, fmt->description, sizeof(f->description));
+	strscpy(f->description, fmt->description, sizeof(f->description));
 
 	return 0;
 }
@@ -2019,7 +2019,7 @@ static int sde_rotator_enum_fmt_vid_out(struct file *file,
 		return -EINVAL;
 
 	f->pixelformat = pixfmt;
-	strlcpy(f->description, fmt->description, sizeof(f->description));
+	strscpy(f->description, fmt->description, sizeof(f->description));
 
 	return 0;
 }
@@ -3482,7 +3482,7 @@ static int sde_rotator_probe(struct platform_device *pdev)
 	vdev->device_caps = V4L2_CAP_STREAMING | V4L2_CAP_VIDEO_M2M |
 		V4L2_CAP_VIDEO_OUTPUT | V4L2_CAP_VIDEO_CAPTURE;
 
-	strlcpy(vdev->name, SDE_ROTATOR_DRV_NAME, sizeof(vdev->name));
+	strscpy(vdev->name, SDE_ROTATOR_DRV_NAME, sizeof(vdev->name));
 
 	ret = video_register_device(vdev, VFL_TYPE_VIDEO,
 			SDE_ROTATOR_BASE_DEVICE_NUMBER);

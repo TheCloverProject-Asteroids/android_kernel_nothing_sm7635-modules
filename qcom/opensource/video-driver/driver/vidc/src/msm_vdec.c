@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "msm_media_info.h"
@@ -734,7 +734,7 @@ static bool msm_vdec_check_outbuf_fence_allowed(struct msm_vidc_inst *inst)
 	if (inst->capabilities[CODED_FRAMES].value == CODED_FRAMES_INTERLACE ||
 		(!inst->capabilities[OUTPUT_ORDER].value && reorder_count)) {
 		i_vpr_e(inst,
-			"%s: outbuf tx fence is unsupported for coded frames %d or output order %d and reorder frames %d\n",
+			"%s: outbuf tx fence is unsupported for coded frames %lld or output order %lld and reorder frames %lld\n",
 			__func__, inst->capabilities[CODED_FRAMES].value,
 			inst->capabilities[OUTPUT_ORDER].value,
 			(inst->capabilities[MAX_NUM_REORDER_FRAMES].value >> 16));
@@ -940,13 +940,14 @@ static int msm_vdec_subscribe_input_port_settings_change(struct msm_vidc_inst *i
 	payload[0] = HFI_MODE_PORT_SETTINGS_CHANGE;
 	for (i = 0; i < subscribe_psc_size; i++)
 		payload[i + 1] = psc[i];
-	rc = venus_hfi_session_command(inst,
+	rc = msm_vidc_session_command(inst,
 			HFI_CMD_SUBSCRIBE_MODE,
 			port,
 			HFI_PAYLOAD_U32_ARRAY,
 			&payload[0],
 			((subscribe_psc_size + 1) *
-			sizeof(u32)));
+			sizeof(u32)),
+			__func__);
 
 	for (i = 0; i < subscribe_psc_size; i++) {
 		/* set session properties */
@@ -1052,12 +1053,13 @@ static int msm_vdec_subscribe_property(struct msm_vidc_inst *inst,
 		return -EINVAL;
 	}
 
-	rc = venus_hfi_session_command(inst,
+	rc = msm_vidc_session_command(inst,
 			HFI_CMD_SUBSCRIBE_MODE,
 			port,
 			HFI_PAYLOAD_U32_ARRAY,
 			&payload[0],
-			(count + 1) * sizeof(u32));
+			(count + 1) * sizeof(u32),
+			__func__);
 	if (rc)
 		return rc;
 
@@ -1109,12 +1111,13 @@ int msm_vdec_subscribe_metadata(struct msm_vidc_inst *inst,
 		return -EINVAL;
 	}
 
-	rc = venus_hfi_session_command(inst,
+	rc = msm_vidc_session_command(inst,
 			HFI_CMD_SUBSCRIBE_MODE,
 			port,
 			HFI_PAYLOAD_U32_ARRAY,
 			&payload[0],
-			(count + 1) * sizeof(u32));
+			(count + 1) * sizeof(u32),
+			__func__);
 	if (rc)
 		return rc;
 
@@ -1165,12 +1168,13 @@ static int msm_vdec_set_delivery_mode_metadata(struct msm_vidc_inst *inst,
 		return -EINVAL;
 	}
 
-	rc = venus_hfi_session_command(inst,
+	rc = msm_vidc_session_command(inst,
 			HFI_CMD_DELIVERY_MODE,
 			port,
 			HFI_PAYLOAD_U32_ARRAY,
 			&payload[0],
-			(count + 1) * sizeof(u32));
+			(count + 1) * sizeof(u32),
+			__func__);
 	if (rc)
 		return rc;
 
@@ -1228,12 +1232,13 @@ static int msm_vdec_set_delivery_mode_property(struct msm_vidc_inst *inst,
 		return -EINVAL;
 	}
 
-	rc = venus_hfi_session_command(inst,
+	rc = msm_vidc_session_command(inst,
 			HFI_CMD_DELIVERY_MODE,
 			port,
 			HFI_PAYLOAD_U32_ARRAY,
 			&payload[0],
-			(count + 1) * sizeof(u32));
+			(count + 1) * sizeof(u32),
+			__func__);
 	if (rc)
 		return rc;
 
@@ -1663,13 +1668,14 @@ static int msm_vdec_subscribe_output_port_settings_change(struct msm_vidc_inst *
 	for (i = 0; i < subscribe_psc_size; i++)
 		payload[i + 1] = psc[i];
 
-	rc = venus_hfi_session_command(inst,
+	rc = msm_vidc_session_command(inst,
 			HFI_CMD_SUBSCRIBE_MODE,
 			port,
 			HFI_PAYLOAD_U32_ARRAY,
 			&payload[0],
 			((subscribe_psc_size + 1) *
-			sizeof(u32)));
+			sizeof(u32)),
+			__func__);
 
 	subsc_params = inst->subcr_params[port];
 	for (i = 0; i < subscribe_psc_size; i++) {
@@ -2552,7 +2558,7 @@ int msm_vdec_enum_fmt(struct msm_vidc_inst *inst, struct v4l2_fmtdesc *f)
 		if (!f->pixelformat)
 			return -EINVAL;
 		f->flags = V4L2_FMT_FLAG_COMPRESSED;
-		strlcpy(f->description, "codec", sizeof(f->description));
+		strscpy(f->description, "codec", sizeof(f->description));
 	} else if (f->type == OUTPUT_MPLANE) {
 		u32 formats = inst->capabilities[PIX_FMTS].step_or_mask;
 		u32 idx = 0;
@@ -2574,12 +2580,12 @@ int msm_vdec_enum_fmt(struct msm_vidc_inst *inst, struct v4l2_fmtdesc *f)
 				__func__);
 		if (!f->pixelformat)
 			return -EINVAL;
-		strlcpy(f->description, "colorformat", sizeof(f->description));
+		strscpy(f->description, "colorformat", sizeof(f->description));
 	} else if (f->type == INPUT_META_PLANE || f->type == OUTPUT_META_PLANE) {
 		if (!f->index) {
 			f->pixelformat =
 				v4l2_colorformat_from_driver(inst, MSM_VIDC_FMT_META, __func__);
-			strlcpy(f->description, "metadata", sizeof(f->description));
+			strscpy(f->description, "metadata", sizeof(f->description));
 		} else {
 			return -EINVAL;
 		}

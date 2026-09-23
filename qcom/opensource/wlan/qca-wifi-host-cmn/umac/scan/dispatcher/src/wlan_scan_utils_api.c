@@ -1022,7 +1022,7 @@ util_scan_parse_chan_switch_wrapper_ie(struct scan_cache_entry *scan_params,
 			scan_params->ie_list.widebw = (uint8_t *)sub_ie;
 			break;
 		case WLAN_ELEMID_VHT_TX_PWR_ENVLP:
-			if (sub_ie->ie_len > WLAN_TPE_IE_MAX_LEN)
+			if (sub_ie->ie_len < WLAN_TPE_IE_MIN_LEN)
 				return QDF_STATUS_E_INVAL;
 			scan_params->ie_list.txpwrenvlp = (uint8_t *)sub_ie;
 			break;
@@ -1123,7 +1123,7 @@ util_scan_update_rnr(struct rnr_bss_info *rnr,
 		fallthrough;
 	case TBTT_NEIGHBOR_AP_SHORTSSID:
 		rnr->channel_number = ap_info->channel_number;
-		rnr->operating_class = ap_info->operting_class;
+		rnr->operating_class = ap_info->operating_class;
 		qdf_mem_copy(&rnr->short_ssid, &data[1], SHORT_SSID_LEN);
 		break;
 
@@ -1135,7 +1135,7 @@ util_scan_update_rnr(struct rnr_bss_info *rnr,
 		fallthrough;
 	case TBTT_NEIGHBOR_AP_BSSID:
 		rnr->channel_number = ap_info->channel_number;
-		rnr->operating_class = ap_info->operting_class;
+		rnr->operating_class = ap_info->operating_class;
 		qdf_mem_copy(&rnr->bssid, &data[1], QDF_MAC_ADDR_SIZE);
 		break;
 
@@ -1150,7 +1150,7 @@ util_scan_update_rnr(struct rnr_bss_info *rnr,
 		fallthrough;
 	case TBTT_NEIGHBOR_AP_BSSSID_S_SSID:
 		rnr->channel_number = ap_info->channel_number;
-		rnr->operating_class = ap_info->operting_class;
+		rnr->operating_class = ap_info->operating_class;
 		qdf_mem_copy(&rnr->bssid, &data[1], QDF_MAC_ADDR_SIZE);
 		qdf_mem_copy(&rnr->short_ssid, &data[7], SHORT_SSID_LEN);
 		break;
@@ -1183,7 +1183,7 @@ util_scan_parse_rnr_ie(struct scan_cache_entry *scan_entry,
 		fieldtype = neighbor_ap_info->tbtt_header.tbbt_info_fieldtype;
 		scm_debug("chan %d, opclass %d tbtt_cnt %d, tbtt_len %d, fieldtype %d",
 			  neighbor_ap_info->channel_number,
-			  neighbor_ap_info->operting_class,
+			  neighbor_ap_info->operating_class,
 			  tbtt_count, tbtt_length, fieldtype);
 		data += sizeof(struct neighbor_ap_info_field);
 
@@ -1458,9 +1458,27 @@ util_scan_parse_vendor_ie(struct scan_cache_entry *scan_params,
 						sizeof(struct ie_header);
 	} else if (is_qcn_oui((uint8_t *)ie)) {
 		scan_params->ie_list.qcn = (uint8_t *)ie;
+	} else if (is_vendor_wifi6_rsno_oui((uint8_t *)ie)) {
+		scan_params->ie_list.wifi6_rsno = (uint8_t *)ie;
+	} else if (is_vendor_rsnxo_oui((uint8_t *)ie)) {
+		scan_params->ie_list.rsnxo = (uint8_t *)ie;
+	} else if (is_vendor_wifi7_rsno_oui((uint8_t *)ie)) {
+		scan_params->ie_list.wifi7_rsno = (uint8_t *)ie;
 	}
 
 	return QDF_STATUS_SUCCESS;
+}
+
+static void
+util_scan_override_rsnxo_ie(struct scan_cache_entry *scan_params)
+{
+	if (!util_scan_entry_rsnxo(scan_params))
+		return;
+
+	/* RSNXO IE is valid only if either of RSNO1 or RSNO2 is present */
+	if (!util_scan_entry_wifi6_rsno(scan_params) &&
+	    !util_scan_entry_wifi7_rsno(scan_params))
+		scan_params->ie_list.rsnxo = NULL;
 }
 
 static QDF_STATUS
@@ -1737,6 +1755,8 @@ util_scan_populate_bcn_ie_list(struct wlan_objmgr_pdev *pdev,
 			ie->ie_len);
 	}
 
+	util_scan_override_rsnxo_ie(scan_params);
+
 	return QDF_STATUS_SUCCESS;
 
 err:
@@ -1832,7 +1852,7 @@ static void util_scan_scm_update_bss_with_esp_data(
 		struct scan_cache_entry *scan_entry)
 {
 	uint8_t air_time_fraction = 0;
-	struct wlan_esp_ie esp_information;
+	struct wlan_esp_ie esp_information = {0};
 
 	if (!scan_entry->ie_list.esp)
 		return;
@@ -2130,6 +2150,9 @@ static void util_scan_set_security(struct scan_cache_entry *scan_params)
 		scan_params->security_type |= SCAN_SECURITY_TYPE_RSN;
 	if (util_scan_entry_wapi(scan_params))
 		scan_params->security_type |= SCAN_SECURITY_TYPE_WAPI;
+	if (util_scan_entry_wifi6_rsno(scan_params) ||
+	    util_scan_entry_wifi7_rsno(scan_params))
+		scan_params->security_type |= SCAN_SECURITY_TYPE_RSNO;
 
 	if (!scan_params->security_type &&
 	    scan_params->cap_info.wlan_caps.privacy)
@@ -2239,6 +2262,116 @@ static uint8_t util_get_link_info_offset(uint8_t *ml_ie, bool *is_ml_ie_valid)
 
 	return 0;
 }
+
+#ifdef QCA_SUPPORT_MBSSIDX_MLDID
+static void
+util_update_partner_info_from_rnr(struct wlan_objmgr_pdev *pdev,
+				  struct scan_cache_entry *scan_entry)
+{
+	uint8_t link_idx = 0, rnr_idx = 0, *cc;
+	struct scan_mbssid_info *mbssid;
+	struct rnr_bss_info *rnr = NULL;
+	struct partner_link_info *link_info = NULL;
+	struct wlan_country_ie *cc_ie;
+
+	cc_ie = util_scan_entry_country(scan_entry);
+	if (cc_ie && cc_ie->len)
+		cc = cc_ie->cc;
+	else
+		cc = NULL;
+
+	while ((rnr_idx < MAX_RNR_BSS) && (rnr_idx < scan_entry->rnr.count)) {
+		if (link_idx >= (MLD_MAX_LINKS - 1))
+			break;
+		rnr = &scan_entry->rnr.bss_info[rnr_idx];
+		if (!rnr->mld_info_valid ||
+		    rnr->mld_info.mld_id == UNKNOWN_MLD_ID) {
+			goto next_rnr_idx;
+		}
+
+		mbssid = &scan_entry->mbssid_info;
+
+		/**
+		 * Copy link info only if MBSSID index matches with
+		 * RNR MLD ID. For a nontransmitted BSSID beacon,
+		 * MLD ID of its partners will be the MBSSID index.
+		 */
+		if (rnr->mld_info.mld_id != mbssid->profile_num)
+			goto next_rnr_idx;
+
+		link_info = &scan_entry->ml_info.link_info[link_idx];
+		qdf_copy_macaddr(&link_info->link_addr, &rnr->bssid);
+
+		link_info->link_id = rnr->mld_info.link_id;
+		link_info->freq =
+			wlan_reg_chan_opclass_to_freq_prefer_global(pdev, cc,
+								    rnr->channel_number,
+								    rnr->operating_class);
+
+		if (!link_info->freq) {
+			scm_debug("freq 0 rnr channel %u op_class %u",
+				  rnr->channel_number,
+				  rnr->operating_class);
+		}
+
+		link_info->op_class = rnr->operating_class;
+		link_idx++;
+
+next_rnr_idx:
+		rnr_idx++;
+	}
+
+	scan_entry->ml_info.num_links = link_idx;
+}
+#else /* QCA_SUPPORT_MBSSIDX_MLDID */
+static void
+util_update_partner_info_from_rnr(struct wlan_objmgr_pdev *pdev,
+				  struct scan_cache_entry *scan_entry)
+{
+	uint8_t link_idx = 0, rnr_idx = 0, *cc;
+	struct rnr_bss_info *rnr = NULL;
+	struct partner_link_info *link_info = NULL;
+	struct wlan_country_ie *cc_ie;
+
+	cc_ie = util_scan_entry_country(scan_entry);
+	if (cc_ie && cc_ie->len)
+		cc = cc_ie->cc;
+	else
+		cc = NULL;
+
+	while ((rnr_idx < MAX_RNR_BSS) && (rnr_idx < scan_entry->rnr.count)) {
+		if (link_idx >= (MLD_MAX_LINKS - 1))
+			break;
+		rnr = &scan_entry->rnr.bss_info[rnr_idx];
+		if (!rnr->mld_info_valid || rnr->mld_info.mld_id)
+			goto next_rnr_idx;
+
+		link_info = &scan_entry->ml_info.link_info[link_idx];
+		qdf_copy_macaddr(&link_info->link_addr, &rnr->bssid);
+
+		link_info->link_id = rnr->mld_info.link_id;
+		link_info->freq =
+			wlan_reg_chan_opclass_to_freq_prefer_global(pdev, cc,
+								    rnr->channel_number,
+								    rnr->operating_class);
+
+		if (!link_info->freq) {
+			scm_debug_rl("freq 0 rnr channel %u op_class %u " QDF_MAC_ADDR_FMT,
+				     rnr->channel_number,
+				     rnr->operating_class,
+				     QDF_MAC_ADDR_REF(rnr->bssid.bytes));
+		}
+
+		link_info->op_class = rnr->operating_class;
+		link_idx++;
+
+next_rnr_idx:
+		rnr_idx++;
+	}
+
+	scan_entry->ml_info.num_links = link_idx;
+}
+#endif /* QCA_SUPPORT_MBSSIDX_MLDID */
 
 static void
 util_get_ml_bv_partner_link_info(struct wlan_objmgr_pdev *pdev,
@@ -2624,6 +2757,7 @@ util_scan_gen_scan_entry(struct wlan_objmgr_pdev *pdev,
 		     sizeof(scan_entry->mbssid_info));
 
 	scan_entry->phy_mode = util_scan_get_phymode(pdev, scan_entry);
+	scan_entry->non_intersected_phymode = scan_entry->phy_mode;
 
 	scan_entry->nss = util_scan_scm_calc_nss_supported_by_ap(scan_entry);
 	scm_fill_adaptive_11r_cap(scan_entry);
@@ -2641,6 +2775,14 @@ util_scan_gen_scan_entry(struct wlan_objmgr_pdev *pdev,
 		qdf_mem_free(scan_entry);
 		scm_err("failed to allocate memory for scan_node");
 		return QDF_STATUS_E_FAILURE;
+	}
+
+	if (!IS_WLAN_PHYMODE_EHT(scan_entry->phy_mode) &&
+	    (util_scan_entry_ehtcap(scan_entry) ||
+	     util_scan_entry_bv_ml_ie(scan_entry))) {
+		scm_debug("EHT cap present but phymode %d not EHT, reset eht info",
+			  scan_entry->phy_mode);
+		util_scan_entry_reset_11be_caps(scan_entry);
 	}
 
 	util_scan_update_ml_info(pdev, scan_entry);
@@ -2920,7 +3062,7 @@ static int util_handle_rnr_ie_for_mbssid(const uint8_t *rnr,
 		tbtt_type = neighbor_ap_info->tbtt_header.tbbt_info_fieldtype;
 		scm_debug("channel number %d, op class %d, bssid_index %d",
 			  neighbor_ap_info->channel_number,
-			  neighbor_ap_info->operting_class, bssid_index);
+			  neighbor_ap_info->operating_class, bssid_index);
 		scm_debug("tbtt_count %d, tbtt_length %d, tbtt_type %d",
 			  tbtt_count, tbtt_len, tbtt_type);
 
@@ -3019,6 +3161,20 @@ static int util_handle_rnr_ie_for_mbssid(const uint8_t *rnr,
 {
 	return 0;
 }
+#endif /* WLAN_FEATURE_11BE_MLO */
+
+#ifdef QCA_SUPPORT_MBSSIDX_MLDID
+static bool util_can_skip_mbssid_idx_ie(const uint8_t *ie)
+{
+	return false;
+}
+#else
+static bool util_can_skip_mbssid_idx_ie(const uint8_t *ie)
+{
+	if (ie[0] == WLAN_ELEMID_MULTI_BSSID_IDX)
+		return true;
+	return false;
+}
 #endif
 
 #ifdef WLAN_FEATURE_ACTION_OUI
@@ -3073,6 +3229,9 @@ static uint32_t util_gen_new_ie(struct wlan_objmgr_pdev *pdev,
 	/* copy subelement as we need to change its content to
 	 * mark an ie after it is processed.
 	 */
+	if (subie_len == 0 || !subelement)
+		return 0;
+
 	sub_copy = qdf_mem_malloc(subie_len);
 	if (!sub_copy)
 		return 0;
@@ -3331,6 +3490,8 @@ util_handle_nontx_prof(uint8_t *mbssid_elem, uint8_t *subelement,
 	}
 
 	if (!mbssid_info->skip_bssid_copy) {
+		scm_debug("trans_bssid " QDF_MAC_ADDR_FMT,
+			  QDF_MAC_ADDR_REF(bssid));
 		qdf_mem_copy(mbssid_info->trans_bssid,
 			     bssid, QDF_MAC_ADDR_SIZE);
 		mbssid_info->profile_num =

@@ -38,6 +38,7 @@
 #include "ipa_uc_offload_i.h"
 #include "ipa_pm.h"
 #include "ipa_defs.h"
+#include "ipa_opt_log.h"
 #include <linux/mailbox_client.h>
 #include <linux/mailbox/qmp.h>
 #include <linux/rmnet_ipa_fd_ioctl.h>
@@ -96,7 +97,7 @@
 #define IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM (IPA5_MAX_NUM_PIPES + 1)
 
 #define IPA_Q6_FNR_START_IDX (128)
-#define IPA_Q6_FNR_IDX_CNT (52)
+#define IPA_Q6_FNR_IDX_CNT (68)
 #define IPA_Q6_FNR_END_IDX (IPA_Q6_FNR_START_IDX+IPA_Q6_FNR_IDX_CNT-1)
 #define IPA_Q6_FNR_STATS_SIZE (IPA_Q6_FNR_IDX_CNT * 16)
 #define IPA_MPM_MAX_RING_LEN 64
@@ -219,6 +220,15 @@ enum {
 		(iova_p) = rounddown((iova), PAGE_SIZE); \
 		(pa_p) = rounddown((pa), PAGE_SIZE); \
 		(size_p) = roundup((size) + (pa) - (pa_p), PAGE_SIZE); \
+	} while (0)
+
+#define IPA_EVENT_LOG(fmt, args...) \
+	do { \
+		char log_buffer[256]; \
+		int ret; \
+		snprintf(log_buffer, sizeof(log_buffer), \
+				EVENT_LOG_NAME " %s:%d " fmt, __func__, __LINE__, ## args); \
+		ret = ipa3_send_opt_log_msg(log_buffer); \
 	} while (0)
 
 #define WLAN_AMPDU_TX_EP 15
@@ -2583,6 +2593,7 @@ struct ipa3_context {
 	u32 ipa_gen_rx_cmn_page_pool_sz_factor;
 	u32 ipa_gen_rx_cmn_temp_pool_sz_factor;
 	u32 ipa_gen_rx_ll_pool_sz_factor;
+	atomic_t ipa_temp_pool_capacity;
 	struct ipa3_app_clock_vote app_clock_vote;
 	bool clients_registered;
 	bool ipa_gpi_event_rp_ddr;

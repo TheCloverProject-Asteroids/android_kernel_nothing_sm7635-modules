@@ -586,6 +586,7 @@ static int cam_lrme_hw_util_submit_req(struct cam_lrme_core *lrme_core,
 		cdm_cmd->userdata = NULL;
 		cdm_cmd->cookie = 0;
 		cdm_cmd->gen_irq_arb = false;
+		cdm_cmd->fast_complete = NULL;
 
 		for (i = 0; i <= frame_req->num_hw_update_entries; i++) {
 			cmd = (frame_req->hw_update_entries + i);

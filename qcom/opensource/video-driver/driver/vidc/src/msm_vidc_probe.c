@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2022, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/workqueue.h>
@@ -25,10 +25,10 @@
 #include "msm_vidc_driver.h"
 #include "msm_vidc_debug.h"
 #include "msm_vidc_state.h"
-#include "msm_vidc_fence.h"
 #include "msm_vidc_platform.h"
 #include "msm_vidc_core.h"
 #include "msm_vidc_memory.h"
+#include "msm_vidc_fence.h"
 #include "venus_hfi.h"
 
 #define BASE_DEVICE_NUMBER 32
@@ -61,15 +61,7 @@ static inline bool is_video_context_bank_device(struct device *dev)
 
 static int msm_vidc_init_resources(struct msm_vidc_core *core)
 {
-	struct msm_vidc_resource *res = NULL;
 	int rc = 0;
-
-	res = devm_kzalloc(&core->pdev->dev, sizeof(*res), GFP_KERNEL);
-	if (!res) {
-		d_vpr_e("%s: failed to alloc memory for resource\n", __func__);
-		return -ENOMEM;
-	}
-	core->resource = res;
 
 	rc = call_res_op(core, init, core);
 	if (rc) {
@@ -120,6 +112,9 @@ static const struct of_device_id msm_vidc_dt_match[] = {
 	{.compatible = "qcom,sm8650-vidc"},
 	{.compatible = "qcom,sm8650-vidc-v2"},
 	{.compatible = "qcom,volcano-vidc"},
+	{.compatible = "qcom,tuna-vidc"},
+	{.compatible = "qcom,kera-vidc"},
+	{.compatible = "qcom,kera-vidc-v2"},
 	{.compatible = "qcom,vidc,cb-ns-pxl"},
 	{.compatible = "qcom,vidc,cb-ns"},
 	{.compatible = "qcom,vidc,cb-sec-non-pxl"},
@@ -652,7 +647,9 @@ static void msm_vidc_component_master_unbind(struct device *dev)
 	msm_vidc_core_deinit(core, true);
 	venus_hfi_queue_deinit(core);
 	msm_vidc_deinitialize_media(core);
-	call_fence_op(core, fence_deregister, core);
+	if (core->capabilities[SUPPORTS_SYNX_FENCE].value &&
+	    msm_vidc_synx_fence_enable)
+		call_fence_op(core, fence_deregister, core);
 	component_unbind_all(dev, core);
 
 	d_vpr_h("%s(): succssful\n", __func__);

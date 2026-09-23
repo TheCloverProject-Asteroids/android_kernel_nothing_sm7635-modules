@@ -528,6 +528,7 @@ static int dp_power_request_gpios(struct dp_power_private *power)
 	struct dss_module_power *mp;
 	static const char * const gpio_names[] = {
 		"aux_enable", "aux_sel", "usbplug_cc",
+		"edp_vcc_enable", "edp_backlight_pwr", "edp_pwm_en", "edp_backlight_en",
 	};
 
 	if (!power) {
@@ -550,6 +551,7 @@ static int dp_power_request_gpios(struct dp_power_private *power)
 			}
 		}
 	}
+
 	return 0;
 error:
 	for (i = 0; i < ARRAY_SIZE(gpio_names); i++) {
@@ -572,7 +574,7 @@ static void dp_power_set_gpio(struct dp_power_private *power, bool flip)
 	struct dss_module_power *mp = &power->parser->mp[DP_CORE_PM];
 	struct dss_gpio *config = mp->gpio_config;
 
-	for (i = 0; i < mp->num_gpio; i++) {
+	for (i = 0; i <= DP_GPIO_CMN_MAX; i++) {
 		if (dp_power_find_gpio(config->gpio_name, "aux-sel"))
 			config->value = flip;
 
@@ -712,9 +714,17 @@ static int dp_power_park_clocks(struct dp_power *dp_power)
 		goto error;
 	}
 
-	rc = dp_power_park_module(power, DP_STREAM1_PM);
+	if (power->parser->has_mst) {
+		rc = dp_power_park_module(power, DP_STREAM1_PM);
+		if (rc) {
+			DP_ERR("failed to park stream 1. err=%d\n", rc);
+			goto error;
+		}
+	}
+
+	rc = dp_power_park_module(power, DP_LINK_PM);
 	if (rc) {
-		DP_ERR("failed to park stream 1. err=%d\n", rc);
+		DP_ERR("failed to park link clock. err=%d\n", rc);
 		goto error;
 	}
 
@@ -882,6 +892,37 @@ exit:
 	return rc;
 }
 
+static int dp_power_edp_panel_set_gpio(struct dp_power *dp_power,
+		enum dp_pin_states pin_state, bool enable)
+{
+	int rc = 0;
+	struct dp_power_private *power;
+	struct dss_module_power *mp;
+	struct dss_gpio *config;
+
+	if (!dp_power) {
+		DP_ERR("invalid power data\n");
+		return -EINVAL;
+	}
+
+	power = container_of(dp_power, struct dp_power_private, dp_power);
+
+	mp = &power->parser->mp[DP_CORE_PM];
+	config = mp->gpio_config;
+
+	if (config == NULL)
+		return -EINVAL;
+
+	if ((pin_state >= DP_GPIO_EDP_MIN) && (pin_state < DP_GPIO_EDP_MAX)) {
+		gpio_direction_output(config[pin_state].gpio, enable);
+	} else {
+		DP_ERR("Invalid GPIO call with pin state: %d\n", pin_state);
+		return -EINVAL;
+	}
+
+	return rc;
+}
+
 struct dp_power *dp_power_get(struct dp_parser *parser, struct dp_pll *pll)
 {
 	int rc = 0;
@@ -918,6 +959,7 @@ struct dp_power *dp_power_get(struct dp_parser *parser, struct dp_pll *pll)
 	dp_power->power_client_init = dp_power_client_init;
 	dp_power->power_client_deinit = dp_power_client_deinit;
 	dp_power->power_mmrm_init = dp_power_mmrm_init;
+	dp_power->edp_panel_set_gpio = dp_power_edp_panel_set_gpio;
 
 	dp_power->dp_phy_gdsc = devm_regulator_get(dev, "dp_phy_gdsc");
 	if (IS_ERR(dp_power->dp_phy_gdsc)) {

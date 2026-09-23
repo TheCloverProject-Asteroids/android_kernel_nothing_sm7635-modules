@@ -166,6 +166,7 @@ def _define_modules_for_target_variant(target, variant):
         module = "icnss2"
         _define_platform_config_rule(module, target, variant)
         defconfig = ":{}/{}_defconfig_generate_{}".format(module, tv, variant)
+        deps = ["//vendor/qcom/kernel:all_headers",]
         ddk_module(
             name = "{}_icnss2".format(tv),
             srcs = native.glob([
@@ -200,6 +201,10 @@ def _define_modules_for_target_variant(target, variant):
     module = "cnss_genl"
     _define_platform_config_rule(module, target, variant)
     defconfig = ":{}/{}_defconfig_generate_{}".format(module, tv, variant)
+    if target != "sa510m" and target != "sa510m.1g":
+        deps = ["//vendor/qcom/kernel:all_headers"]
+    else:
+        deps = [ kernel_header ]
     ddk_module(
         name = "{}_cnss_nl".format(tv),
         srcs = [
@@ -264,6 +269,10 @@ def _define_modules_for_target_variant(target, variant):
 
     module = "cnss_utils"
     defconfig = ":{}/{}_defconfig_generate_{}".format(module, tv, variant)
+    if target != "sa510m" and target != "sa510m.1g":
+        deps = ["//vendor/qcom/kernel:all_headers"]
+    else:
+        deps = [ kernel_header ]
     ddk_module(
         name = "{}_wlan_firmware_service".format(tv),
         srcs = native.glob([
@@ -281,6 +290,7 @@ def _define_modules_for_target_variant(target, variant):
 
     module = "cnss_utils"
     defconfig = ":{}/{}_defconfig_generate_{}".format(module, tv, variant)
+
     if plat_ipc_qmi_svc_enabled:
         ddk_module(
             name = "{}_cnss_plat_ipc_qmi_svc".format(tv),
@@ -314,6 +324,8 @@ def _define_kernel_module_groups(target,variant):
     )
 
 def define_modules():
+    for module, target, variant in get_16k_mtv():
+        define_16k_aliases(module, target, variant)
     for (t, v) in get_all_variants():
         print("v=", v)
         if t in _cnss2_enabled_target or t in _icnss2_enabled_target:

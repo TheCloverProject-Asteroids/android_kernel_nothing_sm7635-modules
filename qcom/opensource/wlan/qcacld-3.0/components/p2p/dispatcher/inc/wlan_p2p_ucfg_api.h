@@ -26,6 +26,7 @@
 
 #include "wlan_p2p_cfg_api.h"
 #include <qdf_types.h>
+#include "wlan_p2p_tgt_api.h"
 
 struct wlan_objmgr_psoc;
 struct p2p_roc_req;
@@ -199,25 +200,32 @@ QDF_STATUS ucfg_p2p_psoc_stop(struct wlan_objmgr_psoc *soc);
  * @soc: soc context
  * @roc_req: Roc request parameters
  * @cookie: return cookie to caller
+ * @opmode: interface type
  *
  * This function delivers roc request to P2P component.
  *
  * Return: QDF_STATUS_SUCCESS - in case of success
  */
 QDF_STATUS ucfg_p2p_roc_req(struct wlan_objmgr_psoc *soc,
-	struct p2p_roc_req *roc_req, uint64_t *cookie);
+			    struct p2p_roc_req *roc_req,
+			    uint64_t *cookie,
+			    enum QDF_OPMODE opmode);
 
 /**
  * ucfg_p2p_roc_cancel_req() - Cancel roc request
  * @soc: soc context
+ * @vdev: pointer to vdev object
  * @cookie: Find out the roc request by cookie
+ * @opmode: OPMODE for which the current roc_cancel is issued
  *
  * This function delivers cancel roc request to P2P component.
  *
  * Return: QDF_STATUS_SUCCESS - in case of success
  */
 QDF_STATUS ucfg_p2p_roc_cancel_req(struct wlan_objmgr_psoc *soc,
-	uint64_t cookie);
+				   struct wlan_objmgr_vdev *vdev,
+				   uint64_t cookie,
+				   enum QDF_OPMODE opmode);
 
 /**
  * ucfg_p2p_cleanup_roc_by_vdev() - Cleanup roc request by vdev
@@ -280,6 +288,7 @@ QDF_STATUS ucfg_p2p_mgmt_tx(struct wlan_objmgr_psoc *soc,
  * @soc: soc context
  * @vdev: vdev object
  * @cookie: Find out the mgmt tx request by cookie
+ * @opmode: OPMODE for which the current mgmt_tx_cancel is issued
  *
  * This function delivers cancel mgmt frame tx request request to P2P
  * component.
@@ -287,7 +296,9 @@ QDF_STATUS ucfg_p2p_mgmt_tx(struct wlan_objmgr_psoc *soc,
  * Return: QDF_STATUS_SUCCESS - in case of success
  */
 QDF_STATUS ucfg_p2p_mgmt_tx_cancel(struct wlan_objmgr_psoc *soc,
-	struct wlan_objmgr_vdev *vdev, uint64_t cookie);
+				   struct wlan_objmgr_vdev *vdev,
+				   uint64_t cookie,
+				   enum QDF_OPMODE opmode);
 
 /**
  * ucfg_p2p_set_ps() - P2P set power save
@@ -327,6 +338,22 @@ QDF_STATUS ucfg_p2p_lo_start(struct wlan_objmgr_psoc *soc,
 QDF_STATUS ucfg_p2p_lo_stop(struct wlan_objmgr_psoc *soc,
 	uint32_t vdev_id);
 #endif
+
+/**
+ * ucfg_p2p_send_chan_switch_req() - OSIF wrapper API to send channel switch
+ * request params to P2P module
+ * @psoc: PSOC object manager
+ * @vdev_id: VDEV ID of p2p entity for channel switch request
+ * @channel: Channel number of requested channel
+ * @opclass: Operating class of request channel
+ *
+ * Posts command to P2P module for channel switch request.
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS ucfg_p2p_send_chan_switch_req(struct wlan_objmgr_psoc *psoc,
+					 uint8_t vdev_id, uint8_t channel,
+					 uint8_t opclass);
 
 /**
  * p2p_peer_authorized() - Process peer authorized event

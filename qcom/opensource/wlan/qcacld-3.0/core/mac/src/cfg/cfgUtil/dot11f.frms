@@ -222,6 +222,8 @@ const TLV_P2P_GROUP_ID                       =  15;
 const TLV_P2P_INTERFACE                      =  16;
 const TLV_OPERATING_CHANNEL                  =  17;
 const TLV_INVITATION_FLAGS                   =  18;
+const TLV_P2P_EXTN_CAPABILITY                =  29;
+const TLV_P2P_WLAN_AP_INFO                   =  30;
 const TLV_P2P_VENDOR_SPECIFIC                = 221;
 
 
@@ -1083,7 +1085,6 @@ TLV P2PGroupInfo ( TLV_P2P_GROUP_INFO ) ( 1 : 2 ) LSB
 {
     P2PClientInfoDesc[0..1024];
 }
-
 
 /**
  * \brief P2P Interface Attribute
@@ -2468,6 +2469,11 @@ IE WscIEOpaque (EID_VENDOR_SPECIFIC) OUI ( 0x00, 0x50, 0xF2, 0x04 )
 }
 
 IE P2PIEOpaque (EID_VENDOR_SPECIFIC) OUI ( 0x50, 0x6F, 0x9A, 0x09 )
+{
+    data[ 2..249 ];
+}
+
+IE P2P2IEOpaque (EID_VENDOR_SPECIFIC) OUI ( 0x50, 0x6F, 0x9A, 0x28 )
 {
     data[ 2..249 ];
 }
@@ -4350,6 +4356,7 @@ FRAME AssocRequest                        // 7.2.3.4
     OPTIE  ESERadMgmtCap;
     OPTIE  ESEVersion;
     OPTIE  P2PIEOpaque;
+    OPTIE  P2P2IEOpaque;
     OPTIE  WFDIEOpaque;
     OPTIE  vendor_vht_ie;
     OPTIE  hs20vendor_ie;
@@ -4457,6 +4464,7 @@ FRAME ReAssocRequest                      // 7.2.3.6
     OPTIE  WMMTSPEC[0..4];
     OPTIE  ESETrafStrmRateSet;
     OPTIE  P2PIEOpaque;
+    OPTIE  P2P2IEOpaque;
     OPTIE  WFDIEOpaque;
     OPTIE  vendor_vht_ie;
     OPTIE  hs20vendor_ie;

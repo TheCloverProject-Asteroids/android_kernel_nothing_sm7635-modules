@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _PERF_STATIC_MODEL_H_
@@ -27,6 +27,7 @@
 #define CODEC_GOP_bONLY                         5
 #define CODEC_GOP_BONLY                         6
 #define CODEC_GOP_IONLY                         7
+#define CODEC_GOP_LOSSLESS                      8
 
 #define CODEC_ENCODER_GOP_Bb_ENTRY              0
 #define CODEC_ENCODER_GOP_P_ENTRY               1
@@ -70,6 +71,7 @@ enum chipset_generation {
 	MSM_KALAMA,
 	MSM_QOGNITION,
 	MSM_PINEAPPLE,
+	MSM_SUN,
 	MSM_MAX,
 };
 
@@ -149,6 +151,8 @@ struct api_calculation_input {
 	/* used in aurora for depth map decode */
 	u32 lumaonly_decode;
 
+	/* 0: TP10; 1: P010; */
+	u32 format_10bpp;
 	/* used in freq and bitrate table selection*/
 	u32 vpu_ver;
 };
@@ -231,10 +235,4 @@ struct api_calculation_bw_output {
 	u32 llc_bw_rd;
 	u32 llc_bw_wr;
 };
-
-int msm_vidc_calculate_frequency(struct api_calculation_input codec_input,
-				 struct api_calculation_freq_output *codec_output);
-int msm_vidc_calculate_bandwidth(struct api_calculation_input codec_input,
-				 struct api_calculation_bw_output *codec_output);
-
 #endif /*_PERF_STATIC_MODEL_H_ */

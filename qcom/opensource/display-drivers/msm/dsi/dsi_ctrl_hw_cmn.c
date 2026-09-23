@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/delay.h>
@@ -451,7 +451,7 @@ static void dsi_ctrl_hw_cmn_get_vid_dce_params(struct dsi_mode_info *mode,
  * Set up the video timing parameters for the DSI video mode operation.
  */
 void dsi_ctrl_hw_cmn_set_video_timing(struct dsi_ctrl_hw *ctrl,
-				     struct dsi_mode_info *mode)
+				     struct dsi_host_config *host_config)
 {
 	u32 reg = 0;
 	u32 hs_start = 0;
@@ -459,6 +459,7 @@ void dsi_ctrl_hw_cmn_set_video_timing(struct dsi_ctrl_hw *ctrl,
 	u32 bytes_per_pkt = 0, pkt_per_line = 0, eol_byte_num = 0;
 	u32 vs_start = 0, vs_end = 0;
 	u32 vpos_start = 0, vpos_end, active_v_start, active_v_end, v_total;
+	struct dsi_mode_info *mode = &host_config->video_timing;
 
 	if (dsi_compression_enabled(mode)) {
 		dsi_ctrl_hw_cmn_get_vid_dce_params(mode,
@@ -528,6 +529,12 @@ void dsi_ctrl_hw_cmn_set_video_timing(struct dsi_ctrl_hw *ctrl,
 	DSI_W32(ctrl, DSI_DSI_TIMING_FLUSH, 0x1);
 	DSI_CTRL_HW_DBG(ctrl, "ctrl video parameters updated\n");
 	SDE_EVT32(v_total, h_total);
+
+	if (host_config->esync_enabled) {
+		/* Skip extended VFP blanking lines over DSI lanes */
+		DSI_W32(ctrl, DSI_VIDEO_MODE_CTRL5, v_total+1);
+		DSI_W32(ctrl, DSI_VIDEO_MODE_CTRL4, 1);
+	}
 }
 
 /**
@@ -883,6 +890,13 @@ void dsi_ctrl_hw_cmn_kickoff_command(struct dsi_ctrl_hw *ctrl_hw,
 	reg &= ~BIT(29);/* WC_SEL to 0 */
 	DSI_W32(ctrl_hw, DSI_COMMAND_MODE_DMA_CTRL, reg);
 
+	reg = DSI_R32(ctrl_hw, DSI_COMMAND_MODE_DMA_CTRL_1);
+	if (flags & DSI_CTRL_CMD_MULTI_DMA_BURST)
+		reg |= BIT(1);
+	else
+		reg &= ~BIT(1);
+	DSI_W32(ctrl_hw, DSI_COMMAND_MODE_DMA_CTRL_1, reg);
+
 	reg = DSI_R32(ctrl_hw, DSI_DMA_FIFO_CTRL);
 	reg |= BIT(20);/* Disable write watermark*/
 	reg |= BIT(16);/* Disable read watermark */
@@ -964,6 +978,13 @@ void dsi_ctrl_hw_cmn_kickoff_fifo_command(struct dsi_ctrl_hw *ctrl,
 	reg |= BIT(28);
 
 	DSI_W32(ctrl, DSI_COMMAND_MODE_DMA_CTRL, reg);
+
+	reg = DSI_R32(ctrl, DSI_COMMAND_MODE_DMA_CTRL_1);
+	if (flags & DSI_CTRL_CMD_MULTI_DMA_BURST)
+		reg |= BIT(1);
+	else
+		reg &= ~BIT(1);
+	DSI_W32(ctrl, DSI_COMMAND_MODE_DMA_CTRL_1, reg);
 
 	DSI_W32(ctrl, DSI_DMA_CMD_LENGTH, (cmd->size & 0xFFFFFFFF));
 	/* Finish writes before command trigger */
@@ -1949,7 +1970,8 @@ bool dsi_ctrl_hw_cmn_vid_engine_busy(struct dsi_ctrl_hw *ctrl)
 }
 
 void dsi_ctrl_hw_cmn_init_cmddma_trig_ctrl(struct dsi_ctrl_hw *ctrl,
-					   struct dsi_host_common_cfg *cfg)
+					   struct dsi_host_common_cfg *cfg,
+					   bool do_peripheral_flush)
 {
 	u32 reg;
 	const u8 trigger_map[DSI_TRIGGER_MAX] = {
@@ -1958,7 +1980,12 @@ void dsi_ctrl_hw_cmn_init_cmddma_trig_ctrl(struct dsi_ctrl_hw *ctrl,
 	/* Initialize the default trigger used for Command Mode DMA path. */
 	reg = DSI_R32(ctrl, DSI_TRIG_CTRL);
 	reg &= ~BIT(16); /* Reset DMA_TRG_MUX */
-	reg &= ~(0xF); /* Reset DMA_TRIGGER_SEL */
-	reg |= (trigger_map[cfg->dma_cmd_trigger] & 0xF);
+	reg &= ~(0xF | (0b111 << 17)); /* Reset DMA_TRIGGER_SEL */
+
+	if (do_peripheral_flush)
+		reg |= BIT(17); /* COMMAND_MODE_DMA_TRIGGER_SEL to periph flush from MDP */
+	else
+		reg |= (trigger_map[cfg->dma_cmd_trigger] & 0xF);
+
 	DSI_W32(ctrl, DSI_TRIG_CTRL, reg);
 }

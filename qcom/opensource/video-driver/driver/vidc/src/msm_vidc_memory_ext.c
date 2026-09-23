@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/dma-buf.h>
@@ -99,8 +99,10 @@ static int msm_vidc_memory_free_ext(struct msm_vidc_core *core, struct msm_vidc_
 	if (mem->kvaddr) {
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 		dma_buf_vunmap(mem->dmabuf, mem->kvaddr);
-#else
+#elif (LINUX_VERSION_CODE < KERNEL_VERSION(6, 2, 0))
 		dma_buf_vunmap(mem->dmabuf, &mem->dmabuf_map);
+#else
+		dma_buf_vunmap_unlocked(mem->dmabuf, &mem->dmabuf_map);
 #endif
 		mem->kvaddr = NULL;
 		dma_buf_end_cpu_access(mem->dmabuf, DMA_BIDIRECTIONAL);
@@ -187,7 +189,8 @@ static int msm_vidc_memory_alloc_ext(struct msm_vidc_core *core, struct msm_vidc
 	/*
 	 * Waipio uses Kernel version 5.10.x,
 	 * Kalama uses Kernel Version 5.15.x,
-	 * Pineapple uses Kernel Version 5.18.x
+	 * Pineapple uses Kernel Version 6.1.x
+	 * Sun uses Kernel Version 6.4.x
 	 */
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 		mem->kvaddr = dma_buf_vmap(mem->dmabuf);
@@ -196,7 +199,7 @@ static int msm_vidc_memory_alloc_ext(struct msm_vidc_core *core, struct msm_vidc
 			rc = -EIO;
 			goto error;
 		}
-#elif (LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0))
+#elif (LINUX_VERSION_CODE < KERNEL_VERSION(6, 2, 0))
 		rc = dma_buf_vmap(mem->dmabuf, &mem->dmabuf_map);
 		if (rc) {
 			d_vpr_e("%s: kernel map failed\n", __func__);
@@ -205,7 +208,7 @@ static int msm_vidc_memory_alloc_ext(struct msm_vidc_core *core, struct msm_vidc
 		}
 		mem->kvaddr = mem->dmabuf_map.vaddr;
 #else
-		rc = dma_buf_vmap(mem->dmabuf, &mem->dmabuf_map);
+		rc = dma_buf_vmap_unlocked(mem->dmabuf, &mem->dmabuf_map);
 		if (rc) {
 			d_vpr_e("%s: kernel map failed\n", __func__);
 			rc = -EIO;
@@ -337,12 +340,21 @@ exit:
 	return rc;
 }
 
+static inline bool is_crc_enabled(struct msm_vidc_core *core)
+{
+	return !!(core->hfi_debug_config & HFI_DEBUG_CONFIG_CRC);
+}
+
 static u32 msm_vidc_buffer_region_ext(struct msm_vidc_inst *inst,
 	enum msm_vidc_buffer_type buffer_type)
 {
+	struct msm_vidc_core *core = inst->core;
 	u32 region = MSM_VIDC_NON_SECURE;
 
 	if (!is_secure_session(inst)) {
+		if (is_crc_enabled(core))
+			return MSM_VIDC_NON_SECURE;
+
 		switch (buffer_type) {
 		case MSM_VIDC_BUF_ARP:
 			region = MSM_VIDC_NON_SECURE;

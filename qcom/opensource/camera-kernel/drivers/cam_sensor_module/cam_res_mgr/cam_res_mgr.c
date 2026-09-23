@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/init.h>
@@ -11,9 +11,11 @@
 #include <linux/slab.h>
 #include <linux/gpio.h>
 #include "cam_debug_util.h"
+#include "cam_req_mgr_dev.h"
 #include "cam_res_mgr_api.h"
 #include "cam_res_mgr_private.h"
 #include "camera_main.h"
+#include "cam_mem_mgr_api.h"
 
 static struct cam_res_mgr *cam_res;
 
@@ -32,10 +34,10 @@ static void cam_res_mgr_free_res(void)
 		list_for_each_entry_safe(dev_res, dev_temp,
 			&gpio_res->dev_list, list) {
 			list_del_init(&dev_res->list);
-			kfree(dev_res);
+			CAM_MEM_FREE(dev_res);
 		}
 		list_del_init(&gpio_res->list);
-		kfree(gpio_res);
+		CAM_MEM_FREE(gpio_res);
 	}
 	mutex_unlock(&cam_res->gpio_res_lock);
 
@@ -43,7 +45,7 @@ static void cam_res_mgr_free_res(void)
 	list_for_each_entry_safe(flash_res, flash_temp,
 		&cam_res->flash_res_list, list) {
 		list_del_init(&flash_res->list);
-		kfree(flash_res);
+		CAM_MEM_FREE(flash_res);
 	}
 	mutex_unlock(&cam_res->flash_res_lock);
 }
@@ -74,7 +76,7 @@ void cam_res_mgr_led_trigger_register(const char *name, struct led_trigger **tp)
 	if (found) {
 		*tp = flash_res->trigger;
 	} else {
-		flash_res = kzalloc(sizeof(struct cam_flash_res), GFP_KERNEL);
+		flash_res = CAM_MEM_ZALLOC(sizeof(struct cam_flash_res), GFP_KERNEL);
 		if (!flash_res) {
 			CAM_ERR(CAM_RES,
 				"Failed to malloc memory for flash_res:%s",
@@ -120,7 +122,7 @@ void cam_res_mgr_led_trigger_unregister(struct led_trigger *tp)
 	if (found) {
 		led_trigger_unregister_simple(tp);
 		list_del_init(&flash_res->list);
-		kfree(flash_res);
+		CAM_MEM_FREE(flash_res);
 	}
 	mutex_unlock(&cam_res->flash_res_lock);
 }
@@ -388,7 +390,7 @@ static int cam_res_mgr_add_device(struct device *dev,
 {
 	struct cam_dev_res *dev_res = NULL;
 
-	dev_res = kzalloc(sizeof(struct cam_dev_res), GFP_KERNEL);
+	dev_res = CAM_MEM_ZALLOC(sizeof(struct cam_dev_res), GFP_KERNEL);
 	if (!dev_res)
 		return -ENOMEM;
 
@@ -467,6 +469,20 @@ int cam_res_mgr_gpio_request(struct device *dev, uint gpio,
 				gpio, label, rc);
 			goto end;
 		}
+
+		gpio_res = CAM_MEM_ZALLOC(sizeof(struct cam_gpio_res), GFP_KERNEL);
+		if (!gpio_res) {
+			CAM_ERR(CAM_RES, "Not Enough Mem");
+			rc = -ENOMEM;
+			goto end;
+		}
+
+		gpio_res->gpio = gpio;
+		gpio_res->power_on_count = 0;
+		INIT_LIST_HEAD(&gpio_res->list);
+		INIT_LIST_HEAD(&gpio_res->dev_list);
+
+		list_add_tail(&gpio_res->list, &cam_res->gpio_res_list);
 	}
 
 	/*
@@ -480,23 +496,19 @@ int cam_res_mgr_gpio_request(struct device *dev, uint gpio,
 		(cam_res_mgr_gpio_is_in_shared_pctrl_gpio(gpio)))) {
 		CAM_DBG(CAM_RES, "gpio: %u is shared", gpio);
 
-		gpio_res = kzalloc(sizeof(struct cam_gpio_res), GFP_KERNEL);
+		gpio_res = cam_res_mgr_find_if_gpio_in_list(gpio);
 		if (!gpio_res) {
-			rc = -ENOMEM;
+			CAM_ERR(CAM_RES, "gpio: %u not found", gpio);
+			rc = -EINVAL;
 			goto end;
 		}
-		gpio_res->gpio = gpio;
-		gpio_res->power_on_count = 0;
-		INIT_LIST_HEAD(&gpio_res->list);
-		INIT_LIST_HEAD(&gpio_res->dev_list);
 
 		rc = cam_res_mgr_add_device(dev, gpio_res);
 		if (rc) {
-			kfree(gpio_res);
+			CAM_ERR(CAM_RES,
+				"add device to gpio res list failed rc: %d", rc);
 			goto end;
 		}
-
-		list_add_tail(&gpio_res->list, &cam_res->gpio_res_list);
 	}
 
 	/* if shared gpio is in pinctrl gpio list */
@@ -575,8 +587,6 @@ EXPORT_SYMBOL(cam_res_mgr_util_check_if_gpio_is_shared);
 static void cam_res_mgr_gpio_free(struct device *dev, uint gpio)
 {
 	bool                   gpio_found = false;
-	bool                   need_free = true;
-	int                    dev_num = 0;
 	struct cam_gpio_res   *gpio_res = NULL;
 	bool                   is_shared_pctrl_gpio = false;
 	int                    pctrl_idx = -1;
@@ -584,51 +594,34 @@ static void cam_res_mgr_gpio_free(struct device *dev, uint gpio)
 	is_shared_pctrl_gpio =
 			cam_res_mgr_gpio_is_in_shared_pctrl_gpio(gpio);
 
+	if (!cam_res) {
+		CAM_ERR(CAM_RES, "cam_res data is not avaialbe");
+		return;
+	}
+
 	mutex_lock(&cam_res->gpio_res_lock);
-	if (cam_res && cam_res->shared_gpio_enabled) {
-		list_for_each_entry(gpio_res, &cam_res->gpio_res_list, list) {
-			if (gpio == gpio_res->gpio) {
-				gpio_found = true;
-				break;
-			}
+	list_for_each_entry(gpio_res, &cam_res->gpio_res_list, list) {
+		if (gpio == gpio_res->gpio) {
+			gpio_found = true;
+			break;
 		}
 	}
 
 	if (gpio_found && cam_res
 		&& cam_res->shared_gpio_enabled) {
-		struct list_head *list;
 		struct cam_dev_res *dev_res = NULL;
 
-		/* Count the dev number in the dev_list */
-		list_for_each(list, &gpio_res->dev_list)
-			dev_num++;
-
-		/*
-		 * Need free the gpio if only has last 1 device
-		 * in the dev_list, otherwise, not free this
-		 * gpio.
-		 */
-		if (dev_num == 1) {
-			dev_res = list_first_entry(&gpio_res->dev_list,
-				struct cam_dev_res, list);
-			list_del_init(&dev_res->list);
-			kfree(dev_res);
-			list_del_init(&gpio_res->list);
-			kfree(gpio_res);
-		} else {
-			list_for_each_entry(dev_res,
-				&gpio_res->dev_list, list) {
-				if (dev_res->dev == dev) {
-					list_del_init(&dev_res->list);
-					kfree(dev_res);
-					need_free = false;
-					break;
-				}
+		list_for_each_entry(dev_res,
+			&gpio_res->dev_list, list) {
+			if (dev_res->dev == dev) {
+				list_del_init(&dev_res->list);
+				CAM_MEM_FREE(dev_res);
+				break;
 			}
 		}
 	}
 
-	if (need_free) {
+	if (gpio_found && list_empty(&gpio_res->dev_list)) {
 		if (is_shared_pctrl_gpio) {
 			pctrl_idx =
 				cam_res_mgr_util_get_idx_from_shared_pctrl_gpio(
@@ -643,6 +636,8 @@ static void cam_res_mgr_gpio_free(struct device *dev, uint gpio)
 		}
 
 		CAM_DBG(CAM_RES, "freeing gpio: %u", gpio);
+		list_del_init(&gpio_res->list);
+		CAM_MEM_FREE(gpio_res);
 		gpio_free(gpio);
 	}
 
@@ -663,22 +658,29 @@ int cam_res_mgr_gpio_set_value(unsigned int gpio, int value)
 	bool found = false;
 	struct cam_gpio_res *gpio_res = NULL;
 
+	if (!cam_res) {
+		CAM_ERR(CAM_RES, "cam_res data is not avaialbe");
+		return -EINVAL;
+	}
+
 	mutex_lock(&cam_res->gpio_res_lock);
-	if (cam_res && cam_res->shared_gpio_enabled) {
-		list_for_each_entry(gpio_res, &cam_res->gpio_res_list, list) {
-			if (gpio == gpio_res->gpio) {
-				found = true;
-				break;
-			}
+	list_for_each_entry(gpio_res, &cam_res->gpio_res_list, list) {
+		if (gpio == gpio_res->gpio) {
+			found = true;
+			break;
 		}
 	}
 
 	/*
-	 * Set the value directly if can't find the gpio from
-	 * gpio_res_list, otherwise, need add ref count support
+	 * Set the value directly for non-shared gpio, for shared
+	 * gpio need add ref count support.
 	 **/
 	if (!found) {
+		CAM_ERR(CAM_RES, "gpio: %u not found", gpio);
+		return -EINVAL;
+	} else if (!cam_res->shared_gpio_enabled) {
 		gpio_set_value_cansleep(gpio, value);
+		CAM_DBG(CAM_RES, "Set GPIO(%d) : %d", gpio, value);
 	} else {
 		if (value) {
 			gpio_res->power_on_count++;
@@ -894,8 +896,11 @@ static int cam_res_mgr_component_bind(struct device *dev,
 {
 	int rc = 0;
 	struct platform_device *pdev = to_platform_device(dev);
+	struct timespec64 ts_start, ts_end;
+	long microsec = 0;
 
-	cam_res = kzalloc(sizeof(*cam_res), GFP_KERNEL);
+	CAM_GET_TIMESTAMP(ts_start);
+	cam_res = CAM_MEM_ZALLOC(sizeof(*cam_res), GFP_KERNEL);
 	if (!cam_res) {
 		CAM_ERR(CAM_RES, "Not Enough Mem");
 		return -ENOMEM;
@@ -907,7 +912,7 @@ static int cam_res_mgr_component_bind(struct device *dev,
 	if (rc) {
 		CAM_ERR(CAM_RES,
 			"Error in parsing device tree, rc: %d", rc);
-		kfree(cam_res);
+		CAM_MEM_FREE(cam_res);
 		return rc;
 	}
 
@@ -926,6 +931,9 @@ static int cam_res_mgr_component_bind(struct device *dev,
 	INIT_LIST_HEAD(&cam_res->flash_res_list);
 
 	CAM_DBG(CAM_RES, "Component bound successfully");
+	CAM_GET_TIMESTAMP(ts_end);
+	CAM_GET_TIMESTAMP_DIFF_IN_MICRO(ts_start, ts_end, microsec);
+	cam_record_bind_latency(pdev->name, microsec);
 	return 0;
 }
 
@@ -938,7 +946,7 @@ static void cam_res_mgr_component_unbind(struct device *dev,
 			devm_pinctrl_put(cam_res->pinctrl);
 		cam_res->pinctrl = NULL;
 		cam_res->pstatus = PINCTRL_STATUS_PUT;
-		kfree(cam_res);
+		CAM_MEM_FREE(cam_res);
 		cam_res = NULL;
 	}
 

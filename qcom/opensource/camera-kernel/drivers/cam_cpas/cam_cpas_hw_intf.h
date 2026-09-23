@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_CPAS_HW_INTF_H_
@@ -21,7 +21,7 @@
 /* Maximum usecs to sleep while polling */
 #define CAM_CPAS_POLL_MAX_USECS 250
 /* Number of times to retry while polling */
-#define CAM_CPAS_POLL_QH_RETRY_CNT 50
+#define CAM_CPAS_POLL_QH_RETRY_CNT 5
 
 /* Number of CPAS hw caps registers */
 #define CAM_CPAS_MAX_CAPS_REGS 2
@@ -47,6 +47,7 @@ enum cam_cpas_reg_base {
 	CAM_CPAS_REG_CESTA,
 	CAM_CPAS_REG_CAMNOC_RT,
 	CAM_CPAS_REG_CAMNOC_NRT,
+	CAM_CPAS_REG_SECURE,
 	CAM_CPAS_REG_MAX
 };
 
@@ -56,10 +57,12 @@ enum cam_cpas_reg_base {
 enum cam_cpas_hw_cmd_process {
 	CAM_CPAS_HW_CMD_REGISTER_CLIENT,
 	CAM_CPAS_HW_CMD_UNREGISTER_CLIENT,
+	CAM_CPAS_HW_CMD_SET_ADDR_TRANS,
 	CAM_CPAS_HW_CMD_REG_WRITE,
 	CAM_CPAS_HW_CMD_REG_READ,
 	CAM_CPAS_HW_CMD_AHB_VOTE,
 	CAM_CPAS_HW_CMD_AXI_VOTE,
+	CAM_CPAS_HW_AXI_FLOOR_LVL,
 	CAM_CPAS_HW_CMD_LOG_VOTE,
 	CAM_CPAS_HW_CMD_SELECT_QOS,
 	CAM_CPAS_HW_CMD_LOG_EVENT,
@@ -135,6 +138,18 @@ struct cam_cpas_hw_cmd_axi_vote {
 };
 
 /**
+ * struct cam_cpas_hw_axi_floor_lvl : CPAS struct for AXI floor level
+ *
+ * @client_handle: Client handle
+ * @floor_lvl: axi floor level
+ *
+ */
+struct cam_cpas_hw_axi_floor_lvl {
+	uint32_t client_handle;
+	enum cam_vote_level floor_lvl;
+};
+
+/**
  * struct cam_cpas_hw_cmd_start : CPAS cmd struct for start
  *
  * @client_handle: Client handle
@@ -154,6 +169,18 @@ struct cam_cpas_hw_cmd_start {
  */
 struct cam_cpas_hw_cmd_stop {
 	uint32_t client_handle;
+};
+
+/**
+ * struct cam_cpas_hw_addr_trans_data : CPAS cmd struct for programming address translator
+ *
+ * @client_handle: Client handle
+ * @addr_trans_data: Register values to be programmed for address translator
+ *
+ */
+struct cam_cpas_hw_addr_trans_data {
+	uint32_t client_handle;
+	struct cam_cpas_addr_trans_data *addr_trans_data;
 };
 
 /**

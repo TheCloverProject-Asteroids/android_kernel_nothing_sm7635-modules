@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "msm_vidc_power_iris3.h"
@@ -9,7 +9,6 @@
 #include "msm_vidc_inst.h"
 #include "msm_vidc_core.h"
 #include "msm_vidc_debug.h"
-#include "perf_static_model.h"
 #include "msm_vidc_power.h"
 
 static u64 __calculate_decoder(struct vidc_bus_vote_data *d);
@@ -68,7 +67,7 @@ static int msm_vidc_init_codec_input_freq(struct msm_vidc_inst *inst, u32 data_s
 	} else if (inst->capabilities[STAGE].value == MSM_VIDC_STAGE_2) {
 		codec_input->vsp_vpp_mode = CODEC_VSPVPP_MODE_2S;
 	} else {
-		d_vpr_e("%s: invalid stage %d\n", __func__,
+		d_vpr_e("%s: invalid stage %lld\n", __func__,
 				inst->capabilities[STAGE].value);
 		return -EINVAL;
 	}
@@ -162,7 +161,7 @@ static int msm_vidc_init_codec_input_bus(struct msm_vidc_inst *inst, struct vidc
 			V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CAVLC) {
 		codec_input->entropy_coding_mode = CODEC_ENTROPY_CODING_CAVLC;
 	} else {
-		d_vpr_e("%s: invalid entropy %d\n", __func__,
+		d_vpr_e("%s: invalid entropy %lld\n", __func__,
 				inst->capabilities[ENTROPY_MODE].value);
 		return -EINVAL;
 	}
@@ -303,7 +302,7 @@ static u64 msm_vidc_calc_freq_iris3_new(struct msm_vidc_inst *inst, u32 data_siz
 	ret = msm_vidc_init_codec_input_freq(inst, data_size, &codec_input);
 	if (ret)
 		return freq;
-	ret = msm_vidc_calculate_frequency(codec_input, &codec_output);
+	ret = msm_vidc_calculate_frequency_iris3(codec_input, &codec_output);
 	if (ret)
 		return freq;
 	freq = codec_output.hw_min_freq * 1000000; /* Convert to Hz */
@@ -319,9 +318,8 @@ static u64 msm_vidc_calc_freq_iris3_new(struct msm_vidc_inst *inst, u32 data_siz
 		 */
 	} else {
 		/* limit to NOM, index 0 is TURBO, index 1 is NOM clock rate */
-		if (core->resource->freq_set.count >= 2 &&
-			freq > core->resource->freq_set.freq_tbl[1].freq)
-			freq = core->resource->freq_set.freq_tbl[1].freq;
+		if (core->freq_tbl_count >= 2 && freq > core->freq_tbl[1].freq)
+			freq = core->freq_tbl[1].freq;
 	}
 
 	return freq;
@@ -340,7 +338,7 @@ static int msm_vidc_calc_bw_iris3_new(struct msm_vidc_inst *inst,
 	ret = msm_vidc_init_codec_input_bus(inst, vidc_data, &codec_input);
 	if (ret)
 		return ret;
-	ret = msm_vidc_calculate_bandwidth(codec_input, &codec_output);
+	ret = msm_vidc_calculate_bandwidth_iris3(codec_input, &codec_output);
 	if (ret)
 		return ret;
 
@@ -379,8 +377,7 @@ static u64 msm_vidc_calc_freq_iris3_legacy(struct msm_vidc_inst *inst, u32 data_
 
 	core = inst->core;
 
-	if (!core->resource || !core->resource->freq_set.freq_tbl ||
-		!core->resource->freq_set.count) {
+	if (!core->freq_tbl || !core->freq_tbl_count) {
 		d_vpr_e("%s: invalid params\n", __func__);
 		return freq;
 	}
@@ -516,7 +513,7 @@ static u64 msm_vidc_calc_freq_iris3_legacy(struct msm_vidc_inst *inst, u32 data_
 
 			freq_entry = bitrate_entry;
 
-			freq_tbl = core->resource->freq_set.freq_tbl;
+			freq_tbl = core->freq_tbl;
 			freq_tbl_value = freq_tbl[freq_entry].freq / 1000000;
 
 			input_bitrate_mbps = fps * data_size * 8 / (1024 * 1024);
@@ -591,9 +588,8 @@ static u64 msm_vidc_calc_freq_iris3_legacy(struct msm_vidc_inst *inst, u32 data_
 		 */
 	} else {
 		/* limit to NOM, index 0 is TURBO, index 1 is NOM clock rate */
-		if (core->resource->freq_set.count >= 2 &&
-		    freq > core->resource->freq_set.freq_tbl[1].freq)
-			freq = core->resource->freq_set.freq_tbl[1].freq;
+		if (core->freq_tbl_count >= 2 && freq > core->freq_tbl[1].freq)
+			freq = core->freq_tbl[1].freq;
 	}
 
 	i_vpr_p(inst, "%s: filled len %d, required freq %llu, fps %u, mbpf %u\n",

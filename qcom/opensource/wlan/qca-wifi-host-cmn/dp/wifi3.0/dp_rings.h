@@ -885,4 +885,62 @@ void dp_soc_reset_dpdk_intr_mask(struct dp_soc *soc);
 static inline void dp_soc_reset_dpdk_intr_mask(struct dp_soc *soc)
 { }
 #endif
+
+/**
+ * dp_deinit_ipa_rx_alt_refill_buf_ring() - deinit IPA Rx alt refill buffer ring
+ * @soc: DP soc context
+ *
+ * Return: None
+ */
+void dp_deinit_ipa_rx_alt_refill_buf_ring(struct dp_soc *soc);
+
+/**
+ * dp_init_ipa_rx_refill_buf_ring() - init Second Rx refill buffer ring
+ * @soc: DP soc context
+ *
+ * Return: QDF_STATUS_SUCCESS: success
+ *         QDF_STATUS_E_RESOURCES: Error return
+ */
+QDF_STATUS dp_init_ipa_rx_refill_buf_ring(struct dp_soc *soc);
+
+/**
+ * dp_deinit_ipa_rx_refill_buf_ring - deinit second Rx refill buffer ring
+ * @soc: DP soc context
+ *
+ * Return: None
+ */
+void dp_deinit_ipa_rx_refill_buf_ring(struct dp_soc *soc);
+
+#ifdef WLAN_DP_LOAD_BALANCE_SUPPORT
+/**
+ * dp_soc_get_ext_grp_id_from_reo_num() - Get ext group id from reo number
+ * @soc_handle: cdp soc handle
+ * @reo_num: reo ring number
+ *
+ * Return: ext group id
+ */
+int dp_soc_get_ext_grp_id_from_reo_num(struct cdp_soc_t *soc_handle,
+				       uint8_t reo_num);
+#endif
+
+#ifdef DP_FTM_MODE_SKIP_WBM_RING_INIT
+/**
+ * dp_skip_ftm_mode_wbm_ring_init() - Skip WBM idle ring init in FTM mode
+ * @soc: DP SoC handle
+ *
+ * Return: True in FTM mode/False otherwise
+ */
+bool dp_skip_ftm_mode_wbm_ring_init(struct dp_soc *soc);
+#else
+/**
+ * dp_skip_ftm_mode_wbm_ring_init() - Skip WBM idle ring init in FTM mode
+ * @soc: DP SoC handle
+ *
+ * Return: True in FTM mode/False otherwise
+ */
+static inline bool dp_skip_ftm_mode_wbm_ring_init(struct dp_soc *soc)
+{
+	return false;
+}
+#endif
 #endif /* _DP_RINGS_H_ */

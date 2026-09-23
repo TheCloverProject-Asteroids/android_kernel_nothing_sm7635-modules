@@ -77,6 +77,7 @@
 #define HFI_FEATURE_HW_FENCE	25
 #define HFI_FEATURE_PERF_NORETAIN	26
 #define HFI_FEATURE_DMS		27
+#define HFI_FEATURE_THERMAL		28
 #define HFI_FEATURE_AQE		29
 
 /* Types to be used with H2F_MSG_TABLE */
@@ -92,8 +93,8 @@ enum hfi_table_type {
 	HFI_TABLE_MAX,
 };
 
-/* A6xx uses a different value for KPROF */
-#define HFI_FEATURE_A6XX_KPROF	14
+/* For Gen7 & Gen8 ACD */
+#define F_PWR_ACD_CALIBRATE	78
 
 /* For Gen7 & Gen8 ACD */
 #define F_PWR_ACD_CALIBRATE	78
@@ -244,6 +245,8 @@ enum hfi_mem_kind {
 	 * between LPAC and GC
 	 */
 	HFI_MEMKIND_AQE_BUFFER,
+	/** @HFI_MEMKIND_HW_FENCE_SHADOW: Shadow memory used for caching external input fences */
+	HFI_MEMKIND_HW_FENCE_SHADOW,
 	HFI_MEMKIND_MAX,
 };
 
@@ -274,6 +277,7 @@ static const char * const hfi_memkind_strings[] = {
 	[HFI_MEMKIND_HW_FENCE] = "GMU HW FENCE",
 	[HFI_MEMKIND_PREEMPT_SCRATCH] = "GMU PREEMPTION",
 	[HFI_MEMKIND_AQE_BUFFER] = "GMU AQE BUFFER",
+	[HFI_MEMKIND_HW_FENCE_SHADOW] = "GMU HW FENCE SHADOW",
 	[HFI_MEMKIND_MAX] = "GMU UNKNOWN",
 };
 
@@ -459,6 +463,7 @@ enum hfi_msg_type {
 	H2F_MSG_TEST			= 5,
 	H2F_MSG_ACD_TBL			= 7,
 	H2F_MSG_CLX_TBL			= 8,
+	H2F_MSG_THERM_TBL		= 9,
 	H2F_MSG_START			= 10,
 	H2F_MSG_FEATURE_CTRL		= 11,
 	H2F_MSG_GET_VALUE		= 12,
@@ -538,8 +543,8 @@ struct hfi_bwtable_cmd {
 
 struct opp_gx_desc {
 	u32 vote;
-	/* This is 'acdLvl' in gmu fw which is now repurposed for cx vote */
-	u32 cx_vote;
+	/* This is 'acdLvl' in gmu fw which is now repurposed for various dependency votes */
+	u32 dep_vote;
 	u32 freq;
 } __packed;
 
@@ -981,9 +986,29 @@ struct hfi_submit_cmd {
 	u32 big_ib_gmu_va;
 } __packed;
 
-struct hfi_syncobj {
+/* This structure is only used for hw fence feature on gen7 hwsched targets */
+struct hfi_syncobj_legacy {
+	/** @ctxt_id: dma fence context id for external fence and gmu context id for kgsl fence */
 	u64 ctxt_id;
+	/** @seq_no: Sequence number (or timestamp) of this fence */
 	u64 seq_no;
+	/** @flags: Flags for this fence */
+	u64 flags;
+} __packed;
+
+struct hfi_syncobj {
+	/**
+	 * @header: bits[0:15]: size of this packet in dwords, bits[15:23]: version,
+	 * bits[24:31] unused
+	 */
+	u32 header;
+	/** @hash_index: hash index of external input fence */
+	u32 hash_index;
+	/** @ctxt_id: dma fence context id for external fence and gmu context id for kgsl fence */
+	u64 ctxt_id;
+	/** @seq_no: Sequence number (or timestamp) of this fence */
+	u64 seq_no;
+	/** @flags: Flags for this fence */
 	u64 flags;
 } __packed;
 
@@ -994,6 +1019,14 @@ struct hfi_submit_syncobj {
 	u32 timestamp;
 	u32 num_syncobj;
 } __packed;
+
+#define HFI_SYNCOBJ_LEGACY_HW_FENCE_MAX \
+	((HFI_MAX_MSG_SIZE - sizeof(struct hfi_submit_syncobj)) \
+	/ sizeof(struct hfi_syncobj_legacy))
+
+#define HFI_SYNCOBJ_HW_FENCE_MAX \
+	((HFI_MAX_MSG_SIZE - sizeof(struct hfi_submit_syncobj)) \
+	/ sizeof(struct hfi_syncobj))
 
 struct hfi_log_block {
 	u32 hdr;
@@ -1216,11 +1249,11 @@ struct payload_section {
 /* Fault due to software fuse violation interrupt */
 #define GMU_GPU_SW_FUSE_VIOLATION 621
 /* AQE related error codes */
-#define GMU_GPU_AQE0_OPCODE_ERRROR 622
+#define GMU_GPU_AQE0_OPCODE_ERROR 622
 #define GMU_GPU_AQE0_UCODE_ERROR 623
 #define GMU_GPU_AQE0_HW_FAULT_ERROR 624
 #define GMU_GPU_AQE0_ILLEGAL_INST_ERROR 625
-#define GMU_GPU_AQE1_OPCODE_ERRROR 626
+#define GMU_GPU_AQE1_OPCODE_ERROR 626
 #define GMU_GPU_AQE1_UCODE_ERROR 627
 #define GMU_GPU_AQE1_HW_FAULT_ERROR 628
 #define GMU_GPU_AQE1_ILLEGAL_INST_ERROR 629
@@ -1411,4 +1444,14 @@ static inline int hfi_get_minidump_string(u32 mem_kind, char *hfi_minidump_str,
 
 	return 0;
 }
+
+/**
+ * hfi_feature_to_string - Convert an HFI feature value to its
+ * string representation
+ * @feature: HFI feature value to convert
+ *
+ * Return: Pointer to a string representing the given feature.
+ * If the feature is unknown, the function returns "unknown".
+ */
+const char *hfi_feature_to_string(u32 feature);
 #endif

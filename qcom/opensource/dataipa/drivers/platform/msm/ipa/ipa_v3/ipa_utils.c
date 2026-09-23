@@ -6884,14 +6884,14 @@ static struct ipa3_mem_partition ipa_5_5_mem_part = {
 	.stats_rt_v6_ofst = 0,
 	.stats_rt_v6_size = 0,
 	.stats_fnr_ofst = 0x2cd0,
-	.stats_fnr_size = 0xba0,
-	.stats_drop_ofst = 0x3870,
+	.stats_fnr_size = 0xc40,
+	.stats_drop_ofst = 0x3910,
 	.stats_drop_size = 0x20,
 	.modem_comp_decomp_ofst = 0x0,
 	.modem_comp_decomp_size = 0x0,
-	.modem_ofst = 0x3898,
+	.modem_ofst = 0x3938,
 	.modem_size = 0xd48,
-	.nat_tbl_ofst = 0x45e0,
+	.nat_tbl_ofst = 0x4680,
 	.nat_tbl_size = 0x900,
 	.apps_v4_flt_hash_ofst = 0x2718,
 	.apps_v4_flt_hash_size = 0x0,
@@ -6909,9 +6909,9 @@ static struct ipa3_mem_partition ipa_5_5_mem_part = {
 	.apps_v6_rt_hash_size = 0x0,
 	.apps_v6_rt_nhash_ofst = 0x2718,
 	.apps_v6_rt_nhash_size = 0x0,
-	.pdn_config_ofst = 0x4ee8,
-	.pdn_config_size = 0x100,
-	.end_ofst = 0x4fe8,
+	.pdn_config_ofst = 0x4f88,
+	.pdn_config_size = 0x50,
+	.end_ofst = 0x4fd8,
 };
 
 const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
@@ -8760,7 +8760,6 @@ void ipa3_cfg_ep_cfg_pipe_replicate(u32 clnt_hdl)
 		case IPA_CLIENT_APPS_WAN_PROD:
 		case IPA_CLIENT_WLAN2_PROD:
 		case IPA_CLIENT_WIGIG_PROD:
-		case IPA_CLIENT_APPS_LAN_PROD:
 		case IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD:
 		case IPA_CLIENT_APPS_LAN_COAL_CONS:
 		case IPA_CLIENT_APPS_LAN_CONS:

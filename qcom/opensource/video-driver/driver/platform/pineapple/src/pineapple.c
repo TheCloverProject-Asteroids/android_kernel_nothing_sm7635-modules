@@ -14,7 +14,7 @@
 #include "hfi_command.h"
 #include "venus_hfi.h"
 
-#define DEFAULT_VIDEO_CONCEAL_COLOR_BLACK 0x8020010
+#define DEFAULT_VIDEO_CONCEAL_COLOR_BLACK 0x8000800010
 #define MAX_BASE_LAYER_PRIORITY_ID 63
 #define MAX_OP_POINT            31
 #define MAX_BITRATE             245000000
@@ -221,7 +221,6 @@ static struct msm_platform_core_capability core_data_pineapple[] = {
 	{NON_FATAL_FAULTS, 1},
 	{ENC_AUTO_FRAMERATE, 1},
 	{DEVICE_CAPS, V4L2_CAP_VIDEO_M2M_MPLANE | V4L2_CAP_STREAMING},
-	{SUPPORTS_SYNX_FENCE, 0},
 	{SUPPORTS_REQUESTS, 0},
 };
 
@@ -407,7 +406,7 @@ static struct msm_platform_inst_capability instance_cap_data_pineapple[] = {
 
 	{MB_CYCLES_FW_VPP, DEC, CODECS_ALL, 66234, 66234, 1, 66234},
 
-	{ENC_RING_BUFFER_COUNT, ENC, CODECS_ALL,
+	{ENC_RING_BUFFER_COUNT, ENC, H264,
 		0, MAX_ENC_RING_BUF_COUNT, 1, 0},
 
 	{CLIENT_ID, ENC | DEC, CODECS_ALL,
@@ -1199,15 +1198,15 @@ static struct msm_platform_inst_capability instance_cap_data_pineapple[] = {
 		HFI_PROP_BUFFER_HOST_MAX_COUNT,
 		CAP_FLAG_OUTPUT_PORT},
 
-	{CONCEAL_COLOR_8BIT, DEC, CODECS_ALL, 0x0, 0xff3fcff, 1,
+	{CONCEAL_COLOR_8BIT, DEC, CODECS_ALL, 0x0, 0xFF00FF00FF, 1,
 		DEFAULT_VIDEO_CONCEAL_COLOR_BLACK,
-		V4L2_CID_MPEG_VIDEO_MUTE_YUV,
+		V4L2_CID_MPEG_VIDEO_DEC_CONCEAL_COLOR,
 		HFI_PROP_CONCEAL_COLOR_8BIT,
 		CAP_FLAG_INPUT_PORT},
 
-	{CONCEAL_COLOR_10BIT, DEC, CODECS_ALL, 0x0, 0x3fffffff, 1,
+	{CONCEAL_COLOR_10BIT, DEC, CODECS_ALL, 0x0, 0x3FF03FF03FF, 1,
 		DEFAULT_VIDEO_CONCEAL_COLOR_BLACK,
-		V4L2_CID_MPEG_VIDEO_MUTE_YUV,
+		V4L2_CID_MPEG_VIDEO_DEC_CONCEAL_COLOR,
 		HFI_PROP_CONCEAL_COLOR_10BIT,
 		CAP_FLAG_INPUT_PORT},
 
@@ -1308,7 +1307,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_pine
 		NULL,
 		msm_vidc_set_q16},
 
-	{ENC_RING_BUFFER_COUNT, ENC, CODECS_ALL,
+	{ENC_RING_BUFFER_COUNT, ENC, H264,
 		{0},
 		NULL,
 		msm_vidc_set_ring_buffer_count_pineapple},
@@ -1403,7 +1402,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_pine
 
 	{LOWLATENCY_MODE, DEC, H264 | HEVC | VP9,
 		{STAGE},
-		msm_vidc_adjust_dec_lowlatency_mode,
+		NULL,
 		NULL},
 
 	{LTR_COUNT, ENC, H264 | HEVC,
@@ -1645,12 +1644,12 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_pine
 	{CONCEAL_COLOR_8BIT, DEC, CODECS_ALL,
 		{0},
 		NULL,
-		msm_vidc_set_u32_packed},
+		msm_vidc_set_conceal_color},
 
 	{CONCEAL_COLOR_10BIT, DEC, CODECS_ALL,
 		{0},
 		NULL,
-		msm_vidc_set_u32_packed},
+		msm_vidc_set_conceal_color},
 
 	{STAGE, ENC | DEC, CODECS_ALL,
 		{0},

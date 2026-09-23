@@ -50,29 +50,6 @@ static struct a6xx_rgmu_device *to_a6xx_rgmu(struct adreno_device *adreno_dev)
 	return &a6xx_dev->rgmu;
 }
 
-static void a6xx_rgmu_active_count_put(struct adreno_device *adreno_dev)
-{
-	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
-
-	if (WARN_ON(!mutex_is_locked(&device->mutex)))
-		return;
-
-	if (WARN(atomic_read(&device->active_cnt) == 0,
-		"Unbalanced get/put calls to KGSL active count\n"))
-		return;
-
-	if (atomic_dec_and_test(&device->active_cnt)) {
-		kgsl_pwrscale_update_stats(device);
-		kgsl_pwrscale_update(device);
-		kgsl_start_idle_timer(device);
-	}
-
-	trace_kgsl_active_count(device,
-		(unsigned long) __builtin_return_address(0));
-
-	wake_up(&device->active_cnt_wq);
-}
-
 static irqreturn_t a6xx_rgmu_irq_handler(int irq, void *data)
 {
 	struct kgsl_device *device = data;
@@ -115,7 +92,7 @@ static irqreturn_t a6xx_oob_irq_handler(int irq, void *data)
 
 		dev_err_ratelimited(&rgmu->pdev->dev,
 				"RGMU oob irq error\n");
-		adreno_dispatcher_fault(adreno_dev, ADRENO_GMU_FAULT);
+		adreno_scheduler_fault(adreno_dev, ADRENO_GMU_FAULT);
 	}
 	if (status & ~RGMU_OOB_IRQ_MASK)
 		dev_err_ratelimited(&rgmu->pdev->dev,
@@ -168,7 +145,7 @@ static int a6xx_rgmu_oob_set(struct kgsl_device *device,
 		dev_err(&rgmu->pdev->dev,
 				"Timed out while setting OOB req:%s status:0x%x\n",
 				oob_to_str(req), status);
-		gmu_core_fault_snapshot(device);
+		gmu_core_fault_snapshot(device, GMU_FAULT_PANIC_NONE);
 		return ret;
 	}
 
@@ -370,7 +347,7 @@ static int a6xx_rgmu_wait_for_lowest_idle(struct adreno_device *adreno_dev)
 			reg[7], reg[8], reg[9]);
 
 	WARN_ON(1);
-	gmu_core_fault_snapshot(device);
+	gmu_core_fault_snapshot(device, GMU_FAULT_PANIC_NONE);
 	return -ETIMEDOUT;
 }
 
@@ -458,7 +435,7 @@ static int a6xx_rgmu_fw_start(struct adreno_device *adreno_dev,
 		gmu_core_regread(device, A6XX_RGMU_CX_PCC_DEBUG, &status);
 		dev_err(&rgmu->pdev->dev,
 				"rgmu boot Failed. status:%08x\n", status);
-		gmu_core_fault_snapshot(device);
+		gmu_core_fault_snapshot(device, GMU_FAULT_PANIC_NONE);
 		return -ETIMEDOUT;
 	}
 
@@ -483,34 +460,26 @@ static void a6xx_rgmu_disable_clks(struct adreno_device *adreno_dev)
 {
 	struct a6xx_rgmu_device *rgmu = to_a6xx_rgmu(adreno_dev);
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
-	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
-	int  ret;
 
-	/* Check GX GDSC is status */
-	if (a6xx_rgmu_gx_is_on(adreno_dev)) {
+	/*
+	 * This is based on the assumption that GMU is the only one controlling
+	 * the GX HS. This code path is the only client voting for GX from linux
+	 * kernel.
+	 */
+	if (!a6xx_rgmu_gx_is_on(adreno_dev))
+		goto done;
 
-		if (IS_ERR_OR_NULL(pwr->gx_gdsc))
-			return;
+	/*
+	 * Switch gx gdsc control from GMU to CPU force non-zero reference
+	 * count in clk driver so next disable call will turn off the GDSC
+	 */
+	kgsl_pwrctrl_enable_gx_gdsc(device);
+	kgsl_pwrctrl_disable_gx_gdsc(device);
 
-		/*
-		 * Switch gx gdsc control from RGMU to CPU. Force non-zero
-		 * reference count in clk driver so next disable call will
-		 * turn off the GDSC.
-		 */
-		ret = regulator_enable(pwr->gx_gdsc);
-		if (ret)
-			dev_err(&rgmu->pdev->dev,
-					"Fail to enable gx gdsc:%d\n", ret);
+	if (a6xx_rgmu_gx_is_on(adreno_dev))
+		dev_err(&rgmu->pdev->dev, "gx is stuck on\n");
 
-		ret = regulator_disable(pwr->gx_gdsc);
-		if (ret)
-			dev_err(&rgmu->pdev->dev,
-					"Fail to disable gx gdsc:%d\n", ret);
-
-		if (a6xx_rgmu_gx_is_on(adreno_dev))
-			dev_err(&rgmu->pdev->dev, "gx is stuck on\n");
-	}
-
+done:
 	clk_bulk_disable_unprepare(rgmu->num_clks, rgmu->clks);
 }
 
@@ -608,9 +577,13 @@ static int a6xx_rgmu_load_firmware(struct adreno_device *adreno_dev)
 }
 
 /* Halt RGMU execution */
-static void a6xx_rgmu_halt_execution(struct kgsl_device *device, bool force)
+static void a6xx_rgmu_halt_execution(struct kgsl_device *device, bool force,
+				     enum gmu_fault_panic_policy gf_policy)
 {
-	struct a6xx_rgmu_device *rgmu = to_a6xx_rgmu(ADRENO_DEVICE(device));
+	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
+	struct a6xx_rgmu_device *rgmu = to_a6xx_rgmu(adreno_dev);
+	const struct adreno_gpudev *gpudev = ADRENO_GPU_DEVICE(adreno_dev);
+	u64 ticks = gpudev->read_alwayson(adreno_dev);
 	unsigned int index, status, fence;
 
 	if (!device->gmu_fault)
@@ -642,6 +615,7 @@ static void a6xx_rgmu_halt_execution(struct kgsl_device *device, bool force)
 	 */
 	gmu_core_regwrite(device, A6XX_GMU_AO_AHB_FENCE_CTRL, 0);
 
+	KGSL_GMU_CORE_FORCE_PANIC(device->gmu_core.gf_panic, rgmu->pdev, ticks, gf_policy);
 }
 
 static void halt_gbif_arb(struct adreno_device *adreno_dev)
@@ -799,12 +773,7 @@ static int a6xx_rgmu_boot(struct adreno_device *adreno_dev)
 	if (ret)
 		goto err;
 
-	/* Request default DCVS level */
-	ret = kgsl_pwrctrl_set_default_gpu_pwrlevel(device);
-	if (ret)
-		goto err;
-
-	ret = kgsl_pwrctrl_axi(device, true);
+	ret = kgsl_pwrctrl_setup_default_votes(device);
 	if (ret)
 		goto err;
 
@@ -1027,7 +996,7 @@ static int a6xx_rgmu_first_open(struct adreno_device *adreno_dev)
 	 * check by incrementing the active count and immediately releasing it.
 	 */
 	atomic_inc(&device->active_cnt);
-	a6xx_rgmu_active_count_put(adreno_dev);
+	adreno_active_count_put(adreno_dev);
 
 	return 0;
 }
@@ -1193,7 +1162,7 @@ static void a6xx_rgmu_pm_resume(struct adreno_device *adreno_dev)
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	struct a6xx_rgmu_device *rgmu = to_a6xx_rgmu(adreno_dev);
 
-	if (WARN(!test_bit(GMU_PRIV_PM_SUSPEND, &rgmu->flags),
+	if (WARN(!test_bit(RGMU_PRIV_PM_SUSPEND, &rgmu->flags),
 		"resume invoked without a suspend\n"))
 		return;
 
@@ -1276,7 +1245,6 @@ const struct adreno_power_ops a6xx_rgmu_power_ops = {
 	.first_open = a6xx_rgmu_first_open,
 	.last_close = a6xx_power_off,
 	.active_count_get = a6xx_rgmu_active_count_get,
-	.active_count_put = a6xx_rgmu_active_count_put,
 	.pm_suspend = a6xx_rgmu_pm_suspend,
 	.pm_resume = a6xx_rgmu_pm_resume,
 	.touch_wakeup = a6xx_rgmu_touch_wakeup,
@@ -1336,8 +1304,8 @@ static int a6xx_rgmu_probe(struct kgsl_device *device,
 
 	rgmu->pdev = pdev;
 
-	/* Set up RGMU regulators */
-	ret = kgsl_pwrctrl_probe_regulators(device, pdev);
+	/* Set up RGMU gdscs */
+	ret = kgsl_pwrctrl_probe_gdscs(device, pdev);
 	if (ret)
 		return ret;
 

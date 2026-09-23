@@ -144,13 +144,15 @@ static bool hdd_is_ndp_allowed(struct hdd_context *hdd_ctx)
 	struct hdd_adapter *adapter, *next_adapter = NULL;
 	wlan_net_dev_ref_dbgid dbgid = NET_DEV_HOLD_IS_NDP_ALLOWED;
 	struct wlan_hdd_link_info *link_info;
+	struct wlan_objmgr_psoc *psoc = hdd_ctx->psoc;
 
 	hdd_for_each_adapter_dev_held_safe(hdd_ctx, adapter, next_adapter,
 					   dbgid) {
 		hdd_adapter_for_each_active_link_info(adapter, link_info) {
 			switch (adapter->device_mode) {
 			case QDF_P2P_GO_MODE:
-				if (test_bit(SOFTAP_BSS_STARTED,
+				if (!ucfg_nan_is_sta_p2p_ndp_supported(psoc) &&
+				    test_bit(SOFTAP_BSS_STARTED,
 					     &link_info->link_flags)) {
 					hdd_adapter_dev_put_debug(adapter,
 								  dbgid);
@@ -162,8 +164,9 @@ static bool hdd_is_ndp_allowed(struct hdd_context *hdd_ctx)
 				}
 				break;
 			case QDF_P2P_CLIENT_MODE:
-				if (hdd_cm_is_vdev_associated(link_info) ||
-				    hdd_cm_is_connecting(link_info)) {
+				if (!ucfg_nan_is_sta_p2p_ndp_supported(psoc) &&
+				    (hdd_cm_is_vdev_associated(link_info) ||
+				     hdd_cm_is_connecting(link_info))) {
 					hdd_adapter_dev_put_debug(adapter,
 								  dbgid);
 					if (next_adapter)
@@ -188,14 +191,29 @@ static bool hdd_is_ndp_allowed(struct hdd_context *hdd_ctx)
 	struct hdd_adapter *adapter, *next_adapter = NULL;
 	wlan_net_dev_ref_dbgid dbgid = NET_DEV_HOLD_IS_NDP_ALLOWED;
 	struct wlan_hdd_link_info *link_info;
+	struct wlan_objmgr_psoc *psoc = hdd_ctx->psoc;
 
 	hdd_for_each_adapter_dev_held_safe(hdd_ctx, adapter, next_adapter,
 					   dbgid) {
 		hdd_adapter_for_each_active_link_info(adapter, link_info) {
 			switch (adapter->device_mode) {
-			case QDF_P2P_GO_MODE:
 			case QDF_SAP_MODE:
-				if (test_bit(SOFTAP_BSS_STARTED,
+				if (!wlan_nan_is_sta_sap_nan_allowed(
+							hdd_ctx->psoc) &&
+				    test_bit(SOFTAP_BSS_STARTED,
+					     &link_info->link_flags)) {
+					hdd_adapter_dev_put_debug(adapter,
+								  dbgid);
+					if (next_adapter)
+						hdd_adapter_dev_put_debug(
+								next_adapter,
+								dbgid);
+					return false;
+				}
+				break;
+			case QDF_P2P_GO_MODE:
+				if (!ucfg_nan_is_sta_p2p_ndp_supported(psoc) &&
+				    test_bit(SOFTAP_BSS_STARTED,
 					     &link_info->link_flags)) {
 					hdd_adapter_dev_put_debug(adapter,
 								  dbgid);
@@ -207,8 +225,9 @@ static bool hdd_is_ndp_allowed(struct hdd_context *hdd_ctx)
 				}
 				break;
 			case QDF_P2P_CLIENT_MODE:
-				if (hdd_cm_is_vdev_associated(link_info) ||
-				    hdd_cm_is_connecting(link_info)) {
+				if (!ucfg_nan_is_sta_p2p_ndp_supported(psoc) &&
+				    (hdd_cm_is_vdev_associated(link_info) ||
+				     hdd_cm_is_connecting(link_info))) {
 					hdd_adapter_dev_put_debug(adapter,
 								  dbgid);
 					if (next_adapter)
@@ -775,7 +794,8 @@ int hdd_ndi_open(const char *iface_name, bool is_add_virtual_iface)
 	return 0;
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0) || \
+(defined CFG80211_CHANGE_NETDEV_REGISTRATION_SEMANTICS))
 int hdd_ndi_set_mode(const char *iface_name)
 {
 	struct hdd_adapter *adapter;
@@ -876,7 +896,8 @@ err_handler:
 	return ret;
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0) || \
+(defined CFG80211_CHANGE_NETDEV_REGISTRATION_SEMANTICS))
 static int hdd_delete_ndi_intf(struct wiphy *wiphy, struct wireless_dev *wdev)
 {
 	struct net_device *dev = wdev->netdev;
@@ -1136,13 +1157,19 @@ void hdd_ndp_session_end_handler(struct hdd_adapter *adapter)
 static void hdd_send_obss_scan_req(struct hdd_context *hdd_ctx, bool val)
 {
 	QDF_STATUS status;
-	uint32_t sta_vdev_id = 0;
+	uint32_t vdev_id = 0;
 
-	status = hdd_get_first_connected_sta_vdev_id(hdd_ctx, &sta_vdev_id);
+	status = hdd_get_first_connected_sta_cli_vdev_id(hdd_ctx, &vdev_id,
+							 QDF_STA_MODE);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		status = hdd_get_first_connected_sta_cli_vdev_id(
+							hdd_ctx, &vdev_id,
+							QDF_P2P_CLIENT_MODE);
+	}
 
 	if (QDF_IS_STATUS_SUCCESS(status)) {
 		hdd_debug("reconfig OBSS scan param: %d", val);
-		sme_reconfig_obss_scan_param(hdd_ctx->mac_handle, sta_vdev_id,
+		sme_reconfig_obss_scan_param(hdd_ctx->mac_handle, vdev_id,
 					     val);
 	} else {
 		hdd_debug("Connected STA not found");
@@ -1199,14 +1226,14 @@ int hdd_ndp_new_peer_handler(uint8_t vdev_id, uint16_t sta_id,
 		hdd_disable_rx_ol_in_concurrency(true);
 	}
 
+	sta_ctx->conn_info.conn_state = eConnectionState_NdiConnected;
 	vdev = hdd_objmgr_get_vdev_by_user(link_info, WLAN_DP_ID);
 	if (vdev) {
 		ucfg_dp_bus_bw_compute_prev_txrx_stats(vdev);
+		ucfg_nan_set_peer_mc_list(vdev, *peer_mac_addr);
 		hdd_objmgr_put_vdev_by_user(vdev, WLAN_DP_ID);
 	}
-
 	ucfg_dp_bus_bw_compute_timer_start(hdd_ctx->psoc);
-	sta_ctx->conn_info.conn_state = eConnectionState_NdiConnected;
 	hdd_wmm_connect(adapter, roam_info, eCSR_BSS_TYPE_NDI);
 	wlan_hdd_netif_queue_control(adapter,
 				     WLAN_START_ALL_NETIF_QUEUE_N_CARRIER,
@@ -1239,7 +1266,7 @@ void hdd_cleanup_ndi(struct wlan_hdd_link_info *link_info)
 	sta_ctx->conn_info.conn_state = eConnectionState_NdiDisconnected;
 	hdd_conn_set_connection_state(adapter,
 		eConnectionState_NdiDisconnected);
-	hdd_debug("Stop netif tx queues.");
+	hdd_debug("vdev %d Disabling queues", link_info->vdev_id);
 	wlan_hdd_netif_queue_control(adapter,
 				     WLAN_STOP_ALL_NETIF_QUEUE_N_CARRIER,
 				     WLAN_CONTROL_PATH);
@@ -1287,6 +1314,13 @@ void hdd_ndp_peer_departed_handler(uint8_t vdev_id, uint16_t sta_id,
 
 	ucfg_nan_clear_peer_mc_list(hdd_ctx->psoc, link_info->vdev,
 				    peer_mac_addr);
+
+	if (!hdd_ctx->psoc) {
+		hdd_err("psoc is null");
+		return;
+	}
+
+	ucfg_nan_remove_ndp_peer_mac_addr(hdd_ctx->psoc, peer_mac_addr);
 
 	if (last_peer) {
 		hdd_debug("No more ndp peers.");

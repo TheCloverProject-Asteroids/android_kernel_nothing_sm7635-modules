@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -53,6 +53,8 @@
 #define IS_LSB_SET(__num) ((__num) & BIT(0))
 
 #define VDEV_ALL                    0xFF
+
+#define NOISE_FLOOR_INVALID         (-128)
 
 /**
  * enum stats_req_type - enum indicating bit position of various stats type in
@@ -474,6 +476,26 @@ struct vdev_summary_extd_stats {
 };
 
 /**
+ * struct bcn_his_info - beacon history info
+ * @bcn_rssi: beacon rssi
+ * @bcn_tsf: beacon tsf
+ */
+struct bcn_his_info {
+	int32_t bcn_rssi;
+	uint32_t bcn_tsf;
+};
+
+/**
+ * struct recv_bcn_stats - receive beacon stats
+ * @vdev_id: vdev_id
+ * @bcn_history: structure to bcn_his_info
+ */
+struct recv_bcn_stats {
+	uint8_t vdev_id;
+	struct bcn_his_info bcn_history[WMI_MAX_BCN_HISTORY];
+};
+
+/**
  * struct vdev_mc_cp_stats - vdev specific stats
  * @cca: cca stats
  * @tx_rate_flags: tx rate flags (enum tx_rate_info)
@@ -481,6 +503,8 @@ struct vdev_summary_extd_stats {
  * @vdev_summary_stats: vdev's summary stats
  * @pmf_bcn_stats: pmf beacon protect stats
  * @vdev_extd_stats: vdev summary extended stats
+ * @num_recv_bcn_stats: number of beacon stats
+ * @bcn_stats: beacon history report stats
  */
 struct vdev_mc_cp_stats {
 	struct cca_stats cca;
@@ -489,6 +513,8 @@ struct vdev_mc_cp_stats {
 	struct summary_stats vdev_summary_stats;
 	struct pmf_bcn_protect_stats pmf_bcn_stats;
 	struct vdev_summary_extd_stats vdev_extd_stats;
+	uint32_t num_recv_bcn_stats;
+	struct recv_bcn_stats bcn_stats[WLAN_UMAC_MLO_MAX_VDEVS];
 };
 
 /**
@@ -783,6 +809,8 @@ struct peer_stats_info_ext_event {
  * @bcn_protect_stats: pmf bcn protect stats
  * @num_vdev_extd_stats: number of vdev extended stats
  * @vdev_extd_stats: if populated indicates array of ext summary stats per vdev
+ * @num_recv_bcn_stats: number of bcn stats
+ * @bcn_stats: if populated indicates receive beacon stats
  */
 struct stats_event {
 	uint32_t num_pdev_stats;
@@ -814,6 +842,8 @@ struct stats_event {
 	struct pmf_bcn_protect_stats bcn_protect_stats;
 	uint32_t num_vdev_extd_stats;
 	struct vdev_summary_extd_stats *vdev_extd_stats;
+	uint32_t num_recv_bcn_stats;
+	struct recv_bcn_stats *bcn_stats;
 };
 
 /**
@@ -872,4 +902,10 @@ typedef struct {
 	uint32_t *rx_pkt_per_mcs;
 } wmi_host_peer_stats_info;
 
+static inline bool is_noise_floor_invalid(uint32_t noise_floor)
+{
+	if (!noise_floor || noise_floor == NOISE_FLOOR_INVALID)
+		return true;
+	return false;
+}
 #endif /* __WLAN_CP_STATS_MC_DEFS_H__ */

@@ -110,6 +110,8 @@ struct msm_kms_funcs {
 				 bool cmd_mode);
 	void (*display_early_wakeup)(struct drm_device *dev,
 				const int32_t connector_id);
+	void (*display_early_ept_hint)(struct drm_device *dev,
+				const int32_t connector_id, u64 frame_interval, u64 ept_ns);
 	/* pm suspend/resume hooks */
 	int (*pm_suspend)(struct device *dev);
 	int (*pm_freeze_late)(struct device *dev);
@@ -145,6 +147,7 @@ struct msm_kms_funcs {
 	int (*get_dsc_count)(const struct msm_kms *kms,
 			u32 hdisplay, u32 *num_dsc);
 	bool (*in_trusted_vm)(const struct msm_kms *kms);
+	bool (*in_loopback_mode)(struct drm_crtc_state *crtc_state);
 };
 
 struct msm_kms {
@@ -215,6 +218,7 @@ static inline int msm_mdss_disable(struct msm_mdss *mdss)
 
 struct msm_kms *sde_kms_init(struct drm_device *dev);
 
+void msm_sde_qtimer_install(struct device *dev);
 
 /**
  * Mode Set Utility Functions

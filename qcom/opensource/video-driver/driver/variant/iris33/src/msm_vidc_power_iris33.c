@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2022, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "msm_vidc_power_iris33.h"
@@ -10,7 +10,6 @@
 #include "msm_vidc_core.h"
 #include "msm_vidc_platform.h"
 #include "msm_vidc_debug.h"
-#include "perf_static_model.h"
 #include "msm_vidc_power.h"
 
 #define VPP_MIN_FREQ_MARGIN_PERCENT                   5 /* to be tuned */
@@ -52,6 +51,7 @@ static int msm_vidc_init_codec_input_freq(struct msm_vidc_inst *inst, u32 data_s
 	enum msm_vidc_port_type port;
 	u32 color_fmt, tile_rows_columns = 0;
 	struct msm_vidc_core *core;
+	u32 max_rate, frame_rate;
 
 	if (is_encode_session(inst)) {
 		codec_input->decoder_or_encoder = CODEC_ENCODER;
@@ -102,7 +102,7 @@ static int msm_vidc_init_codec_input_freq(struct msm_vidc_inst *inst, u32 data_s
 	} else if (inst->capabilities[STAGE].value == MSM_VIDC_STAGE_2) {
 		codec_input->vsp_vpp_mode = CODEC_VSPVPP_MODE_2S;
 	} else {
-		d_vpr_e("%s: invalid stage %d\n", __func__,
+		d_vpr_e("%s: invalid stage %lld\n", __func__,
 				inst->capabilities[STAGE].value);
 		return -EINVAL;
 	}
@@ -124,12 +124,25 @@ static int msm_vidc_init_codec_input_freq(struct msm_vidc_inst *inst, u32 data_s
 
 	codec_input->linear_opb = is_linear_colorformat(color_fmt);
 
-	if (is_decode_session(inst))
+	if (is_decode_session(inst)) {
 		codec_input->bitrate_mbps =
 			(codec_input->frame_rate * data_size * 8) / 1000000;
-	else
+	} else {
+		frame_rate = msm_vidc_get_frame_rate(inst);
+		max_rate = inst->max_rate;
 		codec_input->bitrate_mbps =
 			inst->capabilities[BIT_RATE].value / 1000000;
+
+		/*
+		 * In encoding cases, the bitrate should scale with the frame
+		 * rate, especially for HFR cases.
+		 * Otherwise, a lower bitrate may lead to a lower vsp frequency,
+		 * resulting in insufficient performance.
+		 */
+		if (frame_rate && max_rate > frame_rate)
+			codec_input->bitrate_mbps =
+				codec_input->bitrate_mbps * max_rate / frame_rate;
+	}
 
 	/* av1d commercial tile */
 	if (inst->codec == MSM_VIDC_AV1 && codec_input->lcu_size == 128) {
@@ -196,7 +209,7 @@ static int msm_vidc_init_codec_input_bus(struct msm_vidc_inst *inst, struct vidc
 			codec_input->entropy_coding_mode = CODEC_ENTROPY_CODING_CAVLC;
 			codec_input->codec = CODEC_H264_CAVLC;
 		} else {
-			d_vpr_e("%s: invalid entropy %d\n", __func__,
+			d_vpr_e("%s: invalid entropy %lld\n", __func__,
 				inst->capabilities[ENTROPY_MODE].value);
 			return -EINVAL;
 		}
@@ -379,27 +392,25 @@ static bool is_vpp_cycles_close_to_freq_corner(struct msm_vidc_core *core,
 	u32 margin_percent = 0;
 	int i = 0;
 
-	if (!core || !core->resource || !core->resource->freq_set.freq_tbl ||
-		!core->resource->freq_set.count) {
+	if (!core->freq_tbl || !core->freq_tbl_count) {
 		d_vpr_e("%s: invalid params\n", __func__);
 		return false;
 	}
 
 	vpp_min_freq = vpp_min_freq * 1000000; /* convert to hz */
 
-	closest_freq_upper_corner =
-		core->resource->freq_set.freq_tbl[0].freq;
+	closest_freq_upper_corner = core->freq_tbl[0].freq;
 
 	/* return true if vpp_min_freq is more than max frequency */
 	if (vpp_min_freq > closest_freq_upper_corner)
 		return true;
 
 	/* get the closest freq corner for vpp_min_freq */
-	for (i = 0; i < core->resource->freq_set.count; i++) {
+	for (i = 0; i < core->freq_tbl_count; i++) {
 		if (vpp_min_freq <=
-			core->resource->freq_set.freq_tbl[i].freq) {
+			core->freq_tbl[i].freq) {
 			closest_freq_upper_corner =
-				core->resource->freq_set.freq_tbl[i].freq;
+				core->freq_tbl[i].freq;
 		} else {
 			break;
 		}
@@ -434,7 +445,7 @@ static u64 msm_vidc_calc_freq_iris33_new(struct msm_vidc_inst *inst, u32 data_si
 	ret = msm_vidc_init_codec_input_freq(inst, data_size, &codec_input);
 	if (ret)
 		return freq;
-	ret = msm_vidc_calculate_frequency(codec_input, &codec_output);
+	ret = msm_vidc_calculate_frequency_iris33(codec_input, &codec_output);
 	if (ret)
 		return freq;
 
@@ -478,9 +489,8 @@ static u64 msm_vidc_calc_freq_iris33_new(struct msm_vidc_inst *inst, u32 data_si
 		 */
 	} else {
 		/* limit to NOM, index 0 is TURBO, index 1 is NOM clock rate */
-		if (core->resource->freq_set.count >= 2 &&
-				freq > core->resource->freq_set.freq_tbl[1].freq)
-			freq = core->resource->freq_set.freq_tbl[1].freq;
+		if (core->freq_tbl_count >= 2 && freq > core->freq_tbl[1].freq)
+			freq = core->freq_tbl[1].freq;
 	}
 
 	return freq;
@@ -499,7 +509,7 @@ static int msm_vidc_calc_bw_iris33_new(struct msm_vidc_inst *inst,
 	ret = msm_vidc_init_codec_input_bus(inst, vidc_data, &codec_input);
 	if (ret)
 		return ret;
-	ret = msm_vidc_calculate_bandwidth(codec_input, &codec_output);
+	ret = msm_vidc_calculate_bandwidth_iris33(codec_input, &codec_output);
 	if (ret)
 		return ret;
 
@@ -538,8 +548,7 @@ u64 msm_vidc_calc_freq_iris33_legacy(struct msm_vidc_inst *inst, u32 data_size)
 
 	core = inst->core;
 
-	if (!core->resource || !core->resource->freq_set.freq_tbl ||
-		!core->resource->freq_set.count) {
+	if (!core->freq_tbl || !core->freq_tbl_count) {
 		d_vpr_e("%s: invalid params\n", __func__);
 		return freq;
 	}
@@ -675,7 +684,7 @@ u64 msm_vidc_calc_freq_iris33_legacy(struct msm_vidc_inst *inst, u32 data_size)
 
 			freq_entry = bitrate_entry;
 
-			freq_tbl = core->resource->freq_set.freq_tbl;
+			freq_tbl = core->freq_tbl;
 			freq_tbl_value = freq_tbl[freq_entry].freq / 1000000;
 
 			input_bitrate_mbps = fps * data_size * 8 / (1024 * 1024);
@@ -758,9 +767,8 @@ u64 msm_vidc_calc_freq_iris33_legacy(struct msm_vidc_inst *inst, u32 data_size)
 		 */
 	} else {
 		/* limit to NOM, index 0 is TURBO, index 1 is NOM clock rate */
-		if (core->resource->freq_set.count >= 2 &&
-				freq > core->resource->freq_set.freq_tbl[1].freq)
-			freq = core->resource->freq_set.freq_tbl[1].freq;
+		if (core->freq_tbl_count >= 2 && freq > core->freq_tbl[1].freq)
+			freq = core->freq_tbl[1].freq;
 	}
 
 	return freq;
@@ -1332,8 +1340,7 @@ int msm_vidc_ring_buf_count_iris33(struct msm_vidc_inst *inst, u32 data_size)
 
 	core = inst->core;
 
-	if (!core->resource || !core->resource->freq_set.freq_tbl ||
-		!core->resource->freq_set.count) {
+	if (!core->freq_tbl || !core->freq_tbl_count) {
 		i_vpr_e(inst, "%s: invalid frequency table\n", __func__);
 		return -EINVAL;
 	}
@@ -1346,7 +1353,7 @@ int msm_vidc_ring_buf_count_iris33(struct msm_vidc_inst *inst, u32 data_size)
 	rc = msm_vidc_init_codec_input_freq(inst, data_size, &codec_input);
 	if (rc)
 		return rc;
-	rc = msm_vidc_calculate_frequency(codec_input, &codec_output);
+	rc = msm_vidc_calculate_frequency_iris33(codec_input, &codec_output);
 	if (rc)
 		return rc;
 

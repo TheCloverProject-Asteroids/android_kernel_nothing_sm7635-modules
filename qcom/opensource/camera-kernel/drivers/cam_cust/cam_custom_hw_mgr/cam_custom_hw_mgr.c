@@ -941,7 +941,7 @@ static int cam_custom_hw_mgr_acquire_get_unified_dev_str(
 		return rc;
 	}
 
-	port_info = kzalloc(
+	port_info = CAM_MEM_ZALLOC(
 		sizeof(struct cam_isp_in_port_generic_info), GFP_KERNEL);
 
 	if (!port_info)
@@ -972,7 +972,7 @@ static int cam_custom_hw_mgr_acquire_get_unified_dev_str(
 	port_info->num_out_res     =  in->num_out_res;
 	port_info->num_bytes_out   =  in->num_bytes_out;
 
-	port_info->data = kcalloc(in->num_out_res,
+	port_info->data = CAM_MEM_ZALLOC_ARRAY(in->num_out_res,
 		sizeof(struct cam_isp_out_port_generic_info),
 		GFP_KERNEL);
 	if (port_info->data == NULL) {
@@ -989,7 +989,7 @@ static int cam_custom_hw_mgr_acquire_get_unified_dev_str(
 	return 0;
 
 release_port_mem:
-	kfree(port_info);
+	CAM_MEM_FREE(port_info);
 	return rc;
 }
 
@@ -1093,8 +1093,8 @@ static int cam_custom_mgr_acquire_hw(
 			goto free_mem;
 		}
 
-		kfree(gen_port_info->data);
-		kfree(gen_port_info);
+		CAM_MEM_FREE(gen_port_info->data);
+		CAM_MEM_FREE(gen_port_info);
 		gen_port_info = NULL;
 	}
 
@@ -1106,8 +1106,8 @@ static int cam_custom_mgr_acquire_hw(
 	return 0;
 
 free_mem:
-	kfree(gen_port_info->data);
-	kfree(gen_port_info);
+	CAM_MEM_FREE(gen_port_info->data);
+	CAM_MEM_FREE(gen_port_info);
 free_res:
 	cam_custom_hw_mgr_release_hw_for_ctx(custom_ctx);
 	cam_custom_hw_mgr_put_ctx(&custom_hw_mgr->free_ctx_list, &custom_ctx);
@@ -1258,13 +1258,21 @@ static int cam_custom_mgr_prepare_hw_update(void *hw_mgr_priv,
 		prepare->packet->cmd_buf_offset);
 	rc = cam_packet_util_get_cmd_mem_addr(
 			cmd_desc->mem_handle, &ptr, &len);
-	if (rc == -EINVAL) {
-		CAM_ERR(CAM_CUSTOM, "Failed to get CPU addr handle 0x%x",
-			cmd_desc->mem_handle);
-		return -EINVAL;
+	if (rc) {
+		CAM_ERR(CAM_CUSTOM, "Failed to get CPU addr handle 0x%x rc=%d",
+			cmd_desc->mem_handle, rc);
+		return rc;
 	}
 
 	if (!rc) {
+		if (((size_t)cmd_desc->offset >= len) ||
+			((size_t)cmd_desc->size > (len - (size_t)cmd_desc->offset))) {
+			CAM_ERR(CAM_UTIL, "invalid mem len:%zd cmd desc size:%u off:%u hdl:0x%x",
+				len, cmd_desc->size, cmd_desc->offset, cmd_desc->mem_handle);
+			cam_mem_put_cpu_buf(cmd_desc->mem_handle);
+			return -EINVAL;
+		}
+
 		ptr += (cmd_desc->offset / 4);
 		custom_buf_type1 =
 			(struct cam_custom_cmd_buf_type_1 *)ptr;

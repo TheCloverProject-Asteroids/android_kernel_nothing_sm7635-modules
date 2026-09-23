@@ -365,6 +365,17 @@ target_if_crypto_install_key_comp_evt_handler(void *handle, uint8_t *event,
 	qdf_mem_copy(result.peer_macaddr, params.peer_macaddr,
 		     QDF_MAC_ADDR_SIZE);
 
+	if (!result.status) {
+		struct wlan_crypto_key *crypto_key;
+
+		crypto_key = wlan_crypto_get_key(vdev, result.peer_macaddr,
+						 result.key_ix);
+		if (crypto_key && crypto_key->keylen)
+			wlan_peer_set_key_install_flag(psoc,
+						       result.peer_macaddr,
+						       true);
+	}
+
 	if (priv_obj->add_key_cb)
 		priv_obj->add_key_cb(priv_obj->add_key_ctx, &result);
 

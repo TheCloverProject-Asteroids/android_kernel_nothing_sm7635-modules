@@ -37,11 +37,22 @@ static int cam_icp_context_dump_active_request(void *data, void *args)
 		return -EINVAL;
 	}
 
+	if (pf_args->check_pid) {
+		rc = cam_context_dump_pf_info_to_hw(ctx, pf_args, NULL);
+		if (rc)
+			CAM_ERR(CAM_ICP, "[%s] Failed to check PID info",
+				ctx->dev_name);
+		if (pf_args->pf_pid_found_status == CAM_PF_PID_FOUND_FAILURE)
+			CAM_INFO(CAM_ICP,
+				"[%s] Client with the issue PID is not detected, stop dumping or notifying to the userspace, wait for the next handler to check",
+				ctx->dev_name);
+		return 0;
+	}
+
 	CAM_INFO(CAM_ICP, "[%s] iommu fault for icp ctx %d state %d",
 		ctx->dev_name, ctx->ctx_id, ctx->state);
 
-	list_for_each_entry_safe(req, req_temp,
-			&ctx->active_req_list, list) {
+	list_for_each_entry_safe(req, req_temp, &ctx->active_req_list, list) {
 		CAM_INFO(CAM_ICP, "[%s] ctx[%u]: Active req_id: %llu",
 			ctx->dev_name, ctx->ctx_id, req->request_id);
 
@@ -88,11 +99,11 @@ static int cam_icp_context_mini_dump(void *priv, void *args)
 }
 
 static int __cam_icp_acquire_dev_in_available(struct cam_context *ctx,
-	struct cam_acquire_dev_cmd *cmd)
+	struct cam_acquire_dev_cmd_unified *args)
 {
 	int rc;
 
-	rc = cam_context_acquire_dev_to_hw(ctx, cmd);
+	rc = cam_context_acquire_dev_to_hw(ctx, args);
 	if (!rc) {
 		ctx->state = CAM_CTX_ACQUIRED;
 		trace_cam_context_state(ctx->dev_name, ctx);
@@ -373,7 +384,7 @@ static int cam_icp_context_validate_event_notify_injection(struct cam_context *c
 			CAM_ERR(CAM_ICP,
 				"[%s] ctx[%u]: Invalid error type: %u for error event injection err code: %u req id: %llu dev hdl: %d",
 				ctx->dev_name, ctx->ctx_id, err_evt_params->err_type,
-				err_evt_params->err_code, ctx->dev_hdl);
+				err_evt_params->err_code, req_id, ctx->dev_hdl);
 			return -EINVAL;
 		}
 

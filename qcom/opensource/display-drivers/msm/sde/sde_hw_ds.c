@@ -16,10 +16,8 @@
 #define DEST_SCALER_MERGE_CTRL  0x0C
 #define DEST_SCALER_QSEED3_OP_MODE  0x04
 
-#define DEST_SCALER_DUAL_PIPE   1
-#define DEST_SCALER_QUAD_PIPE   3
-
-static void sde_hw_ds_setup_opmode(struct sde_hw_ds *hw_ds, u32 op_mode)
+static void sde_hw_ds_setup_opmode(struct sde_hw_ds *hw_ds, u32 op_mode,
+			u32 merge_mode)
 {
 	struct sde_hw_blk_reg_map *hw = &hw_ds->hw;
 	u32 op_mode_val;
@@ -36,7 +34,8 @@ static void sde_hw_ds_setup_opmode(struct sde_hw_ds *hw_ds, u32 op_mode)
 	SDE_REG_WRITE(hw, DEST_SCALER_OP_MODE, op_mode_val);
 }
 
-static void sde_hw_ds_setup_opmode_v1(struct sde_hw_ds *hw_ds, u32 op_mode)
+static void sde_hw_ds_setup_opmode_v1(struct sde_hw_ds *hw_ds, u32 op_mode,
+			u32 merge_mode)
 {
 	struct sde_hw_blk_reg_map *hw = &hw_ds->hw;
 
@@ -46,6 +45,8 @@ static void sde_hw_ds_setup_opmode_v1(struct sde_hw_ds *hw_ds, u32 op_mode)
 	} else if (!op_mode) {
 		SDE_REG_WRITE(hw, DEST_SCALER_MERGE_CTRL + hw_ds->scl->base, op_mode);
 	}
+
+	SDE_REG_WRITE(hw, DEST_SCALER_MERGE_CTRL + hw_ds->scl->base, op_mode);
 }
 
 static void sde_hw_ds_setup_scaler3(struct sde_hw_ds *hw_ds,

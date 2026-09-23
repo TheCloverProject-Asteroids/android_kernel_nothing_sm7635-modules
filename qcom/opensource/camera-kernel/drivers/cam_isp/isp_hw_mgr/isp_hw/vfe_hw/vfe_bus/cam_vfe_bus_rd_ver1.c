@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/ratelimit.h>
@@ -22,6 +22,8 @@
 #include "cam_vfe_core.h"
 #include "cam_debug_util.h"
 #include "cam_cpas_api.h"
+#include "cam_vmrm_interface.h"
+#include "cam_mem_mgr_api.h"
 
 static const char drv_name[] = "vfe_bus_rd";
 
@@ -33,12 +35,6 @@ static const char drv_name[] = "vfe_bus_rd";
 
 #define MAX_REG_VAL_PAIR_SIZE    \
 	(MAX_BUF_UPDATE_REG_NUM * 2 * CAM_PACKET_MAX_PLANES)
-
-#define CAM_VFE_ADD_REG_VAL_PAIR(buf_array, index, offset, val)    \
-	do {                                               \
-		buf_array[(index)++] = offset;             \
-		buf_array[(index)++] = val;                \
-	} while (0)
 
 #define BUS_RD_VER1_DEFAULT_LATENCY_BUF_ALLOC 512
 
@@ -361,13 +357,14 @@ static int cam_vfe_bus_acquire_rm(
 	uint32_t                                     rm_idx = 0;
 	struct cam_isp_resource_node                *rm_res_local = NULL;
 	struct cam_vfe_bus_rd_ver1_rm_resource_data *rsrc_data = NULL;
+	int rc = 0;
 
 	*rm_res = NULL;
 	*client_done_mask = 0;
 
 	/* No need to allocate for BUS VER2. VFE OUT to RM is fixed. */
 	rm_idx = cam_vfe_bus_get_rm_idx(vfe_bus_rd_res_id, plane);
-	if (rm_idx < 0 || rm_idx >= ver1_bus_rd_priv->num_client) {
+	if (rm_idx >= ver1_bus_rd_priv->num_client) {
 		CAM_ERR(CAM_ISP, "Unsupported VFE RM:%d plane:%d",
 			vfe_bus_rd_res_id, plane);
 		return -EINVAL;
@@ -380,6 +377,16 @@ static int cam_vfe_bus_acquire_rm(
 			rm_res_local->res_state);
 		return -EALREADY;
 	}
+
+	/* Acquire ownership */
+	rc = cam_vmrm_soc_acquire_resources(
+		CAM_HW_ID_IFE0 + ver1_bus_rd_priv->common_data.core_index);
+	if (rc) {
+		CAM_ERR(CAM_ISP, "VFE[%u] acquire ownership failed",
+			ver1_bus_rd_priv->common_data.core_index);
+		return rc;
+	}
+
 	rm_res_local->res_state = CAM_ISP_RESOURCE_STATE_RESERVED;
 	rm_res_local->tasklet_info = tasklet;
 
@@ -403,6 +410,7 @@ static int cam_vfe_bus_acquire_rm(
 static int cam_vfe_bus_release_rm(void              *bus_priv,
 	struct cam_isp_resource_node                *rm_res)
 {
+	int rc = 0;
 	struct cam_vfe_bus_rd_ver1_rm_resource_data *rsrc_data =
 		rm_res->res_priv;
 
@@ -420,9 +428,17 @@ static int cam_vfe_bus_release_rm(void              *bus_priv,
 	rm_res->tasklet_info = NULL;
 	rm_res->res_state = CAM_ISP_RESOURCE_STATE_AVAILABLE;
 
+	rc = cam_vmrm_soc_release_resources(
+		CAM_HW_ID_IFE0 + rsrc_data->common_data->core_index);
+	if (rc) {
+		CAM_ERR(CAM_ISP, "VFE[%u] vmrm soc release resources failed",
+			rsrc_data->common_data->core_index);
+		return rc;
+	}
+
 	CAM_DBG(CAM_ISP, "VFE:%d RM:%d released",
 		rsrc_data->common_data->core_index, rsrc_data->index);
-	return 0;
+	return rc;
 }
 
 static int cam_vfe_bus_start_rm(struct cam_isp_resource_node *rm_res)
@@ -486,7 +502,7 @@ static int cam_vfe_bus_init_rm_resource(uint32_t index,
 {
 	struct cam_vfe_bus_rd_ver1_rm_resource_data *rsrc_data;
 
-	rsrc_data = kzalloc(sizeof(struct cam_vfe_bus_rd_ver1_rm_resource_data),
+	rsrc_data = CAM_MEM_ZALLOC(sizeof(struct cam_vfe_bus_rd_ver1_rm_resource_data),
 		GFP_KERNEL);
 	if (!rsrc_data) {
 		CAM_DBG(CAM_ISP, "Failed to alloc VFE:%d RM res priv",
@@ -527,7 +543,7 @@ static int cam_vfe_bus_deinit_rm_resource(
 	rm_res->res_priv = NULL;
 	if (!rsrc_data)
 		return -ENOMEM;
-	kfree(rsrc_data);
+	CAM_MEM_FREE(rsrc_data);
 
 	return 0;
 }
@@ -779,7 +795,7 @@ static int cam_vfe_bus_init_vfe_bus_read_resource(uint32_t  index,
 		return -EFAULT;
 	}
 
-	rsrc_data = kzalloc(sizeof(struct cam_vfe_bus_rd_ver1_vfe_bus_rd_data),
+	rsrc_data = CAM_MEM_ZALLOC(sizeof(struct cam_vfe_bus_rd_ver1_vfe_bus_rd_data),
 		GFP_KERNEL);
 	if (!rsrc_data) {
 		rc = -ENOMEM;
@@ -836,7 +852,7 @@ static int cam_vfe_bus_deinit_vfe_bus_rd_resource(
 
 	if (!rsrc_data)
 		return -ENOMEM;
-	kfree(rsrc_data);
+	CAM_MEM_FREE(rsrc_data);
 
 	return 0;
 }
@@ -911,20 +927,23 @@ static int cam_vfe_bus_rd_update_rm(void *priv, void *cmd_args,
 		buf_size = ((rm_data->width)&(0x0000FFFF)) |
 			((rm_data->height<<16)&(0xFFFF0000));
 
-		CAM_VFE_ADD_REG_VAL_PAIR(reg_val_pair, j,
+		CAM_ISP_ADD_REG_VAL_PAIR(reg_val_pair,
+			MAX_REG_VAL_PAIR_SIZE, j,
 			rm_data->hw_regs->buf_size, buf_size);
 		CAM_DBG(CAM_ISP, "VFE:%d RM:%d image_size:0x%X",
 			rm_data->common_data->core_index,
 			rm_data->index, reg_val_pair[j-1]);
 
 		rm_data->stride = io_cfg->planes[i].plane_stride;
-		CAM_VFE_ADD_REG_VAL_PAIR(reg_val_pair, j,
+		CAM_ISP_ADD_REG_VAL_PAIR(reg_val_pair,
+			MAX_REG_VAL_PAIR_SIZE, j,
 			rm_data->hw_regs->stride, rm_data->stride);
 		CAM_DBG(CAM_ISP, "VFE:%d RM:%d image_stride:0x%X",
 			rm_data->common_data->core_index,
 			rm_data->index, reg_val_pair[j-1]);
 
-		CAM_VFE_ADD_REG_VAL_PAIR(reg_val_pair, j,
+		CAM_ISP_ADD_REG_VAL_PAIR(reg_val_pair,
+			MAX_REG_VAL_PAIR_SIZE, j,
 			rm_data->hw_regs->image_addr,
 			update_buf->rm_update->image_buf[i] +
 				rm_data->offset);
@@ -1225,14 +1244,14 @@ int cam_vfe_bus_rd_ver1_init(
 		goto end;
 	}
 
-	vfe_bus_local = kzalloc(sizeof(struct cam_vfe_bus), GFP_KERNEL);
+	vfe_bus_local = CAM_MEM_ZALLOC(sizeof(struct cam_vfe_bus), GFP_KERNEL);
 	if (!vfe_bus_local) {
 		CAM_DBG(CAM_ISP, "Failed to alloc for vfe_bus");
 		rc = -ENOMEM;
 		goto end;
 	}
 
-	bus_priv = kzalloc(sizeof(struct cam_vfe_bus_rd_ver1_priv),
+	bus_priv = CAM_MEM_ZALLOC(sizeof(struct cam_vfe_bus_rd_ver1_priv),
 		GFP_KERNEL);
 	if (!bus_priv) {
 		CAM_DBG(CAM_ISP, "Failed to alloc for vfe_bus_priv");
@@ -1312,10 +1331,10 @@ deinit_rm:
 		cam_vfe_bus_deinit_rm_resource(&bus_priv->bus_client[i]);
 
 free_bus_priv:
-	kfree(vfe_bus_local->bus_priv);
+	CAM_MEM_FREE(vfe_bus_local->bus_priv);
 
 free_bus_local:
-	kfree(vfe_bus_local);
+	CAM_MEM_FREE(vfe_bus_local);
 
 end:
 	return rc;
@@ -1362,10 +1381,10 @@ int cam_vfe_bus_rd_bus_ver1_deinit(
 			"Deinit IRQ Controller failed rc=%d", rc);
 
 	mutex_destroy(&bus_priv->common_data.bus_mutex);
-	kfree(vfe_bus_local->bus_priv);
+	CAM_MEM_FREE(vfe_bus_local->bus_priv);
 
 free_bus_local:
-	kfree(vfe_bus_local);
+	CAM_MEM_FREE(vfe_bus_local);
 
 	*vfe_bus = NULL;
 

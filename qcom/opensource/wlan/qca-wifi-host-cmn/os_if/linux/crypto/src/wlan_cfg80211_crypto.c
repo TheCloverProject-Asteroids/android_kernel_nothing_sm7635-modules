@@ -112,6 +112,7 @@ void wlan_cfg80211_translate_key(struct wlan_objmgr_vdev *vdev,
 		   QDF_MAC_ADDR_REF(crypto_key->macaddr));
 }
 
+#ifdef WLAN_FEATURE_11BE_MLO_ADV_FEATURE
 int wlan_cfg80211_store_link_key(struct wlan_objmgr_psoc *psoc,
 				 uint8_t key_index,
 				 enum wlan_crypto_key_type key_type,
@@ -183,6 +184,7 @@ int wlan_cfg80211_store_link_key(struct wlan_objmgr_psoc *psoc,
 	wlan_crypto_release_lock();
 	return 0;
 }
+#endif
 
 int wlan_cfg80211_store_key(struct wlan_objmgr_vdev *vdev, uint8_t key_index,
 			    enum wlan_crypto_key_type key_type,

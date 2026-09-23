@@ -3,6 +3,7 @@
 
 #include "pci_platform.h"
 #include "debug.h"
+#include "linux/of_address.h"
 
 static struct cnss_msi_config msi_config = {
 	.total_vectors = 32,
@@ -51,6 +52,18 @@ int cnss_pci_assert_perst(struct cnss_pci_data *pci_priv)
 				   pci_dev->bus->number, pci_dev, NULL,
 				   PM_OPTIONS_DEFAULT);
 }
+
+#if IS_ENABLED(CONFIG_CNSS2_FMD_FEATURE_ENABLE)
+int cnss_pci_fmd_enable(struct cnss_pci_data *pci_priv)
+{
+	return msm_pcie_fmd_enable(pci_priv->pci_dev);
+}
+#else
+int cnss_pci_fmd_enable(struct cnss_pci_data *pci_priv)
+{
+	return -EOPNOTSUPP;
+}
+#endif
 
 int cnss_pci_disable_pc(struct cnss_pci_data *pci_priv, bool vote)
 {
@@ -230,7 +243,9 @@ static void cnss_pci_event_cb(struct msm_pcie_notify *notify)
 			return;
 		}
 
-		plat_priv->ctrl_params.quirks |= BIT(LINK_DOWN_SELF_RECOVERY);
+		if (!plat_priv->xdump_helper.wl_over_bt_enabled)
+			plat_priv->ctrl_params.quirks |=
+				BIT(LINK_DOWN_SELF_RECOVERY);
 
 		ret = msm_pcie_pm_control(MSM_PCIE_HANDLE_LINKDOWN,
 					  pci_dev->bus->number, pci_dev, NULL,
@@ -371,14 +386,15 @@ static int cnss_set_pci_link_status(struct cnss_pci_data *pci_priv,
 	return ret;
 }
 
-int cnss_set_pci_link(struct cnss_pci_data *pci_priv, bool link_up)
+static int __cnss_set_pci_link(struct cnss_pci_data *pci_priv, bool link_up)
 {
 	int ret = 0, retry = 0;
 	struct cnss_plat_data *plat_priv;
-	int sw_ctrl_gpio;
+	int sw_ctrl_gpio, wlan_sw_ctrl_gpio;
 
 	plat_priv = pci_priv->plat_priv;
 	sw_ctrl_gpio = plat_priv->pinctrl_info.sw_ctrl_gpio;
+	wlan_sw_ctrl_gpio = plat_priv->pinctrl_info.wlan_sw_ctrl_gpio;
 
 	cnss_pr_vdbg("%s PCI link\n", link_up ? "Resuming" : "Suspending");
 
@@ -387,8 +403,9 @@ retry:
 		ret = cnss_pci_set_link_up(pci_priv);
 		if (ret && retry++ < LINK_TRAINING_RETRY_MAX_TIMES) {
 			cnss_pr_dbg("Retry PCI link training #%d\n", retry);
-			cnss_pr_dbg("Value of SW_CTRL GPIO: %d\n",
-				    cnss_get_input_gpio_value(plat_priv, sw_ctrl_gpio));
+			cnss_pr_dbg("Values of SW_CTRL GPIO: %d WLAN_SW_CTRL_GPIO: %d\n",
+				    cnss_get_input_gpio_value(plat_priv, sw_ctrl_gpio),
+				    cnss_get_input_gpio_value(plat_priv, wlan_sw_ctrl_gpio));
 			if (pci_priv->pci_link_down_ind)
 				msleep(LINK_TRAINING_RETRY_DELAY_MS * retry);
 			goto retry;
@@ -397,6 +414,8 @@ retry:
 		/* Since DRV suspend cannot be done in Gen 3, set it to
 		 * Gen 2 if current link speed is larger than Gen 2.
 		 */
+
+		cnss_pci_get_link_status(pci_priv);
 		if (pci_priv->drv_connected_last &&
 		    pci_priv->cur_link_speed > PCI_EXP_LNKSTA_CLS_5_0GB)
 			cnss_set_pci_link_status(pci_priv, PCI_GEN2);
@@ -545,8 +564,27 @@ int cnss_pci_prevent_l1(struct device *dev)
 		return -ENODEV;
 	}
 
+	mutex_lock(&pci_priv->bus_lock);
+	ret = __cnss_pci_prevent_l1(dev);
+	mutex_unlock(&pci_priv->bus_lock);
+
+	return ret;
+}
+EXPORT_SYMBOL(cnss_pci_prevent_l1);
+
+int __cnss_pci_prevent_l1(struct device *dev)
+{
+	struct pci_dev *pci_dev = to_pci_dev(dev);
+	struct cnss_pci_data *pci_priv = cnss_get_pci_priv(pci_dev);
+	int ret;
+
+	if (!pci_priv) {
+		cnss_pr_err("pci_priv is NULL\n");
+		return -ENODEV;
+	}
+
 	if (pci_priv->pci_link_state == PCI_LINK_DOWN) {
-		cnss_pr_dbg("PCIe link is in suspend state\n");
+		cnss_pr_err("PCIe link is in suspend state\n");
 		return -EIO;
 	}
 
@@ -563,7 +601,6 @@ int cnss_pci_prevent_l1(struct device *dev)
 
 	return ret;
 }
-EXPORT_SYMBOL(cnss_pci_prevent_l1);
 
 void cnss_pci_allow_l1(struct device *dev)
 {
@@ -575,8 +612,24 @@ void cnss_pci_allow_l1(struct device *dev)
 		return;
 	}
 
+	mutex_lock(&pci_priv->bus_lock);
+	__cnss_pci_allow_l1(dev);
+	mutex_unlock(&pci_priv->bus_lock);
+}
+EXPORT_SYMBOL(cnss_pci_allow_l1);
+
+void __cnss_pci_allow_l1(struct device *dev)
+{
+	struct pci_dev *pci_dev = to_pci_dev(dev);
+	struct cnss_pci_data *pci_priv = cnss_get_pci_priv(pci_dev);
+
+	if (!pci_priv) {
+		cnss_pr_err("pci_priv is NULL\n");
+		return;
+	}
+
 	if (pci_priv->pci_link_state == PCI_LINK_DOWN) {
-		cnss_pr_dbg("PCIe link is in suspend state\n");
+		cnss_pr_err("PCIe link is in suspend state\n");
 		return;
 	}
 
@@ -587,7 +640,11 @@ void cnss_pci_allow_l1(struct device *dev)
 
 	_cnss_pci_allow_l1(pci_priv);
 }
-EXPORT_SYMBOL(cnss_pci_allow_l1);
+
+bool cnss_pci_is_sync_probe(void)
+{
+	return true;
+}
 
 bool cnss_pci_is_sync_probe(void)
 {
@@ -616,7 +673,8 @@ static int cnss_pci_smmu_fault_handler(struct iommu_domain *domain,
 
 	pci_priv->is_smmu_fault = true;
 	cnss_pci_update_status(pci_priv, CNSS_FW_DOWN);
-	cnss_force_fw_assert(&pci_priv->pci_dev->dev);
+	if (cnss_force_fw_assert(&pci_priv->pci_dev->dev) == -EOPNOTSUPP)
+		CNSS_ASSERT(0);
 
 	/* IOMMU driver requires -ENOSYS to print debug info. */
 	return -ENOSYS;
@@ -657,6 +715,9 @@ int cnss_pci_init_smmu(struct cnss_pci_data *pci_priv)
 	const char *iommu_dma_type;
 	int ret = 0;
 
+	if (of_property_read_bool(pci_dev->dev.of_node, "wlan-smmuv3"))
+		return cnss_pci_init_smmuv3(pci_priv);
+
 	of_node = of_parse_phandle(pci_dev->dev.of_node, "qcom,iommu-group", 0);
 	if (!of_node)
 		return ret;
@@ -669,8 +730,7 @@ int cnss_pci_init_smmu(struct cnss_pci_data *pci_priv)
 	if (!ret && !strcmp("fastmap", iommu_dma_type)) {
 		cnss_pr_dbg("Enabling SMMU S1 stage\n");
 		pci_priv->smmu_s1_enable = true;
-		iommu_set_fault_handler(pci_priv->iommu_domain,
-					cnss_pci_smmu_fault_handler, pci_priv);
+		cnss_register_iommu_fault_handler(pci_priv);
 		cnss_register_iommu_fault_handler_irq(pci_priv);
 	}
 

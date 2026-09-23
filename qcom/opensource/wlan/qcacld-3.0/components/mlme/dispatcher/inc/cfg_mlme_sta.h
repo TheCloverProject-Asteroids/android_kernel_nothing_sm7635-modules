@@ -28,10 +28,16 @@
 # define CONKEEPALIVE_INTERVAL_MIN 0
 # define CONKEEPALIVE_INTERVAL_MAX 120
 # define CONKEEPALIVE_INTERVAL_DEFAULT 30
+#define CFG_MLO_PREFER_PERCENTAGE_MIN -29
+#define CFG_MLO_PREFER_PERCENTAGE_MAX 20
+#define CFG_MLO_PREFER_PERCENTAGE_DEFAULT 10
 #else
 # define CONKEEPALIVE_INTERVAL_MIN 0
 # define CONKEEPALIVE_INTERVAL_MAX 1000
 # define CONKEEPALIVE_INTERVAL_DEFAULT 30
+#define CFG_MLO_PREFER_PERCENTAGE_MIN 0
+#define CFG_MLO_PREFER_PERCENTAGE_MAX 30
+#define CFG_MLO_PREFER_PERCENTAGE_DEFAULT 10
 #endif
 /*
  * <ini>
@@ -661,8 +667,8 @@
  * <cfg>
  * RoamCommon_Mlo_TpPrefer - percentage to boost mlo scoring
  *
- * @Min: -20
- * @Max: +20
+ * @Min: 0
+ * @Max: +30
  * @Default: 10
  *
  * This cfg is used to boost/reduce the mlo weightage with configured
@@ -676,9 +682,9 @@
  */
 #define CFG_MLO_PREFER_PERCENTAGE CFG_INI_INT(\
 			"RoamCommon_Mlo_TpPrefer", \
-			-20, \
-			20, \
-			10,\
+			CFG_MLO_PREFER_PERCENTAGE_MIN, \
+			CFG_MLO_PREFER_PERCENTAGE_MAX, \
+			CFG_MLO_PREFER_PERCENTAGE_DEFAULT,\
 			CFG_VALUE_OR_DEFAULT, \
 			"mlo prefer percentage")
 

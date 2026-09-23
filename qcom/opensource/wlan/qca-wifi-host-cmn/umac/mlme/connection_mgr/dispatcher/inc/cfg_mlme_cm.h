@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2015, 2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,11 +14,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * DOC: This file contains connection manager related CFG/INI Items.
- */
+#ifndef _WLAN_SON_IOCTL_H_
+#define _WLAN_SON_IOCTL_H_
 
-#ifndef __CFG_MLME_CM_H
-#define __CFG_MLME_CM_H
+#include "wlan_son_ald_external.h"
 
-#endif /* __CFG_MLME_CM_H */
+#define MAP_MAX_HE_MCS 6
+
+#endif // _WLAN_SON_IOCTL_H_

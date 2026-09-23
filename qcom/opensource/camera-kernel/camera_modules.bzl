@@ -67,6 +67,7 @@ def _define_module(target, variant, lunch_target=None):
             "drivers/cam_cdm/cam_cdm_virtual_core.c",
             "drivers/cam_cdm/cam_cdm_hw_core.c",
             "drivers/cam_utils/cam_soc_icc.c",
+            "drivers/cam_vmrm/cam_vmrm_interface.c",
             "drivers/camera_main.c",
         ],
         conditional_srcs = {
@@ -256,6 +257,9 @@ def _define_module(target, variant, lunch_target=None):
                     "drivers/cam_presil/stub/cam_presil_hw_access_stub.c",
                     "drivers/cam_utils/cam_io_util.c",
                 ],
+            },
+            "CONFIG_SPECTRA_VMRM": {
+                True: ["drivers/cam_vmrm/qrtr/cam_qrtr_comms.c"],
             },
         },
 

@@ -91,8 +91,7 @@ static void kgsl_snapshot_put_object(struct kgsl_snapshot_object *obj)
 {
 	list_del(&obj->node);
 
-	obj->entry->memdesc.priv &= ~KGSL_MEMDESC_FROZEN;
-	obj->entry->memdesc.priv &= ~KGSL_MEMDESC_SKIP_RECLAIM;
+	CLEAR_FLAG(KGSL_MEMDESC_FROZEN | KGSL_MEMDESC_SKIP_RECLAIM, &obj->entry->memdesc.priv);
 	kgsl_mem_entry_put(obj->entry);
 
 	kfree(obj);
@@ -190,6 +189,7 @@ int kgsl_snapshot_get_object(struct kgsl_snapshot *snapshot,
 	mem_type = kgsl_memdesc_get_memtype(&entry->memdesc);
 	if (mem_type == KGSL_MEMTYPE_TEXTURE ||
 		mem_type == KGSL_MEMTYPE_EGL_SURFACE ||
+		mem_type == KGSL_MEMTYPE_SURFACE ||
 		mem_type == KGSL_MEMTYPE_EGL_IMAGE) {
 		ret = 0;
 		goto err_put;
@@ -261,14 +261,14 @@ int kgsl_snapshot_get_object(struct kgsl_snapshot *snapshot,
 	 * 0 so it doesn't get counted twice
 	 */
 
-	ret = (entry->memdesc.priv & KGSL_MEMDESC_FROZEN) ? 0
+	ret = (TEST_FLAG(KGSL_MEMDESC_FROZEN, &entry->memdesc.priv)) ? 0
 		: entry->memdesc.size;
 
-	entry->memdesc.priv |= KGSL_MEMDESC_FROZEN;
+	SET_FLAG(KGSL_MEMDESC_FROZEN, &entry->memdesc.priv);
 
 	return ret;
 err_put:
-	entry->memdesc.priv &= ~KGSL_MEMDESC_SKIP_RECLAIM;
+	CLEAR_FLAG(KGSL_MEMDESC_SKIP_RECLAIM, &entry->memdesc.priv);
 	kgsl_mem_entry_put(entry);
 	return ret;
 }
@@ -921,9 +921,10 @@ static ssize_t force_panic_show(struct kgsl_device *device, char *buf)
 static ssize_t force_panic_store(struct kgsl_device *device, const char *buf,
 	size_t count)
 {
-	if (strtobool(buf, &device->force_panic))
-		return -EINVAL;
-	return count;
+	int ret;
+
+	ret = kstrtobool(buf, &device->force_panic);
+	return ret ? ret : count;
 }
 
 /* Show the break_ib request status */
@@ -954,10 +955,10 @@ static ssize_t prioritize_unrecoverable_show(
 static ssize_t prioritize_unrecoverable_store(
 		struct kgsl_device *device, const char *buf, size_t count)
 {
-	if (strtobool(buf, &device->prioritize_unrecoverable))
-		return -EINVAL;
+	int ret;
 
-	return count;
+	ret = kstrtobool(buf, &device->prioritize_unrecoverable);
+	return ret ? ret : count;
 }
 
 /* Show the snapshot_crashdumper request status */
@@ -971,9 +972,10 @@ static ssize_t snapshot_crashdumper_show(struct kgsl_device *device, char *buf)
 static ssize_t snapshot_crashdumper_store(struct kgsl_device *device,
 	const char *buf, size_t count)
 {
-	if (strtobool(buf, &device->snapshot_crashdumper))
-		return -EINVAL;
-	return count;
+	int ret;
+
+	ret = kstrtobool(buf, &device->snapshot_crashdumper);
+	return ret ? ret : count;
 }
 
 /* Show the timestamp of the last collected snapshot */
@@ -995,10 +997,10 @@ static ssize_t snapshot_legacy_show(struct kgsl_device *device, char *buf)
 static ssize_t snapshot_legacy_store(struct kgsl_device *device,
 	const char *buf, size_t count)
 {
-	if (strtobool(buf, &device->snapshot_legacy))
-		return -EINVAL;
+	int ret;
 
-	return count;
+	ret = kstrtobool(buf, &device->snapshot_legacy);
+	return ret ? ret : count;
 }
 
 static struct bin_attribute snapshot_attr = {

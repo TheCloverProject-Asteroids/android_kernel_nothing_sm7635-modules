@@ -592,7 +592,7 @@ QDF_STATUS wlan_cm_sta_update_bw_puncture(struct wlan_objmgr_vdev *vdev,
 
 	if (des_chan->puncture_bitmap == ch_param.reg_punc_bitmap &&
 	    des_chan->ch_width == ch_param.ch_width)
-		return status;
+		return QDF_STATUS_E_INVAL;
 
 	des_chan->ch_freq_seg1 = ch_param.center_freq_seg0;
 	des_chan->ch_freq_seg2 = ch_param.center_freq_seg1;

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -291,7 +291,7 @@ bool dp_get_peer_vdev_roaming_in_progress(struct dp_peer *peer)
 	ol_ops = peer->vdev->pdev->soc->cdp_soc.ol_ops;
 
 	if (ol_ops && ol_ops->is_roam_inprogress) {
-		dp_get_vdevid(soc, peer->mac_addr.raw, &vdev_id);
+		dp_get_vdev_id(soc, peer, &vdev_id);
 		is_roaming = ol_ops->is_roam_inprogress(vdev_id);
 	}
 
@@ -727,8 +727,6 @@ try_desc_alloc:
 	if (dp_reo_desc_addr_chk(rx_tid->hw_qdesc_paddr) !=
 			QDF_STATUS_SUCCESS || ret) {
 		if (alloc_tries++ < 10) {
-			qdf_mem_free(rx_tid->hw_qdesc_vaddr_unaligned);
-			rx_tid->hw_qdesc_vaddr_unaligned = NULL;
 			goto try_desc_alloc;
 		} else {
 			dp_peer_err("%pK: Rx tid %d desc alloc fail (lowmem)",
@@ -2055,7 +2053,7 @@ int dp_peer_rxtid_stats(struct dp_peer *peer,
 			continue;
 
 		rx_tid = &peer->rx_tid[i];
-		if (rx_tid->hw_qdesc_vaddr_unaligned) {
+		if (rx_tid && rx_tid->hw_qdesc_vaddr_unaligned) {
 			params.std.need_status = 1;
 			params.std.addr_lo =
 				rx_tid->hw_qdesc_paddr & 0xffffffff;

@@ -189,8 +189,10 @@ static bool mlme_vdev_state_init_event(void *ctx, uint16_t event,
 		}
 		break;
 
-	case WLAN_VDEV_SM_EV_DOWN_COMPLETE:
 	case WLAN_VDEV_SM_EV_DOWN:
+		mlme_vdev_init_down(vdev_mlme);
+		fallthrough;
+	case WLAN_VDEV_SM_EV_DOWN_COMPLETE:
 	case WLAN_VDEV_SM_EV_START_REQ_FAIL:
 		/* already in down state, notify DOWN command is completed */
 		/* NOTE: Keep this function call always at the end, to allow
@@ -488,9 +490,13 @@ static bool mlme_vdev_state_up_event(void *ctx, uint16_t event,
 		    !wlan_vdev_mlme_is_mlo_ap_sync_disabled(vdev))
 			mlme_vdev_sm_transition_to(vdev_mlme,
 						   WLAN_VDEV_SS_MLO_SYNC_WAIT);
-		else
+
+			mlme_vdev_notify_mlo_sync_wait_entry(vdev_mlme);
+		} else {
 			mlme_vdev_sm_transition_to(vdev_mlme,
 						   WLAN_VDEV_SS_UP_ACTIVE);
+		}
+
 		mlme_vdev_sm_deliver_event(vdev_mlme, event,
 					   event_data_len, event_data);
 		status = true;
@@ -1724,7 +1730,6 @@ static void mlme_vdev_subst_mlo_sync_wait_entry(void *ctx)
 		QDF_BUG(0);
 
 	mlme_vdev_set_substate(vdev, WLAN_VDEV_SS_MLO_SYNC_WAIT);
-	mlme_vdev_notify_mlo_sync_wait_entry(vdev_mlme);
 }
 
 /**
@@ -2231,38 +2236,6 @@ QDF_STATUS mlme_vdev_sm_deliver_event(struct vdev_mlme_obj *vdev_mlme,
 {
 	return wlan_sm_dispatch(vdev_mlme->sm_hdl, event,
 				event_data_len, event_data);
-}
-
-void mlme_vdev_sm_print_state_event(struct vdev_mlme_obj *vdev_mlme,
-				    enum wlan_vdev_sm_evt event)
-{
-	enum wlan_vdev_state state;
-	enum wlan_vdev_state substate;
-	struct wlan_objmgr_vdev *vdev;
-
-	vdev = vdev_mlme->vdev;
-
-	state = wlan_vdev_mlme_get_state(vdev);
-	substate = wlan_vdev_mlme_get_substate(vdev);
-
-	mlme_nofl_debug("[%s]%s - %s, %s", vdev_mlme->sm_hdl->name,
-			sm_info[state].name, sm_info[substate].name,
-			vdev_sm_event_names[event]);
-}
-
-void mlme_vdev_sm_print_state(struct vdev_mlme_obj *vdev_mlme)
-{
-	enum wlan_vdev_state state;
-	enum wlan_vdev_state substate;
-	struct wlan_objmgr_vdev *vdev;
-
-	vdev = vdev_mlme->vdev;
-
-	state = wlan_vdev_mlme_get_state(vdev);
-	substate = wlan_vdev_mlme_get_substate(vdev);
-
-	mlme_nofl_debug("[%s]%s - %s", vdev_mlme->sm_hdl->name,
-			sm_info[state].name, sm_info[substate].name);
 }
 
 #ifdef SM_ENG_HIST_ENABLE

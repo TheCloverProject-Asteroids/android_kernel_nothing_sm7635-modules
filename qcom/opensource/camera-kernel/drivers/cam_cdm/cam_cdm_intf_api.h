@@ -144,6 +144,7 @@ struct cam_cdm_bl_cmd {
  * @type : type of the submitted bl cmd address.
  * @cmd_arrary_count : Input number of BL commands to be submitted to CDM
  * @cookie : Cookie if the callback is gen irq status
+ * @fast_complete: Completion variable from CDM clients to be used under ISR
  * @avail_buff_size: Available buffer size in bytes
  * @bl_cmd_array     : Input payload holding the BL cmd's arrary
  *                     to be sumbitted.

@@ -1,5 +1,6 @@
 load("//build/kernel/kleaf:kernel.bzl", "ddk_module")
 load("//build/bazel_common_rules/dist:dist.bzl", "copy_to_dist_dir")
+load("//vendor/qcom/kernel:target_variants.bzl", "get_all_la_variants")
 
 msm_kgsl_includes = [
     "include/linux/msm_kgsl.h",
@@ -9,10 +10,6 @@ msm_kgsl_includes = [
 def kgsl_get_srcs():
     srcs = [
         "adreno.c",
-        "adreno_a3xx.c",
-        "adreno_a3xx_perfcounter.c",
-        "adreno_a3xx_ringbuffer.c",
-        "adreno_a3xx_snapshot.c",
         "adreno_a5xx.c",
         "adreno_a5xx_perfcounter.c",
         "adreno_a5xx_preempt.c",
@@ -56,6 +53,7 @@ def kgsl_get_srcs():
         "adreno_gen8_rpmh.c",
         "adreno_gen8_snapshot.c",
         "adreno_hwsched.c",
+        "adreno_hwsched_snapshot.c",
         "adreno_ioctl.c",
         "adreno_perfcounter.c",
         "adreno_ringbuffer.c",
@@ -97,7 +95,19 @@ def external_deps(target, variant):
             "//vendor/qcom/opensource/mm-drivers/hw_fence:hw_fence_headers".format(tv)
             ]
         defconfigs = defconfigs + [
-            "//vendor/qcom/opensource/mm-drivers/hw_fence:defconfig"
+            "//vendor/qcom/sm8750-modules/qcom/opensource/mm-drivers/hw_fence:defconfig"
+            ]
+
+    # Add synx-kernel in the dependency list for targets that use it for hardware fences
+    if target in [ "sun", "niobe" ]:
+        deplist = deplist + [
+            "//vendor/qcom/sm8750-modules/qcom/opensource/synx-kernel:{}_modules".format(tv),
+            "//vendor/qcom/sm8750-modules/qcom/opensource/synx-kernel:synx_headers"
+            ]
+
+    if target in [ "monaco", "parrot" ]:
+        deplist = deplist + [
+            "//vendor/qcom/sm8750-modules/qcom/opensource/mm-drivers/hw_fence:hw_fence_headers"
             ]
 
     native.genrule(
@@ -112,7 +122,7 @@ def external_deps(target, variant):
 def define_target_variant_module(target, variant):
     tv = "{}_{}".format(target, variant)
     rule_name = "{}_msm_kgsl".format(tv)
-    kernel_build = "//msm-kernel:{}".format(tv)
+    kernel_build = "//vendor/qcom/kernel:{}".format(tv)
 
     ext_deps = external_deps(target, variant)
 
@@ -128,17 +138,17 @@ def define_target_variant_module(target, variant):
             "CONFIG_DEBUG_FS": { True: [ "kgsl_debugfs.c", "adreno_debugfs.c", "adreno_profile.c" ] },
             "CONFIG_QCOM_KGSL_CORESIGHT": { True: [
                 "adreno_coresight.c",
-                "adreno_a3xx_coresight.c",
                 "adreno_a5xx_coresight.c",
                 "adreno_a6xx_coresight.c",
-                "adreno_gen7_coresight.c"] },
+                "adreno_gen7_coresight.c",
+                "adreno_gen8_coresight.c"] },
             "CONFIG_QCOM_KGSL_PROCESS_RECLAIM": { True: [ "kgsl_reclaim.c" ] },
             "CONFIG_QCOM_KGSL_USE_SHMEM": { False: [ "kgsl_pool.c" ] },
             "CONFIG_SYNC_FILE": { True: [ "kgsl_sync.c" ] },
             "CONFIG_DEVFREQ_GOV_QCOM_ADRENO_TZ": { False: [ "governor_msm_adreno_tz.c" ] },
             "CONFIG_DEVFREQ_GOV_QCOM_GPUBW_MON": { False: [ "governor_gpubw_mon.c" ] }
         },
-        deps = [ "//msm-kernel:all_headers" ] + ext_deps,
+        deps = [ "//vendor/qcom/kernel:all_headers" ] + ext_deps,
         includes = ["include", "."],
         kernel_build = kernel_build,
         visibility = ["//visibility:private"]
@@ -155,6 +165,6 @@ def define_target_variant_module(target, variant):
         log = "info",
     )
 
-def define_target_module(target):
-    define_target_variant_module(target, "gki")
-    define_target_variant_module(target, "consolidate")
+def define_target_modules():
+        for target, variant in get_all_la_variants():
+                define_target_variant_module(target, variant)

@@ -797,6 +797,7 @@ struct wlan_mlme_cfg_sap {
  * @dfs_beacon_tx_enhanced: enhance dfs beacon tx
  * @dfs_prefer_non_dfs: perefer non dfs channel after radar
  * @dfs_disable_japan_w53: Disable W53 channels
+ * @enable_sap_dfs_puncture: Enable sap dfs puncture
  * @sap_tx_leakage_threshold: sap tx leakage threshold
  * @dfs_pri_multiplier: dfs_pri_multiplier for handle missing pulses
  * @dfs_discard_mode: Modes for which DFS channels need to discard
@@ -809,6 +810,7 @@ struct wlan_mlme_dfs_cfg {
 	bool dfs_beacon_tx_enhanced;
 	bool dfs_prefer_non_dfs;
 	bool dfs_disable_japan_w53;
+	bool enable_sap_dfs_puncture;
 	uint32_t sap_tx_leakage_threshold;
 	uint32_t dfs_pri_multiplier;
 	uint8_t dfs_discard_mode;
@@ -1349,6 +1351,18 @@ struct wlan_user_mcc_quota {
 };
 
 /**
+ * struct vdev_suspend_param: Vdev suspend params
+ * @vdev_id: vdev id
+ * @suspend: suspend flag
+ * @mac_addr: MLD mac address when vdev is MLO
+ */
+struct vdev_suspend_param {
+	uint8_t vdev_id;
+	uint8_t suspend;
+	struct qdf_mac_addr mac_addr;
+};
+
+/**
  * enum wlan_mlme_hw_mode_config_type - HW mode config type replicated from
  *                                     wmi_hw_mode_config_type in FW header.
  *                                     similar as wmi_host_hw_mode_config_type.
@@ -1471,6 +1485,7 @@ struct wlan_mlme_aux_dev_caps {
  * @sae_connect_retries: sae connect retry bitmask
  * @wls_6ghz_capable: wifi location service(WLS) is 6ghz capable
  * @enabled_rf_test_mode: Enable/disable the RF test mode config
+ * @rf_mode_force_pwr_type: Force power type for RF mode enabled
  * @monitor_mode_concurrency: Monitor mode concurrency supported
  * @ocv_support: FW supports OCV or not
  * @wds_mode: wds mode supported
@@ -1478,7 +1493,6 @@ struct wlan_mlme_aux_dev_caps {
  * @tx_retry_multiplier: TX xretry extension parameter
  * @mgmt_hw_tx_retry_count: MGMT HW tx retry count for frames
  * @std_6ghz_conn_policy: 6GHz standard connection policy
- * @disable_vlp_sta_conn_to_sp_ap: Disable VLP STA connection to SP AP
  * @eht_mode: EHT mode of operation
  * @t2lm_negotiation_support: T2LM negotiation supported enum value
  * @enable_emlsr_mode: 11BE eMLSR mode support
@@ -1490,6 +1504,7 @@ struct wlan_mlme_aux_dev_caps {
  * @sr_enable_modes: modes for which SR(Spatial Reuse) is enabled
  * @wlan_mlme_aux0_dev_caps: capability for aux0
  * @bt_profile_con: Bluetooth connection profile
+ * @relaxed_lpi_conn_policy: Relaxed LPI connection policy flag
  */
 struct wlan_mlme_generic {
 	uint32_t band_capability;
@@ -1532,6 +1547,7 @@ struct wlan_mlme_generic {
 	uint32_t sae_connect_retries;
 	bool wls_6ghz_capable;
 	bool enabled_rf_test_mode;
+	int8_t rf_mode_force_pwr_type;
 	enum monitor_mode_concurrency monitor_mode_concurrency;
 	bool ocv_support;
 	enum wlan_wds_mode wds_mode;
@@ -1540,13 +1556,16 @@ struct wlan_mlme_generic {
 	uint8_t mgmt_hw_tx_retry_count[CFG_FRAME_TYPE_MAX];
 #ifdef CONFIG_BAND_6GHZ
 	bool std_6ghz_conn_policy;
-	bool disable_vlp_sta_conn_to_sp_ap;
 #endif
 #ifdef WLAN_FEATURE_11BE_MLO
 	enum wlan_eht_mode eht_mode;
 	bool enable_emlsr_mode;
 	enum t2lm_negotiation_support t2lm_negotiation_support;
 	uint8_t mld_id;
+	bool enable_sap_emlsr_mode;
+#endif
+#ifdef WLAN_FEATURE_11BE
+	uint32_t oem_eht_mlo_crypto_bitmap;
 #endif
 #ifdef WLAN_FEATURE_11BE
 	uint32_t oem_eht_mlo_crypto_bitmap;
@@ -1561,6 +1580,7 @@ struct wlan_mlme_generic {
 	struct wlan_mlme_aux_dev_caps
 		wlan_mlme_aux0_dev_caps[WLAN_MLME_HW_MODE_MAX];
 	bool bt_profile_con;
+	bool relaxed_lpi_conn_policy;
 };
 
 /**
@@ -1619,6 +1639,12 @@ struct acs_weight_range {
  * by ACS
  * @acs_prefer_6ghz_psc: Select 6 GHz PSC channel as priority
  * @np_chan_weightage: Weightage to be given to non preferred channels.
+ * @lin_bss_score_en: Linear BSS score enable
+ * @lin_rssi_score_en: Linear RSSI score enable
+ * @load_score_en: Wi-Fi + Non Wi-Fi loading score enable
+ * @same_weight_chan_rand_en: Enable randomization of same weight channels
+ * @termi_on_1st_clean_chan_en: Early terminate ACS scan on 1st clean channel
+ * @rssi_score_thrs: RSSI score threshold defined
  */
 struct wlan_mlme_acs {
 	bool is_acs_with_more_param;
@@ -1633,6 +1659,12 @@ struct wlan_mlme_acs {
 	bool force_sap_start;
 	bool acs_prefer_6ghz_psc;
 	uint32_t np_chan_weightage;
+	bool lin_bss_score_en;
+	bool lin_rssi_score_en;
+	bool load_score_en;
+	bool same_weight_chan_rand_en;
+	bool termi_on_1st_clean_chan_en;
+	int16_t rssi_score_thrs;
 };
 
 /**
@@ -1755,6 +1787,8 @@ enum dot11p_mode {
  * @enable_dynamic_nss_chains_cfg:   enable the dynamic nss chain config to FW
  * @restart_sap_on_dyn_nss_chains_cfg: restart SAP on dynamic NSS chains
  * update
+ * @fast_chain_selection:	     enable fast chain selection config to FW
+ * @better_chain_rssi_threshold:     rssi threshold for better chain selection
  */
 struct wlan_mlme_nss_chains {
 	uint32_t num_tx_chains[NSS_CHAINS_BAND_MAX];
@@ -1768,6 +1802,8 @@ struct wlan_mlme_nss_chains {
 	bool disable_tx_mrc[NSS_CHAINS_BAND_MAX];
 	bool enable_dynamic_nss_chains_cfg;
 	bool restart_sap_on_dyn_nss_chains_cfg;
+	bool fast_chain_selection;
+	uint32_t better_chain_rssi_threshold;
 };
 
 /**
@@ -2035,6 +2071,8 @@ struct fw_scan_channels {
  * @roam_preauth_no_ack_timeout: Configure the no ack timeout period
  * @roam_rssi_diff: Enable roam based on rssi
  * @roam_rssi_diff_6ghz: RSSI diff value to be used for roaming to 6 GHz AP.
+ * @roam_rssi_delta_6ghz_to_non_6ghz: RSSI diff value to be used for
+ * roaming from 6 GHz to Non 6GHz AP.
  * @bg_rssi_threshold: Background RSSI threshold
  * @roam_scan_offload_enabled: Enable Roam Scan Offload
  * @neighbor_scan_timer_period: Neighbor scan timer period
@@ -2169,6 +2207,7 @@ struct wlan_mlme_lfr_cfg {
 	uint32_t roam_preauth_no_ack_timeout;
 	uint8_t roam_rssi_diff;
 	uint8_t roam_rssi_diff_6ghz;
+	uint8_t roam_rssi_delta_6ghz_to_non_6ghz;
 	uint8_t bg_rssi_threshold;
 	bool roam_scan_offload_enabled;
 	uint32_t neighbor_scan_timer_period;
@@ -2439,6 +2478,10 @@ struct wlan_mlme_rssi_cfg_score  {
  * @apsd_enabled: Enable automatic power save delivery
  * @min_roam_score_delta: Minimum difference between connected AP's and
  *			candidate AP's roam score to start roaming.
+ * @aggre_min_roam_score_delta: Minimum difference between connected AP's and
+ *			candidate AP's roam score to start roaming in Aggressive
+ *			roaming mode.
+ * @roam_aggre_score_delta: percentage delta in roam score in Aggressive mode
  */
 struct wlan_mlme_roam_scoring_cfg {
 	bool enable_scoring_for_roam;
@@ -2446,6 +2489,8 @@ struct wlan_mlme_roam_scoring_cfg {
 	uint32_t roam_score_delta;
 	bool apsd_enabled;
 	uint32_t min_roam_score_delta;
+	uint32_t aggre_min_roam_score_delta;
+	uint32_t roam_aggre_score_delta;
 };
 
 /* struct wlan_mlme_threshold - Threshold related config items
@@ -2827,6 +2872,7 @@ struct wlan_mlme_iot {
  * @dfs_cfg: DFS related CFG Items
  * @sap_protection_cfg: SAP erp protection related CFG items
  * @sap_cfg: sap CFG items
+ * @p2p: p2p CFG items
  * @nss_chains_ini_cfg: Per vdev nss, chains related CFG items
  * @sta: sta CFG Items
  * @stats: stats CFG Items
@@ -2859,6 +2905,7 @@ struct wlan_mlme_iot {
  * @eml_cap: EML capability subfield present in ML IE common info
  * @dynamic_nss_chains_support : intersection of host and fw capability of
  *				 dynamic NSS chain support
+ * @reduce_pwr_scan_mode : reduce power scan mode enable/disable
  */
 struct wlan_mlme_cfg {
 	struct wlan_mlme_chainmask chainmask_cfg;
@@ -2881,6 +2928,7 @@ struct wlan_mlme_cfg {
 	struct wlan_mlme_dfs_cfg dfs_cfg;
 	struct wlan_mlme_sap_protection sap_protection_cfg;
 	struct wlan_mlme_cfg_sap sap_cfg;
+	struct wlan_mlme_p2p_cfg p2p;
 	struct wlan_mlme_nss_chains nss_chains_ini_cfg;
 	struct wlan_mlme_sta_cfg sta;
 	struct wlan_mlme_stats_cfg stats;
@@ -2903,13 +2951,14 @@ struct wlan_mlme_cfg {
 	struct wlan_mlme_mwc mwc;
 	struct wlan_mlme_dot11_mode dot11_mode;
 	struct wlan_mlme_reg reg;
-	struct roam_trigger_score_delta trig_score_delta[NUM_OF_ROAM_TRIGGERS];
+	struct roam_trigger_score_delta trig_score_delta[ROAM_TRIGGER_REASON_MAX];
 	struct roam_trigger_min_rssi trig_min_rssi[NUM_OF_ROAM_MIN_RSSI];
 	struct wlan_mlme_ratemask ratemask_cfg;
 	struct wlan_mlme_iot iot;
 	bool connection_roaming_ini_flag;
 	struct wlan_mlme_eml_cap eml_cap;
 	bool dynamic_nss_chains_support;
+	bool reduce_pwr_scan_mode;
 };
 
 /**
@@ -3096,6 +3145,7 @@ enum ll_ap_type {
  * @weight_copy: copy of the original weight
  * @valid: Is this a valid center frequency for regulatory domain
  * @weight_calc_done: Weight calculation done for this channel
+ * @num_bonded_pairs: number of valid bonded pairs
  */
 struct sap_ch_info {
 	uint32_t chan_freq;
@@ -3105,6 +3155,7 @@ struct sap_ch_info {
 	uint32_t weight_copy;
 	bool valid;
 	bool weight_calc_done;
+	uint8_t num_bonded_pairs;
 };
 
 /**
@@ -3145,5 +3196,30 @@ struct peer_oper_mode_event {
 	uint32_t new_bw;
 	uint32_t new_txnss;
 	uint32_t new_disablemu;
+};
+
+/**
+ * enum sap_invalid_chan_reason_code - SAP invalid channel reason code
+ * @CHAN_IN_NOL: Channel in NOL list
+ * @CHAN_IN_NOL_CAN_BE_PUNCTURED: Channel in NOL list can be punctured
+ * @CHAN_DFS_NOT_CONSIDERED: DFS channel not considered
+ * @CHAN_IN_LTE_COEX_NOT_ALLOWED: Channel in LTE coex not allowed
+ * @CHAN_IN_LTE_COEX_NOT_ALLOWED_AND_CAN_BE_PUNCTURED: Channel in LTE
+ * coex not allowed and can be punctured
+ * @CHAN_IN_OFDM_RATES_NOT_SUPPORTED: Channel in OFDM rates not supported
+ * @CHAN_DSRC_NOT_ALLOWED: DSRC channel not allowed
+ * @CHAN_INDOOR_NOT_ALLOWED: Indoor channel not allowed
+ * @CHAN_NOT_IN_ACS_CONFIG: Channel not present in ACS config
+ */
+enum sap_invalid_chan_reason_code {
+	CHAN_IN_NOL,
+	CHAN_IN_NOL_CAN_BE_PUNCTURED,
+	CHAN_DFS_NOT_CONSIDERED,
+	CHAN_IN_LTE_COEX_NOT_ALLOWED,
+	CHAN_IN_LTE_COEX_NOT_ALLOWED_AND_CAN_BE_PUNCTURED,
+	CHAN_IN_OFDM_RATES_NOT_SUPPORTED,
+	CHAN_DSRC_NOT_ALLOWED,
+	CHAN_INDOOR_NOT_ALLOWED,
+	CHAN_NOT_IN_ACS_CONFIG,
 };
 #endif

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2019-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_VFE_TOP_VER4_H_
@@ -13,7 +13,9 @@
 
 #define CAM_VFE_RDI_VER2_MAX                           4
 #define CAM_VFE_CAMIF_LITE_EVT_MAX                     256
-#define CAM_VFE_TOP_DBG_REG_MAX                        35
+#define CAM_VFE_TOP_DBG_REG_MAX                        19
+#define CAM_VFE_DIAG_SENSOR_STATUS_MAX                 4
+#define CAM_VFE_DIAG_FRAME_COUNT_STATUS_MAX            3
 
 struct cam_vfe_top_ver4_perf_count_reg_offset {
 	uint32_t perf_count_cfg;
@@ -59,11 +61,11 @@ struct cam_vfe_top_ver4_reg_offset_common {
 	uint32_t custom_frame_idx;
 	uint32_t dsp_status;
 	uint32_t diag_config;
-	uint32_t diag_sensor_status_0;
-	uint32_t diag_sensor_status_1;
-	uint32_t diag_frm_cnt_status_0;
-	uint32_t diag_frm_cnt_status_1;
-	uint32_t diag_frm_cnt_status_2;
+	uint32_t diag_config_1;
+	uint32_t diag_sensor_status[
+		CAM_VFE_DIAG_SENSOR_STATUS_MAX];
+	uint32_t diag_frm_cnt_status[
+		CAM_VFE_DIAG_FRAME_COUNT_STATUS_MAX];
 	uint32_t stats_throttle_cfg_0;
 	uint32_t stats_throttle_cfg_1;
 	uint32_t stats_throttle_cfg_2;
@@ -89,11 +91,20 @@ struct cam_vfe_top_ver4_reg_offset_common {
 		perf_count_reg[CAM_VFE_PERF_CNT_MAX];
 	uint32_t top_debug_cfg;
 	uint32_t bayer_debug_cfg;
+	uint32_t top_debug_err_vec_irq[CAM_VFE_TOP_DEBUG_VEC_ERR_REGS];
+	uint32_t top_debug_err_vec_ts_lb;
+	uint32_t top_debug_err_vec_ts_mb;
+	uint32_t bayer_debug_err_vec_irq[CAM_VFE_TOP_DEBUG_VEC_ERR_REGS];
+	uint32_t bayer_debug_err_vec_ts_lb;
+	uint32_t bayer_debug_err_vec_ts_mb;
 	uint32_t pdaf_input_cfg_0;
 	uint32_t pdaf_input_cfg_1;
 	uint32_t num_top_debug_reg;
+	uint32_t num_bayer_debug_reg;
 	uint32_t *top_debug;
+	uint32_t *bayer_debug;
 	uint32_t frame_timing_irq_reg_idx;
+	uint32_t capabilities;
 };
 
 struct cam_vfe_top_common_cfg {
@@ -112,11 +123,6 @@ struct cam_vfe_top_ver4_module_desc {
 	uint8_t *desc;
 };
 
-struct cam_vfe_bayer_ver4_module_desc {
-	uint32_t id;
-	uint8_t *desc;
-};
-
 struct cam_vfe_top_ver4_wr_client_desc {
 	uint32_t  wm_id;
 	uint8_t  *desc;
@@ -126,6 +132,7 @@ struct cam_vfe_top_ver4_top_err_irq_desc {
 	uint32_t  bitmask;
 	char     *err_name;
 	char     *desc;
+	char     *debug;
 };
 
 struct cam_vfe_top_ver4_pdaf_violation_desc {
@@ -151,6 +158,32 @@ struct cam_vfe_ver4_path_hw_info {
 struct cam_vfe_top_ver4_debug_reg_info {
 	uint32_t  shift;
 	char     *clc_name;
+	uint32_t debug_idle_reg_addr;
+	uint32_t debug_idle_bitmask;
+};
+
+struct cam_vfe_top_ver4_diag_reg_info {
+	uint32_t  bitmask;
+	char     *name;
+};
+
+struct cam_vfe_top_ver4_diag_reg_fields {
+	uint32_t                                num_fields;
+	struct cam_vfe_top_ver4_diag_reg_info  *field;
+};
+
+
+struct cam_vfe_ver4_fcg_module_info {
+	uint32_t max_fcg_ch_ctx;
+	uint32_t max_fcg_predictions;
+	uint32_t fcg_index_shift;
+	uint32_t max_reg_val_pair_size;
+	uint32_t fcg_type_size;
+	uint32_t fcg_phase_index_cfg_0;
+	uint32_t fcg_phase_index_cfg_1;
+	uint32_t fcg_reg_ctxt_shift;
+	uint32_t fcg_reg_ctxt_mask;
+	uint32_t fcg_reg_ctxt_sel;
 };
 
 
@@ -204,6 +237,10 @@ struct cam_vfe_ver4_path_reg_data {
 	uint32_t                                     ipp_violation_mask;
 	uint32_t                                     bayer_violation_mask;
 	uint32_t                                     pdaf_violation_mask;
+	uint32_t                                     diag_violation_mask;
+	uint32_t                                     diag_sensor_sel_mask;
+	uint32_t                                     diag_frm_count_mask_0;
+	uint32_t                                     diag_frm_count_mask_1;
 	bool                                         is_mc_path;
 	uint32_t                                     frm_irq_hw_ctxt_mask[CAM_ISP_MULTI_CTXT_MAX];
 };

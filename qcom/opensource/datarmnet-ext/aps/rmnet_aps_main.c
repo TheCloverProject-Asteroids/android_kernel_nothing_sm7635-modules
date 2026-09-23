@@ -72,18 +72,15 @@ name, "\x72\x6d\x6e\x65\x74\x5f\x64\x61\x74\x61", (0xd27+224-0xdfd)))
 	((struct DATARMNET758277d429 *)(((struct rmnet_priv *)netdev_priv(\
 DATARMNET413e8dcf7b))       \
 					 ->aps_cb))
-extern void(*rmnet_aps_pre_queue)(struct net_device*DATARMNET413e8dcf7b,struct 
-sk_buff*DATARMNET543491eb0f);extern int(*rmnet_aps_post_queue)(struct net_device
-*DATARMNET413e8dcf7b,struct sk_buff*DATARMNET543491eb0f);extern struct 
-genl_family DATARMNETcdba30eca9;static void DATARMNET30dd480cad(struct 
-net_device*DATARMNET413e8dcf7b,struct sk_buff*DATARMNET543491eb0f);static void 
-DATARMNET446f780f19(u32 DATARMNETbb588401ec,u8 DATARMNETf8bbe3b0fb);static void 
-DATARMNETf844db79d9(struct timer_list*DATARMNET6e4292679f);static DEFINE_TIMER(
-DATARMNETd21629e047,DATARMNETf844db79d9);static void DATARMNETd1a02b8188(struct 
-work_struct*DATARMNET33110a3ff5);static DECLARE_WORK(DATARMNET8e3aef0760,
-DATARMNETd1a02b8188);static void DATARMNET5979020f87(struct work_struct*
-DATARMNET33110a3ff5);static DECLARE_DELAYED_WORK(DATARMNET3481998252,
-DATARMNET5979020f87);static int DATARMNET998f6cbce7(struct notifier_block*
+extern struct genl_family DATARMNETcdba30eca9;static void DATARMNET30dd480cad(
+struct net_device*DATARMNET413e8dcf7b,struct sk_buff*DATARMNET543491eb0f);static
+ void DATARMNET446f780f19(u32 DATARMNETbb588401ec,u8 DATARMNETf8bbe3b0fb);static
+ void DATARMNETf844db79d9(struct timer_list*DATARMNET6e4292679f);static 
+DEFINE_TIMER(DATARMNETd21629e047,DATARMNETf844db79d9);static void 
+DATARMNETd1a02b8188(struct work_struct*DATARMNET33110a3ff5);static DECLARE_WORK(
+DATARMNET8e3aef0760,DATARMNETd1a02b8188);static void DATARMNET5979020f87(struct 
+work_struct*DATARMNET33110a3ff5);static DECLARE_DELAYED_WORK(DATARMNET3481998252
+,DATARMNET5979020f87);static int DATARMNET998f6cbce7(struct notifier_block*
 DATARMNET272c159b3c,unsigned long DATARMNET9a4761f31c,void*data);static struct 
 notifier_block DATARMNETc580548769 __read_mostly={.notifier_call=
 DATARMNET998f6cbce7,.priority=(0xd1f+216-0xdf5),};struct DATARMNETf21ed5deb4{
@@ -771,17 +768,14 @@ DATARMNETe5ef0e617c);DATARMNETb14e52a504=DATARMNETcfa8d492f8();if(
 DATARMNETb14e52a504){pr_err(
 "\x61\x70\x73\x3a\x20\x66\x61\x69\x6c\x65\x64\x20\x74\x6f\x20\x72\x65\x67\x69\x73\x74\x65\x72\x20\x67\x65\x6e\x6c\x20\x66\x61\x6d\x69\x6c\x79" "\n"
 );return DATARMNETb14e52a504;}register_netdevice_notifier(&DATARMNETc580548769);
-rcu_assign_pointer(rmnet_aps_pre_queue,DATARMNETe0c7b9d5a4);rcu_assign_pointer(
-rmnet_aps_post_queue,DATARMNET6ab4bbdaf4);rmnet_module_hook_register(
-DATARMNET509284caa6,ARRAY_SIZE(DATARMNET509284caa6));rmnet_module_hook_register(
-DATARMNET644887c40e,ARRAY_SIZE(DATARMNET644887c40e));mutex_lock(&
-DATARMNETd7b5a80f84);DATARMNET54b95e4416=true;mutex_unlock(&DATARMNETd7b5a80f84)
-;DATARMNET519162865c();return(0xd2d+202-0xdf7);}static void __exit 
-DATARMNETff67054ba9(void){DATARMNETb4a75cfdea();
+rmnet_module_hook_register(DATARMNET509284caa6,ARRAY_SIZE(DATARMNET509284caa6));
+rmnet_module_hook_register(DATARMNET644887c40e,ARRAY_SIZE(DATARMNET644887c40e));
+mutex_lock(&DATARMNETd7b5a80f84);DATARMNET54b95e4416=true;mutex_unlock(&
+DATARMNETd7b5a80f84);DATARMNET519162865c();return(0xd2d+202-0xdf7);}static void 
+__exit DATARMNETff67054ba9(void){DATARMNETb4a75cfdea();
 rmnet_module_hook_unregister_no_sync(DATARMNETbdf157f06a,ARRAY_SIZE(
 DATARMNETbdf157f06a));rmnet_module_hook_unregister_no_sync(DATARMNET644887c40e,
-ARRAY_SIZE(DATARMNET644887c40e));rcu_assign_pointer(rmnet_aps_pre_queue,NULL);
-rcu_assign_pointer(rmnet_aps_post_queue,NULL);rmnet_module_hook_unregister(
+ARRAY_SIZE(DATARMNET644887c40e));rmnet_module_hook_unregister(
 DATARMNET509284caa6,ARRAY_SIZE(DATARMNET509284caa6));mutex_lock(&
 DATARMNETd7b5a80f84);DATARMNET54b95e4416=false;DATARMNET9ac8a34003();
 mutex_unlock(&DATARMNETd7b5a80f84);DATARMNET446f780f19((0xd2d+202-0xdf7),

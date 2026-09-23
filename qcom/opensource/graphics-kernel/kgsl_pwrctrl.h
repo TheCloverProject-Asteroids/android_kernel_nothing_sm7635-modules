@@ -12,7 +12,7 @@
 /*****************************************************************************
  * power flags
  ****************************************************************************/
-#define KGSL_MAX_CLKS 18
+#define KGSL_MAX_CLKS 20
 
 #define KGSL_MAX_PWRLEVELS 32
 
@@ -84,7 +84,6 @@ struct kgsl_pwrlevel {
  * @active_pwrlevel - The currently active power level
  * @previous_pwrlevel - The power level before transition
  * @thermal_pwrlevel - maximum powerlevel constraint from thermal
- * @thermal_pwrlevel_floor - minimum powerlevel constraint from thermal
  * @default_pwrlevel - device wake up power level
  * @max_pwrlevel - maximum allowable powerlevel per the user
  * @min_pwrlevel - minimum allowable powerlevel per the user
@@ -111,14 +110,25 @@ struct kgsl_pwrctrl {
 	int interrupt_num;
 	struct clk *grp_clks[KGSL_MAX_CLKS];
 	struct clk *gpu_bimc_int_clk;
-	/** @cx_gdsc: Pointer to the CX domain regulator if applicable */
-	struct regulator *cx_gdsc;
-	/** @gx_gdsc: Pointer to the GX domain regulator if applicable */
-	struct regulator *gx_gdsc;
-	/** @gx_gdsc: Pointer to the GX domain parent supply */
-	struct regulator *gx_gdsc_parent;
-	/** @gx_gdsc_parent_min_corner: Minimum supply voltage for GX parent */
-	u32 gx_gdsc_parent_min_corner;
+	/** @cx_regulator: Pointer to the CX domain regulator if applicable */
+	struct regulator *cx_regulator;
+	/** @gx_regulator: Pointer to the GX domain regulator if applicable */
+	struct regulator *gx_regulator;
+	/**
+	 * @cx_pd: Power domain for registering CX GDSC notifier
+	 *
+	 * Only GMU device votes for GMU_CX_PD. Other client votes are consolidated
+	 * in the CX GenPD instance, so use this for registering the notifier.
+	 */
+	struct device *cx_pd;
+	/** @gmu_cx_pd: Power domain for controlling GMU CX GDSC instance */
+	struct device *gmu_cx_pd;
+	/** @gx_pd: Power domain for controlling GX GDSC */
+	struct device *gx_pd;
+	/** @gx_regulator_parent: Pointer to the GX domain parent supply */
+	struct regulator *gx_regulator_parent;
+	/** @gx_regulator_parent_min_corner: Minimum supply voltage for GX parent */
+	u32 gx_regulator_parent_min_corner;
 	/** @cx_gdsc_nb: Notifier block for cx gdsc regulator */
 	struct notifier_block cx_gdsc_nb;
 	/** @cx_gdsc_gate: Completion to signal cx gdsc collapse status */
@@ -135,15 +145,16 @@ struct kgsl_pwrctrl {
 	unsigned int active_pwrlevel;
 	unsigned int previous_pwrlevel;
 	unsigned int thermal_pwrlevel;
-	unsigned int thermal_pwrlevel_floor;
 	unsigned int default_pwrlevel;
 	unsigned int max_pwrlevel;
 	unsigned int min_pwrlevel;
 	unsigned int min_render_pwrlevel;
 	unsigned int num_pwrlevels;
 	unsigned int throttle_mask;
-	u32 interval_timeout;
+	atomic64_t interval_timeout;
 	u64 clock_times[KGSL_MAX_PWRLEVELS];
+	/** @thermal_time: Time in usecs the GPU is limited by thermal constraints */
+	u64 thermal_time;
 	struct kgsl_clk_stats clk_stats;
 	bool bus_control;
 	int bus_mod;
@@ -168,6 +179,12 @@ struct kgsl_pwrctrl {
 	u32 cur_ab;
 	/** @sysfs_thermal_req - PM QoS maximum frequency request from user (via sysfs) */
 	struct dev_pm_qos_request sysfs_thermal_req;
+	/* pmqos_max_pwrlevel: Max power level limit set from the PMQOS notifier */
+	u32 pmqos_max_pwrlevel;
+	/* cooling_dev: Handle to thermal cooling dev */
+	struct thermal_cooling_device *cooling_dev;
+	/* pmqos_max_freq: Handle to raise PMQOS MAX FREQUENCY request */
+	struct dev_pm_qos_request pmqos_max_freq;
 	/** @time_in_pwrlevel: Each pwrlevel active duration in usec */
 	u64 time_in_pwrlevel[KGSL_MAX_PWRLEVELS];
 	/** @last_stat_updated: The last time stats were updated */
@@ -192,9 +209,6 @@ void kgsl_pwrctrl_pwrlevel_change(struct kgsl_device *device,
 	unsigned int level);
 int kgsl_pwrctrl_init_sysfs(struct kgsl_device *device);
 int kgsl_pwrctrl_change_state(struct kgsl_device *device, int state);
-
-unsigned int kgsl_pwrctrl_adjust_pwrlevel(struct kgsl_device *device,
-	unsigned int new_level);
 
 /*
  * kgsl_pwrctrl_active_freq - get currently configured frequency
@@ -234,7 +248,6 @@ void kgsl_pwrctrl_busy_time(struct kgsl_device *device, u64 time, u64 busy);
  */
 void kgsl_pwrctrl_set_constraint(struct kgsl_device *device,
 			struct kgsl_pwr_constraint *pwrc, u32 id, u32 ts);
-int kgsl_pwrctrl_set_default_gpu_pwrlevel(struct kgsl_device *device);
 
 /**
  * kgsl_pwrctrl_request_state - Request a specific power state
@@ -303,7 +316,21 @@ int kgsl_pwrctrl_enable_cx_gdsc(struct kgsl_device *device);
 void kgsl_pwrctrl_disable_cx_gdsc(struct kgsl_device *device);
 
 /**
- * kgsl_pwrctrl_probe_regulators - Probe regulators
+ * kgsl_pwrctrl_enable_gx_gdsc - Enable gx gdsc
+ * @device: Pointer to the kgsl device
+ *
+ * Return: 0 on success or negative error on failure
+ */
+int kgsl_pwrctrl_enable_gx_gdsc(struct kgsl_device *device);
+
+/**
+ * kgsl_pwrctrl_disable_gx_gdsc - Disable gx gdsc
+ * @device: Pointer to the kgsl device
+ */
+void kgsl_pwrctrl_disable_gx_gdsc(struct kgsl_device *device);
+
+/**
+ * kgsl_pwrctrl_probe_gdscs - Probe gdscs
  * @device: Pointer to the kgsl device
  * @pdev: Pointer to the platform device
  *

@@ -9,7 +9,6 @@
 #include <linux/slab.h>
 #include <soc/qcom/dcvs.h>
 
-#include "a3xx_reg.h"
 #include "a5xx_reg.h"
 #include "a6xx_reg.h"
 #include "adreno.h"
@@ -17,6 +16,7 @@
 #include "adreno_ringbuffer.h"
 #include "adreno_trace.h"
 #include "kgsl_trace.h"
+#include "kgsl_util.h"
 
 
 #define RB_HOSTPTR(_rb, _pos) \
@@ -157,7 +157,7 @@ int adreno_ringbuffer_setup(struct adreno_device *adreno_dev,
 
 void adreno_preemption_timer(struct timer_list *t)
 {
-	struct adreno_preemption *preempt = from_timer(preempt, t, timer);
+	struct adreno_preemption *preempt = kgsl_timer_container_of(preempt, t, timer);
 	struct adreno_device *adreno_dev = container_of(preempt,
 						struct adreno_device, preempt);
 

@@ -72,6 +72,7 @@ qca_wlan_vendor_twt_add_dialog_policy[QCA_WLAN_VENDOR_ATTR_TWT_SETUP_MAX + 1] = 
 	[QCA_WLAN_VENDOR_ATTR_TWT_SETUP_BCAST_PERSISTENCE] = {.type = NLA_U8 },
 	[QCA_WLAN_VENDOR_ATTR_TWT_SETUP_WAKE_TIME_TSF] = {.type = NLA_U64 },
 	[QCA_WLAN_VENDOR_ATTR_TWT_SETUP_ANNOUNCE_TIMEOUT] = {.type = NLA_U32 },
+	[QCA_WLAN_VENDOR_ATTR_TWT_SETUP_RESPONDER_PM_MODE] = {.type = NLA_U8 },
 };
 
 static const struct nla_policy
@@ -94,6 +95,8 @@ qca_wlan_vendor_twt_nudge_dialog_policy[QCA_WLAN_VENDOR_ATTR_TWT_NUDGE_MAX + 1] 
 static const struct nla_policy
 qca_wlan_vendor_twt_set_param_policy[QCA_WLAN_VENDOR_ATTR_TWT_SET_PARAM_MAX + 1] = {
 	[QCA_WLAN_VENDOR_ATTR_TWT_SET_PARAM_AP_AC_VALUE] = {.type = NLA_U8 },
+	[QCA_WLAN_VENDOR_ATTR_TWT_SET_PARAM_UNAVAILABILITY_MODE] = {
+						.type = NLA_FLAG},
 };
 
 static const struct nla_policy
@@ -101,18 +104,32 @@ qca_wlan_vendor_twt_stats_dialog_policy[QCA_WLAN_VENDOR_ATTR_TWT_STATS_MAX + 1] 
 	[QCA_WLAN_VENDOR_ATTR_TWT_STATS_FLOW_ID] = {.type = NLA_U8 },
 };
 
-static int osif_is_twt_command_allowed(struct wlan_objmgr_vdev *vdev,
-				       uint8_t vdev_id,
-				       struct wlan_objmgr_psoc *psoc)
+static bool osif_twt_setup_conc_allowed(struct wlan_objmgr_psoc *psoc,
+					struct wlan_objmgr_vdev *vdev)
+{
+	uint8_t vdev_id = wlan_vdev_get_id(vdev);
+
+	return !(policy_mgr_current_concurrency_is_mcc(psoc) ||
+		 policy_mgr_is_scc_with_this_vdev_id(psoc, vdev_id));
+}
+
+static int osif_is_twt_command_allowed(struct wlan_objmgr_psoc *psoc,
+				       struct wlan_objmgr_vdev *vdev,
+				       enum wlan_twt_commands cmd)
 {
 	enum QDF_OPMODE mode = wlan_vdev_mlme_get_opmode(vdev);
+	uint8_t vdev_id = wlan_vdev_get_id(vdev);
+
+	if (mode == QDF_P2P_GO_MODE || mode == QDF_SAP_MODE)
+		return 0;
 
 	if (mode != QDF_STA_MODE &&
 	    mode != QDF_P2P_CLIENT_MODE)
 		return -EOPNOTSUPP;
 
 	if (!wlan_cm_is_vdev_connected(vdev)) {
-		osif_err_rl("Not associated!, vdev %d mode %d", vdev_id, mode);
+		osif_err_rl("Not associated!, vdev %d mode %d",
+			    wlan_vdev_get_id(vdev), mode);
 		return -EAGAIN;
 	}
 
@@ -120,18 +137,17 @@ static int osif_is_twt_command_allowed(struct wlan_objmgr_vdev *vdev,
 		return -EBUSY;
 
 	if (wlan_get_vdev_status(vdev)) {
-		osif_err_rl("Scan in progress");
+		osif_err_rl("vdev:%d Scan in progress", vdev_id);
 		return -EBUSY;
 	}
 
-	return 0;
-}
+	if (cmd == WLAN_TWT_SETUP &&
+	    !osif_twt_setup_conc_allowed(psoc, vdev)) {
+		osif_err_rl("TWT setup reject: SCC or MCC concurrency exists");
+		return -EAGAIN;
+	}
 
-static bool osif_twt_setup_conc_allowed(struct wlan_objmgr_psoc *psoc,
-					uint8_t vdev_id)
-{
-	return policy_mgr_current_concurrency_is_mcc(psoc) ||
-	       policy_mgr_is_scc_with_this_vdev_id(psoc, vdev_id);
+	return 0;
 }
 
 /**
@@ -360,9 +376,6 @@ osif_twt_parse_add_dialog_attrs(struct nlattr **tb,
 		  params->flag_flow_type,
 		  params->flag_protection,
 		  params->wake_time_tsf);
-	osif_debug("twt: peer mac_addr "
-		  QDF_MAC_ADDR_FMT,
-		  QDF_MAC_ADDR_REF(params->peer_macaddr.bytes));
 	osif_debug("twt: announce timeout(in us) %u",
 		   params->announce_timeout_us);
 	return 0;
@@ -483,6 +496,7 @@ osif_send_twt_setup_req(struct wlan_objmgr_vdev *vdev,
 	int twt_cmd, ret = 0;
 	struct osif_request *request;
 	struct twt_ack_context *ack_priv;
+	enum QDF_OPMODE opmode;
 	void *context;
 	static const struct osif_request_params params = {
 				.priv_size = sizeof(*ack_priv),
@@ -501,6 +515,13 @@ osif_send_twt_setup_req(struct wlan_objmgr_vdev *vdev,
 	if (QDF_IS_STATUS_ERROR(status)) {
 		ret = qdf_status_to_os_return(status);
 		osif_err("Failed to send add dialog command");
+		goto cleanup;
+	}
+
+	opmode = wlan_vdev_mlme_get_opmode(vdev);
+	if (twt_params->flag_bcast &&
+	    (opmode == QDF_P2P_GO_MODE || opmode == QDF_SAP_MODE)) {
+		ret = 0;
 		goto cleanup;
 	}
 
@@ -898,11 +919,23 @@ int osif_twt_send_requestor_enable_cmd(struct wlan_objmgr_psoc *psoc,
 				       uint8_t pdev_id)
 {
 	struct twt_enable_param req = {0};
+	int ret = 0;
+	QDF_STATUS status;
 
 	req.pdev_id = pdev_id;
 	req.ext_conf_present = true;
 
-	return osif_twt_requestor_enable(psoc, &req);
+	status = ucfg_twt_set_requestor_enable_cmd_in_progress(psoc);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		if (status == QDF_STATUS_E_ALREADY)
+			return ret;
+		return qdf_status_to_os_return(status);
+	}
+
+	ret = osif_twt_requestor_enable(psoc, &req);
+	ucfg_twt_reset_requestor_enable_cmd_in_progress(psoc);
+
+	return ret;
 }
 
 int osif_twt_send_responder_enable_cmd(struct wlan_objmgr_psoc *psoc,
@@ -1001,17 +1034,18 @@ int osif_twt_setup_req(struct wlan_objmgr_vdev *vdev,
 	int ret = 0;
 	uint8_t vdev_id, pdev_id;
 	struct twt_add_dialog_param params = {0};
+	enum QDF_OPMODE mode = wlan_vdev_mlme_get_opmode(vdev);
 	uint32_t congestion_timeout = 0, reason;
 	uint8_t peer_cap;
 	QDF_STATUS qdf_status;
+	struct wlan_channel *bss_chan;
+	uint8_t band;
 
 	psoc = wlan_vdev_get_psoc(vdev);
 	if (!psoc) {
 		osif_err("NULL psoc");
 		return -EINVAL;
 	}
-
-	vdev_id = wlan_vdev_get_id(vdev);
 
 	ret = wlan_cfg80211_nla_parse_nested(tb2,
 					 QCA_WLAN_VENDOR_ATTR_TWT_SETUP_MAX,
@@ -1020,10 +1054,7 @@ int osif_twt_setup_req(struct wlan_objmgr_vdev *vdev,
 	if (ret)
 		return ret;
 
-	ret = osif_fill_peer_macaddr(vdev, params.peer_macaddr.bytes);
-	if (ret)
-		return ret;
-
+	vdev_id = wlan_vdev_get_id(vdev);
 	params.vdev_id = vdev_id;
 	pdev_id = wlan_get_pdev_id_from_vdev_id(psoc, vdev_id, WLAN_TWT_ID);
 
@@ -1031,10 +1062,12 @@ int osif_twt_setup_req(struct wlan_objmgr_vdev *vdev,
 	if (ret)
 		return ret;
 
-	qdf_status = ucfg_twt_get_peer_capabilities(psoc, &params.peer_macaddr,
-						    &peer_cap);
-	if (QDF_IS_STATUS_ERROR(qdf_status))
-		return -EINVAL;
+	if (mode == QDF_STA_MODE || mode == QDF_P2P_CLIENT_MODE) {
+		bss_chan = wlan_vdev_mlme_get_bss_chan(vdev);
+		if (!bss_chan) {
+			osif_err("Unable to find bss chan");
+			return -EINVAL;
+		}
 
 	if (params.flag_bcast && !(peer_cap & WLAN_TWT_CAPA_BROADCAST)) {
 		osif_err_rl("TWT setup reject: TWT Broadcast not supported");
@@ -1056,7 +1089,6 @@ int osif_twt_setup_req(struct wlan_objmgr_vdev *vdev,
 	}
 
 	ucfg_twt_cfg_get_congestion_timeout(psoc, &congestion_timeout);
-
 	if (congestion_timeout) {
 		reason = HOST_TWT_DISABLE_REASON_CHANGE_CONGESTION_TIMEOUT;
 		ret = osif_twt_send_requestor_disable_cmd(psoc, pdev_id,
@@ -1066,7 +1098,6 @@ int osif_twt_setup_req(struct wlan_objmgr_vdev *vdev,
 			return -EOPNOTSUPP;
 		}
 	}
-
 	ucfg_twt_cfg_set_congestion_timeout(psoc, 0);
 
 	ret = osif_twt_send_requestor_enable_cmd(psoc, pdev_id);
@@ -1257,15 +1288,22 @@ osif_twt_concurrency_update_on_scc(struct wlan_objmgr_pdev *pdev,
 	struct wlan_objmgr_vdev *vdev = object;
 	struct twt_conc_context *twt_arg = arg;
 	QDF_STATUS status;
-	uint8_t pdev_id = wlan_objmgr_pdev_get_pdev_id(pdev);
+	uint8_t mac_id;
 	uint32_t reason;
+	uint8_t vdev_id;
+
+	vdev_id = wlan_vdev_get_id(vdev);
+	mac_id = policy_mgr_mode_get_macid_by_vdev_id(twt_arg->psoc, vdev_id);
 
 	if (vdev->vdev_mlme.vdev_opmode == QDF_SAP_MODE &&
 	    vdev->vdev_mlme.mlme_state == WLAN_VDEV_S_UP) {
+		if (policy_mgr_is_vdev_ll_lt_sap(twt_arg->psoc, vdev_id))
+			return;
+
 		osif_debug("Concurrency exist on SAP vdev");
 		reason = HOST_TWT_DISABLE_REASON_CONCURRENCY_SCC;
 		status = osif_twt_send_responder_disable_cmd(twt_arg->psoc,
-							     pdev_id, reason);
+							     mac_id, reason);
 		if (QDF_IS_STATUS_ERROR(status)) {
 			osif_err("TWT responder disable cmd to fw failed");
 			return;
@@ -1278,7 +1316,7 @@ osif_twt_concurrency_update_on_scc(struct wlan_objmgr_pdev *pdev,
 		osif_debug("Concurrency exist on STA vdev");
 		reason = HOST_TWT_DISABLE_REASON_CONCURRENCY_SCC;
 		status = osif_twt_send_requestor_disable_cmd(twt_arg->psoc,
-							     pdev_id, reason);
+							     mac_id, reason);
 		if (QDF_IS_STATUS_ERROR(status)) {
 			osif_err("TWT requestor disable cmd to fw failed");
 			return;
@@ -1293,7 +1331,9 @@ osif_twt_concurrency_update_on_mcc(struct wlan_objmgr_pdev *pdev,
 	struct wlan_objmgr_vdev *vdev = object;
 	struct twt_conc_context *twt_arg = arg;
 	QDF_STATUS status;
-	uint8_t pdev_id = wlan_objmgr_pdev_get_pdev_id(pdev);
+	uint8_t mac_id = policy_mgr_mode_get_macid_by_vdev_id(
+						pdev->pdev_objmgr.wlan_psoc,
+						wlan_vdev_get_id(vdev));
 	uint32_t reason;
 	uint8_t vdev_id;
 	struct wlan_objmgr_psoc *psoc;
@@ -1309,7 +1349,7 @@ osif_twt_concurrency_update_on_mcc(struct wlan_objmgr_pdev *pdev,
 		osif_debug("Concurrency exist on SAP vdev");
 		reason = HOST_TWT_DISABLE_REASON_CONCURRENCY_MCC;
 		status = osif_twt_send_responder_disable_cmd(twt_arg->psoc,
-							     pdev_id, reason);
+							     mac_id, reason);
 		if (QDF_IS_STATUS_ERROR(status)) {
 			osif_err("TWT responder disable cmd to fw failed");
 			return;
@@ -1322,7 +1362,7 @@ osif_twt_concurrency_update_on_mcc(struct wlan_objmgr_pdev *pdev,
 		osif_debug("Concurrency exist on STA vdev");
 		reason = HOST_TWT_DISABLE_REASON_CONCURRENCY_MCC;
 		status = osif_twt_send_requestor_disable_cmd(twt_arg->psoc,
-							     pdev_id, reason);
+							     mac_id, reason);
 		if (QDF_IS_STATUS_ERROR(status)) {
 			osif_err("TWT requestor disable cmd to fw failed");
 			return;
@@ -1337,13 +1377,15 @@ osif_twt_concurrency_update_on_dbs(struct wlan_objmgr_pdev *pdev,
 	struct wlan_objmgr_vdev *vdev = object;
 	struct twt_conc_context *twt_arg = arg;
 	QDF_STATUS status;
-	uint8_t pdev_id = wlan_objmgr_pdev_get_pdev_id(pdev);
+	uint8_t mac_id = policy_mgr_mode_get_macid_by_vdev_id(
+						pdev->pdev_objmgr.wlan_psoc,
+						wlan_vdev_get_id(vdev));
 
 	if (vdev->vdev_mlme.vdev_opmode == QDF_SAP_MODE &&
 	    vdev->vdev_mlme.mlme_state == WLAN_VDEV_S_UP) {
 		osif_debug("SAP vdev exist");
 		status = osif_twt_send_responder_enable_cmd(twt_arg->psoc,
-							    pdev_id);
+							    mac_id);
 		if (QDF_IS_STATUS_ERROR(status)) {
 			osif_err("TWT responder enable cmd to firmware failed");
 			return;
@@ -1355,7 +1397,7 @@ osif_twt_concurrency_update_on_dbs(struct wlan_objmgr_pdev *pdev,
 	    vdev->vdev_mlme.mlme_state == WLAN_VDEV_S_UP) {
 		osif_debug("STA vdev exist");
 		status = osif_twt_send_requestor_enable_cmd(twt_arg->psoc,
-							    pdev_id);
+							    mac_id);
 		if (QDF_IS_STATUS_ERROR(status)) {
 			osif_err("TWT requestor enable cmd to firmware failed");
 			return;
@@ -1363,10 +1405,47 @@ osif_twt_concurrency_update_on_dbs(struct wlan_objmgr_pdev *pdev,
 	}
 }
 
+#ifdef FEATURE_WLAN_SUPPORT_USD
+/**
+ * osif_twt_is_p2p_go_wfd_r2_mode() - This function finds VDEV for P2P GO mode
+ * and checks WFD mode.
+ * @psoc: Pointer to PSOC object
+ *
+ * Return: true if P2P GO is in WFD R2 mode, otherwise false
+ */
+static bool osif_twt_is_p2p_go_wfd_r2_mode(struct wlan_objmgr_psoc *psoc)
+{
+	struct wlan_objmgr_vdev *vdev;
+	uint8_t wfd_mode;
+	bool is_wfd_r2 = false;
+
+	vdev = wlan_objmgr_get_vdev_by_opmode_from_psoc(psoc, QDF_P2P_GO_MODE,
+							WLAN_TWT_ID);
+	if (!vdev) {
+		osif_err("vdev is null for P2P Go opmode");
+		return false;
+	}
+
+	wfd_mode = wlan_get_wfd_mode_from_vdev_id(psoc, wlan_vdev_get_id(vdev));
+	if (wfd_mode == P2P_MODE_WFD_R2)
+		is_wfd_r2 = true;
+
+	wlan_objmgr_vdev_release_ref(vdev, WLAN_TWT_ID);
+
+	return is_wfd_r2;
+}
+#else
+static inline bool osif_twt_is_p2p_go_wfd_r2_mode(struct wlan_objmgr_psoc *psoc)
+{
+	return false;
+}
+#endif
+
 void osif_twt_concurrency_update_handler(struct wlan_objmgr_psoc *psoc,
 					 struct wlan_objmgr_pdev *pdev)
 {
 	uint32_t num_connections, sap_count, sta_count;
+	uint32_t p2p_cli_count, p2p_go_count;
 	QDF_STATUS status;
 	struct twt_conc_context twt_arg;
 	uint8_t pdev_id = wlan_objmgr_pdev_get_pdev_id(pdev);
@@ -1378,10 +1457,20 @@ void osif_twt_concurrency_update_handler(struct wlan_objmgr_psoc *psoc,
 							      NULL);
 	sap_count = policy_mgr_get_sap_mode_count(psoc, NULL);
 
+	p2p_cli_count = policy_mgr_mode_specific_connection_count(
+							psoc,
+							PM_P2P_CLIENT_MODE,
+							NULL);
+
+	p2p_go_count = policy_mgr_mode_specific_connection_count(
+								psoc,
+								PM_P2P_GO_MODE,
+								NULL);
 	twt_arg.psoc = psoc;
 
-	osif_debug("Total connection %d, sta_count %d, sap_count %d",
-		  num_connections, sta_count, sap_count);
+	osif_debug("Total connection %d, sta_count %d, sap_count %d p2p_cli_count %d p2p_go_count %d",
+		   num_connections, sta_count, sap_count, p2p_cli_count,
+		   p2p_go_count);
 	switch (num_connections) {
 	case 1:
 		if (sta_count == 1) {
@@ -1395,7 +1484,22 @@ void osif_twt_concurrency_update_handler(struct wlan_objmgr_psoc *psoc,
 		}
 		break;
 	case 2:
-		if (policy_mgr_current_concurrency_is_scc(psoc)) {
+		/* Allowing P2P GO + STA concurrency for TWT */
+		status = ucfg_twt_tgt_caps_get_p2p_go_concurrency_support(
+						psoc,
+						&is_p2p_go_conc_support);
+		if (QDF_IS_STATUS_ERROR(status))
+			return;
+
+		if (is_p2p_go_conc_support && p2p_go_count && sta_count &&
+		    osif_twt_is_p2p_go_wfd_r2_mode(psoc))
+			p2p_go_sta_conc = true;
+
+		osif_debug("p2p_go_conc_support %d, p2p_go_sta_conc %d",
+			   is_p2p_go_conc_support, p2p_go_sta_conc);
+
+		if (policy_mgr_current_concurrency_is_scc(psoc) &&
+		    !p2p_go_sta_conc) {
 			status = wlan_objmgr_pdev_iterate_obj_list(
 					pdev,
 					WLAN_VDEV_OP,
@@ -1406,7 +1510,8 @@ void osif_twt_concurrency_update_handler(struct wlan_objmgr_psoc *psoc,
 				osif_err("2port conc: SAP/STA not in SCC");
 				return;
 			}
-		} else if (policy_mgr_current_concurrency_is_mcc(psoc)) {
+		} else if (policy_mgr_current_concurrency_is_mcc(psoc) &&
+			   !p2p_go_sta_conc) {
 			status = wlan_objmgr_pdev_iterate_obj_list(
 					pdev,
 					WLAN_VDEV_OP,
@@ -1417,7 +1522,8 @@ void osif_twt_concurrency_update_handler(struct wlan_objmgr_psoc *psoc,
 				osif_err("2port conc: SAP/STA not in MCC");
 				return;
 			}
-		} else if (policy_mgr_is_current_hwmode_dbs(psoc)) {
+		} else if (policy_mgr_is_current_hwmode_dbs(psoc) &&
+			   p2p_go_sta_conc) {
 			status = wlan_objmgr_pdev_iterate_obj_list(
 					pdev,
 					WLAN_VDEV_OP,
@@ -1478,7 +1584,7 @@ int osif_twt_pause_req(struct wlan_objmgr_vdev *vdev,
 	}
 
 	vdev_id = wlan_vdev_get_id(vdev);
-	ret = osif_is_twt_command_allowed(vdev, vdev_id, psoc);
+	ret = osif_is_twt_command_allowed(psoc, vdev, WLAN_TWT_SUSPEND);
 	if (ret)
 		return ret;
 
@@ -1529,7 +1635,7 @@ int osif_twt_resume_req(struct wlan_objmgr_vdev *vdev,
 
 	vdev_id = wlan_vdev_get_id(vdev);
 
-	ret = osif_is_twt_command_allowed(vdev, vdev_id, psoc);
+	ret = osif_is_twt_command_allowed(psoc, vdev, WLAN_TWT_RESUME);
 	if (ret)
 		return ret;
 
@@ -1594,7 +1700,7 @@ int osif_twt_nudge_req(struct wlan_objmgr_vdev *vdev,
 	}
 
 	vdev_id = wlan_vdev_get_id(vdev);
-	ret = osif_is_twt_command_allowed(vdev, vdev_id, psoc);
+	ret = osif_is_twt_command_allowed(psoc, vdev, WLAN_TWT_NUDGE);
 	if (ret)
 		return ret;
 
@@ -2368,13 +2474,36 @@ static int osif_twt_add_ac_config(struct wlan_objmgr_vdev *vdev,
 	if (device_mode == QDF_SAP_MODE && is_responder_en) {
 		ret = ucfg_twt_ac_pdev_param_send(psoc,
 						  osif_twt_convert_ac_value(twt_ac));
-	} else {
-		osif_err_rl("Undesired device mode. Mode: %d and responder: %d",
-			    device_mode, is_responder_en);
-		return -EINVAL;
+		return ret;
 	}
 
-	return ret;
+	osif_err_rl("Undesired device mode. Mode: %d and responder: %d",
+		    device_mode, is_responder_en);
+
+	return -EINVAL;
+}
+
+static int osif_twt_send_unavailability_mode(struct wlan_objmgr_vdev *vdev,
+					     bool unavailability_mode)
+{
+	struct wlan_objmgr_psoc *psoc;
+	bool is_requestor_enabled;
+	QDF_STATUS status;
+
+	psoc = wlan_vdev_get_psoc(vdev);
+	if (!psoc)
+		return -EINVAL;
+
+	ucfg_twt_cfg_get_requestor(psoc, &is_requestor_enabled);
+	if (!is_requestor_enabled)
+		return -EINVAL;
+
+	status = ucfg_twt_send_unavailability_mode(psoc, vdev,
+						   unavailability_mode);
+	if (QDF_IS_STATUS_ERROR(status))
+		return qdf_status_to_os_return(status);
+
+	return 0;
 }
 
 int osif_twt_set_param(struct wlan_objmgr_vdev *vdev,
@@ -2382,7 +2511,7 @@ int osif_twt_set_param(struct wlan_objmgr_vdev *vdev,
 {
 	struct nlattr *tb[QCA_WLAN_VENDOR_ATTR_TWT_SET_PARAM_MAX + 1];
 	int ret;
-	int cmd_id;
+	int attr_id;
 	enum qca_wlan_ac_type twt_ac;
 
 	ret = wlan_cfg80211_nla_parse_nested
@@ -2393,10 +2522,9 @@ int osif_twt_set_param(struct wlan_objmgr_vdev *vdev,
 	if (ret)
 		return ret;
 
-	cmd_id = QCA_WLAN_VENDOR_ATTR_TWT_SET_PARAM_AP_AC_VALUE;
-
-	if (tb[cmd_id]) {
-		twt_ac = nla_get_u8(tb[cmd_id]);
+	attr_id = QCA_WLAN_VENDOR_ATTR_TWT_SET_PARAM_AP_AC_VALUE;
+	if (tb[attr_id]) {
+		twt_ac = nla_get_u8(tb[attr_id]);
 		osif_debug("TWT_AC_CONFIG_VALUE: %d", twt_ac);
 		ret = osif_twt_add_ac_config(vdev, twt_ac);
 
@@ -2405,6 +2533,26 @@ int osif_twt_set_param(struct wlan_objmgr_vdev *vdev,
 				 ret);
 			return ret;
 		}
+	}
+
+	attr_id = QCA_WLAN_VENDOR_ATTR_TWT_SET_PARAM_UNAVAILABILITY_MODE;
+	if (tb[attr_id] && nla_get_flag(tb[attr_id])) {
+		osif_debug("vdev:%d unavailability_mode set",
+			   wlan_vdev_get_id(vdev));
+
+		ret = osif_twt_send_unavailability_mode(vdev, true);
+		if (ret)
+			return ret;
+	}
+
+	attr_id = QCA_WLAN_VENDOR_ATTR_TWT_SET_PARAM_UNAVAILABILITY_MODE;
+	if (tb[attr_id] && nla_get_flag(tb[attr_id])) {
+		osif_debug("vdev:%d unavailability_mode set",
+			   wlan_vdev_get_id(vdev));
+
+		ret = osif_twt_send_unavailability_mode(vdev, true);
+		if (ret)
+			return ret;
 	}
 
 	return ret;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/io.h>
@@ -11,6 +11,7 @@
 #include "cam_trace.h"
 
 #include "cam_debug_util.h"
+#include "cam_mem_mgr_api.h"
 
 unsigned long long debug_mdl;
 module_param(debug_mdl, ullong, 0644);
@@ -24,6 +25,9 @@ module_param(debug_priority, uint, 0644);
 
 uint debug_drv;
 module_param(debug_drv, uint, 0644);
+
+uint debug_disable_rt_clk_bw_limit;
+module_param(debug_disable_rt_clk_bw_limit, uint, 0644);
 
 uint debug_bypass_drivers;
 module_param(debug_bypass_drivers, uint, 0644);
@@ -246,9 +250,10 @@ static inline void __cam_print_to_buffer(char *buf, const size_t buf_size, size_
 {
 	size_t buf_len = *len;
 
-	buf_len += scnprintf(buf + buf_len, (buf_size - buf_len), "\n%-8s: %s:\t",
-			CAM_LOG_TAG_NAME(tag), CAM_DBG_MOD_NAME(module_id));
-	buf_len += vscnprintf(buf + buf_len, (buf_size - buf_len), fmt, args);
+	buf_len += scnprintf(buf + buf_len, ((buf_size <= buf_len) ? 0 : (buf_size - buf_len)),
+			"\n%-8s: %s:\t", CAM_LOG_TAG_NAME(tag), CAM_DBG_MOD_NAME(module_id));
+	buf_len += vscnprintf(buf + buf_len, ((buf_size <= buf_len) ? 0 : (buf_size - buf_len)),
+		fmt, args);
 	*len = buf_len;
 }
 
@@ -256,6 +261,11 @@ void cam_print_to_buffer(char *buf, const size_t buf_size, size_t *len, unsigned
 	unsigned long long module_id, const char *fmt, ...)
 {
 	va_list args;
+
+	if ((*len) >= buf_size) {
+		CAM_ERR(CAM_UTIL, "Inadequate buffer size: %lu for length: %lu", buf_size, len);
+		return;
+	}
 
 	va_start(args, fmt);
 	__cam_print_to_buffer(buf, buf_size, len, tag, module_id, fmt, args);

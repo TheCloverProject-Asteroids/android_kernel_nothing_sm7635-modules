@@ -203,7 +203,6 @@ struct pld_platform_cap {
  * @PLD_FW_HANG_EVENT: firmware update hang event
  * @PLD_BUS_EVENT: update bus/link event
  * @PLD_SMMU_FAULT: SMMU fault
- * @PLD_SYS_REBOOT: system is rebooting
  */
 enum pld_uevent {
 	PLD_FW_DOWN,
@@ -212,17 +211,18 @@ enum pld_uevent {
 	PLD_FW_HANG_EVENT,
 	PLD_BUS_EVENT,
 	PLD_SMMU_FAULT,
-	PLD_SYS_REBOOT,
 };
 
 /**
  * enum pld_bus_event - PLD bus event types
  * @PLD_BUS_EVENT_PCIE_LINK_DOWN: PCIe link is down
+ * @PLD_BUS_EVENT_PCIE_LINK_RESUME_FAIL: PCIe link resume failed
  * @PLD_BUS_EVENT_INVALID: invalid event type
  */
 
 enum pld_bus_event {
 	PLD_BUS_EVENT_PCIE_LINK_DOWN = 0,
+	PLD_BUS_EVENT_PCIE_LINK_RESUME_FAIL = 1,
 
 	PLD_BUS_EVENT_INVALID = 0xFFFF,
 };
@@ -1489,7 +1489,8 @@ void *pld_smmu_get_mapping(struct device *dev);
 int pld_smmu_map(struct device *dev, phys_addr_t paddr,
 		 uint32_t *iova_addr, size_t size);
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+#if ((LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)) || \
+	defined(CNSS_PLAT_WIFI_KOBJ_SUPPORT))
 struct kobject *pld_get_wifi_kobj(struct device *dev);
 #else
 static inline struct kobject *pld_get_wifi_kobj(struct device *dev)
@@ -2145,6 +2146,17 @@ int pld_audio_smmu_map(struct device *dev, phys_addr_t paddr, dma_addr_t iova,
  * Return: None
  */
 void pld_audio_smmu_unmap(struct device *dev, dma_addr_t iova, size_t size);
+
+/**
+ * pld_get_fw_lpass_shared_mem()- Get information of the FW-LPASS shared memory
+ * @dev: pointer to device structure
+ * @iova: DMA address
+ * @size: memory region size
+ *
+ * Return: 0 on success else failure code
+ */
+int pld_get_fw_lpass_shared_mem(struct device *dev, dma_addr_t *iova,
+				size_t *size);
 #else
 static inline
 int pld_audio_smmu_map(struct device *dev, phys_addr_t paddr, dma_addr_t iova,
@@ -2155,6 +2167,56 @@ int pld_audio_smmu_map(struct device *dev, phys_addr_t paddr, dma_addr_t iova,
 
 static inline
 void pld_audio_smmu_unmap(struct device *dev, dma_addr_t iova, size_t size)
+{
+}
+
+static inline
+int pld_get_fw_lpass_shared_mem(struct device *dev, dma_addr_t *iova,
+				size_t *size)
+{
+	return -EINVAL;
+}
+#endif
+
+#ifdef FEATURE_SMEM_MAILBOX
+/**
+ * pld_oem_event_smem_write()- Write to smem DLKM
+ * @dev: pointer to device id
+ * @flags: flags for message
+ * @data: payload to send
+ * @len: length of payload
+ *
+ * Return: 0 on success else failure code
+ */
+int pld_oem_event_smem_write(struct device *dev, int flags, const __u8 *data,
+			     uint32_t len);
+
+#else
+
+static inline
+int pld_oem_event_smem_write(struct device *dev, int flags, const __u8 *data,
+			     uint32_t len)
+{
+	return 0;
+}
+
+#endif
+
+#ifdef CONFIG_DT_CPU_MASK_DP_INTR
+void pld_get_cpumask_for_wlan_rx_interrupts(struct device *dev,
+					    unsigned int *cpumask);
+void pld_get_cpumask_for_wlan_tx_comp_interrupts(struct device *dev,
+						 unsigned int *cpumask);
+#else
+static inline void
+pld_get_cpumask_for_wlan_rx_interrupts(struct device *dev,
+				       unsigned int *cpumask)
+{
+}
+
+static inline void
+pld_get_cpumask_for_wlan_tx_comp_interrupts(struct device *dev,
+					    unsigned int *cpumask)
 {
 }
 #endif

@@ -65,6 +65,9 @@
 #define CAM_MAX_ACQ_RES    5
 #define CAM_MAX_HW_SPLIT   3
 
+/* camera blob handle op codes */
+#define CAM_COMMON_QUERY_BLOB_BASE 0x0
+#define CAM_COMMON_QUERY_BLOB_END  0x32
 
 /**
  * enum flush_type_t - Identifies the various flush types
@@ -272,6 +275,7 @@ struct cam_iommu_handle {
 /* Register dump read type */
 #define CAM_REG_DUMP_READ_TYPE_CONT_RANGE       1
 #define CAM_REG_DUMP_READ_TYPE_DMI              2
+#define CAM_REG_DUMP_READ_TYPE_CTXT             3
 
 /* Max number of config writes to read from DMI */
 #define CAM_REG_DUMP_DMI_CONFIG_MAX             5
@@ -388,6 +392,60 @@ struct cam_ubwc_plane_cfg_v2 {
 	__u32                bandwidth_limit;
 	__u32                reserved[3];
 };
+
+/**
+ * struct cam_ubwc_plane_cfg_v3 - UBWC Plane configuration info
+ *
+ * @port_type:                  Port Type
+ * @meta_stride:                UBWC metadata stride
+ * @meta_size:                  UBWC metadata plane size
+ * @meta_offset:                UBWC metadata offset
+ * @packer_config:              UBWC packer config
+ * @mode_config:                UBWC mode config
+ * @static ctrl:                UBWC static ctrl
+ * @ctrl_2:                     UBWC ctrl 2
+ * @tile_config:                UBWC tile config
+ * @h_init:                     UBWC horizontal initial coordinate in pixels
+ * @v_init:                     UBWC vertical initial coordinate in lines
+ * @stats_ctrl_2:               UBWC stats control
+ * @lossy_threshold0            UBWC lossy threshold 0
+ * @lossy_threshold1            UBWC lossy threshold 1
+ * @lossy_var_offset            UBWC offset variance thrshold
+ * @bandwidth_limit:            BW counter limit
+ *                              BW limiter config skipped if value is 0xFFFF or more
+ *                              If skipped here, use generic BW limiter blob to
+ *                              configure the appropriate value.
+ * @hw_ctx_id_mask:             hw context id mask in case of multi context
+ *                              definitions for valid values defined in cam_isp.h
+ * @num_valid_params:           Number of valid params, to accommodate future changes
+ * @param_mask:                 Indicate params supported, to accommodate future changes
+ * @params:                     Indicate params supported, to accommodate future changes
+ */
+struct cam_ubwc_plane_cfg_v3 {
+	__u32                port_type;
+	__u32                meta_stride;
+	__u32                meta_size;
+	__u32                meta_offset;
+	__u32                packer_config;
+	__u32                mode_config_0;
+	__u32                mode_config_1;
+	__u32                tile_config;
+	__u32                h_init;
+	__u32                v_init;
+	__u32                static_ctrl;
+	__u32                ctrl_2;
+	__u32                stats_ctrl_2;
+	__u32                lossy_threshold_0;
+	__u32                lossy_threshold_1;
+	__u32                lossy_var_offset;
+	__u32                bandwidth_limit;
+	__u32                hw_ctx_id_mask;
+	__u32                num_valid_params;
+	__u32                param_mask;
+	__u32                params[6];
+
+};
+
 /**
  * struct cam_cmd_buf_desc - Command buffer descriptor
  *
@@ -588,6 +646,9 @@ struct cam_query_cap_cmd {
 	__u64        caps_handle;
 };
 
+#define CAM_ACQUIRE_DEV_STRUCT_VERSION_1           1
+#define CAM_ACQUIRE_DEV_STRUCT_VERSION_2           2
+
 /**
  * struct cam_acquire_dev_cmd - Control payload for acquire devices
  *
@@ -607,6 +668,40 @@ struct cam_acquire_dev_cmd {
 	__u32        handle_type;
 	__u32        num_resources;
 	__u64        resource_hdl;
+};
+
+/**
+ * struct cam_acquire_dev_cmd_v2 - Control payload for acquire devices
+ *
+  * @struct_version:     = CAM_ACQUIRE_DEV_STRUCT_VERSION_2 for this struct
+ *                      This value should be the first 32-bits in any structure
+ *                      related to this IOCTL. So that if the struct needs to
+ *                      change, we can first read the starting 32-bits, get the
+ *                      version number and then typecast the data to struct
+ *                      accordingly.
+ * @session_handle:     Session handle for the acquire command
+ * @dev_handle:         Device handle to be returned
+ * @handle_type:        Resource handle type:
+ *                      1 = user pointer, 2 = mem handle
+ * @num_resources:      Number of the resources to be acquired
+ * @resources_hdl:      Resource handle that refers to the actual
+ *                      resource array. Each item in this
+ *                      array is device specific resource structure
+ * @num_valid_params:     number of valid params
+ * @valid_param_mask:     valid param mask
+ * @params:               additional parameters for future usage
+ *
+ */
+struct cam_acquire_dev_cmd_v2 {
+	__u32        struct_version;
+	__s32        session_handle;
+	__s32        dev_handle;
+	__u32        handle_type;
+	__u32        num_resources;
+	__u64        resource_hdl;
+	__u32        num_valid_params;
+	__u32        valid_param_mask;
+	__u32        params[5];
 };
 
 /*
@@ -871,10 +966,14 @@ struct cam_dmi_read_desc {
 };
 
 /**
- * struct cam_reg_read_info - Register read info for both reg continuous read
- *                            or DMI read
+ * struct cam_reg_read_info - Register read info for  continuous read
+ *                            or DMI read or Context based reg read
  *
- * @type                 : Whether Register range read or DMI read
+ * @type                 : Whether Register range read or DMI read or Context based reg read
+ *                         For context-based reading, we have to select context ID for reading
+ *                         that particular context Registers.
+ *                         if the type will be TYPE_CTX, we will write the context id and
+ *                         read the context registers. it will be similar to dmi read.
  * @reserved             : For acquired version 3, this corresponds to context_id
  * @reg_read             : Range of registers to read
  * @dmi_read             : DMI data to read

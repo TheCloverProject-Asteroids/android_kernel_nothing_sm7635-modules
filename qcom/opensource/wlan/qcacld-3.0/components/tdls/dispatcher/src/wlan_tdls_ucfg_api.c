@@ -473,6 +473,26 @@ bool  ucfg_tdls_is_fw_6g_capable(struct wlan_objmgr_psoc *psoc)
 }
 #endif
 
+enum tdls_feature_mode
+ucfg_tdls_get_current_mode(struct wlan_objmgr_psoc *psoc)
+{
+	struct tdls_soc_priv_obj *soc_obj;
+
+	if (!psoc) {
+		tdls_nofl_err("psoc invalid");
+		return TDLS_SUPPORT_DISABLED;
+	}
+
+	soc_obj = wlan_objmgr_psoc_get_comp_private_obj(psoc,
+							WLAN_UMAC_COMP_TDLS);
+	if (!soc_obj) {
+		tdls_nofl_err("Failed to get tdls psoc component");
+		return TDLS_SUPPORT_DISABLED;
+	}
+
+	return soc_obj->tdls_current_mode;
+}
+
 QDF_STATUS ucfg_tdls_update_config(struct wlan_objmgr_psoc *psoc,
 				   struct tdls_start_params *req)
 {
@@ -1103,20 +1123,6 @@ QDF_STATUS ucfg_tdls_set_operating_mode(
 	return QDF_STATUS_SUCCESS;
 }
 
-void ucfg_tdls_update_rx_pkt_cnt(struct wlan_objmgr_vdev *vdev,
-				 struct qdf_mac_addr *mac_addr,
-				 struct qdf_mac_addr *dest_mac_addr)
-{
-	tdls_update_rx_pkt_cnt(vdev, mac_addr, dest_mac_addr);
-
-}
-
-void ucfg_tdls_update_tx_pkt_cnt(struct wlan_objmgr_vdev *vdev,
-				 struct qdf_mac_addr *mac_addr)
-{
-	tdls_update_tx_pkt_cnt(vdev, mac_addr);
-}
-
 QDF_STATUS ucfg_tdls_antenna_switch(struct wlan_objmgr_vdev *vdev,
 				    uint32_t mode)
 {
@@ -1338,4 +1344,15 @@ void ucfg_tdls_set_user_tdls_enable(struct wlan_objmgr_vdev *vdev,
 				    bool is_user_tdls_enable)
 {
 	return tdls_set_user_tdls_enable(vdev, is_user_tdls_enable);
+}
+
+bool ucfg_tdls_is_vdev_allowed_to_tx(struct wlan_objmgr_vdev *vdev)
+{
+	return tdls_is_vdev_allowed_to_tx(vdev);
+}
+
+bool ucfg_tdls_is_key_install_allowed(struct wlan_objmgr_vdev *vdev,
+				      struct qdf_mac_addr *mac_addr)
+{
+	return wlan_tdls_is_key_install_allowed(vdev, mac_addr);
 }

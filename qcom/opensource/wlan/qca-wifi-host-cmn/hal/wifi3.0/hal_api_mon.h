@@ -22,6 +22,7 @@
 
 #include "qdf_types.h"
 #include "hal_internal.h"
+#include "hal_tx.h"
 #include "hal_rx.h"
 #include "hal_hw_headers.h"
 #include <target_type.h>
@@ -56,8 +57,12 @@
 
 #ifdef CONFIG_4_BYTES_TLV_TAG
 #define HAL_RX_TLV_HDR_SIZE HAL_RX_TLV32_HDR_SIZE
+#define HAL_TX_MON_TLV_GET(desc, block, field) \
+		HAL_TX_DESC_GET(desc, block, field)
 #else
 #define HAL_RX_TLV_HDR_SIZE HAL_RX_TLV64_HDR_SIZE
+#define HAL_TX_MON_TLV_GET(desc, block, field) \
+		HAL_TX_DESC_GET_64(desc, block, field)
 #endif
 
 #define HAL_TLV_STATUS_PPDU_NOT_DONE 0
@@ -276,6 +281,7 @@ struct hal_rx_mon_msdu_info {
  * @full_pkt: Full MPDU received
  * @first_rx_hdr_rcvd: First rx_hdr received
  * @truncated: truncated MPDU
+ * @is_aggr: is aggregated MSDU
  */
 struct hal_rx_mon_mpdu_info {
 	uint32_t decap_type : 8,
@@ -286,7 +292,8 @@ struct hal_rx_mon_mpdu_info {
 		 mpdu_start_received : 1,
 		 full_pkt : 1,
 		 first_rx_hdr_rcvd : 1,
-		 truncated : 1;
+		 truncated : 1,
+		 is_aggr : 1;
 };
 
 /**
@@ -1269,6 +1276,7 @@ struct hal_rx_ppdu_info {
 	struct hal_rx_msdu_payload_info msdu_info;
 	struct hal_rx_msdu_payload_info fcs_ok_msdu_info;
 	struct hal_rx_nac_info nac_info;
+	struct hal_rx_nac_info fc_info;
 	/* status ring PPDU start and end state */
 	uint8_t rx_state;
 	/* MU user id for status ring TLV */
@@ -1288,6 +1296,7 @@ struct hal_rx_ppdu_info {
 	uint8_t fcs_err_cnt;
 	/* MPDU FCS passed */
 	bool is_fcs_passed;
+	bool is_drop_ppdu;
 	/* first msdu payload for all mpdus in rx monitor status buffer */
 	struct hal_rx_msdu_payload_info ppdu_msdu_info[HAL_RX_MAX_MPDU_H_PER_STATUS_BUFFER];
 	/* evm info */
@@ -1410,6 +1419,38 @@ hal_rx_proc_phyrx_other_receive_info_tlv(struct hal_soc *hal_soc,
 }
 
 /**
+ * hal_rx_ru_info_details()
+ *				    - process RU info details
+ * @hal_soc: HAL soc object
+ * @rx_tlv_hdr: pointer to TLV header
+ * @ppdu_info: pointer to ppdu_info
+ *
+ * Return: None
+ */
+static inline void
+hal_rx_ru_info_details(struct hal_soc *hal_soc, void *rx_tlv_hdr,
+		       struct hal_rx_ppdu_info *ppdu_info)
+{
+	hal_soc->ops->hal_rx_ru_info_details(rx_tlv_hdr, (void *)ppdu_info);
+}
+
+/**
+ * hal_rx_proc_phyrx_all_sigb_tlv()
+ *				    - process sigb details
+ * @hal_soc: HAL soc object
+ * @rx_tlv_hdr: pointer to TLV header
+ * @ppdu_info: pointer to ppdu_info
+ *
+ * Return: None
+ */
+static inline void
+hal_rx_proc_phyrx_all_sigb_tlv(struct hal_soc *hal_soc, void *rx_tlv_hdr,
+			       struct hal_rx_ppdu_info *ppdu_info)
+{
+	//TODO not yet supported. To be called to set rawdata buffer for MU_SNIF
+}
+
+/**
  * hal_rx_status_get_tlv_info() - process receive info TLV
  * @rx_tlv_hdr: pointer to TLV header
  * @ppdu_info: pointer to ppdu_info
@@ -1456,6 +1497,36 @@ hal_clear_rx_status_done(uint8_t *rx_tlv)
 {
 	*(uint32_t *)rx_tlv = 0;
 	return QDF_STATUS_SUCCESS;
+}
+
+static inline
+uint8_t hal_get_rx_status_mic_len(struct mon_rx_user_status *rx_user_status)
+{
+	enum hal_tx_encrypt_type encrypt_type;
+
+	encrypt_type = rx_user_status->enc_type;
+
+	switch (encrypt_type) {
+	case HAL_TX_ENCRYPT_TYPE_WEP_40:
+	case HAL_TX_ENCRYPT_TYPE_WEP_104:
+	case HAL_TX_ENCRYPT_TYPE_WEP_128:
+	case HAL_TX_ENCRYPT_TYPE_TKIP_NO_MIC:
+		return 0;
+	case HAL_TX_ENCRYPT_TYPE_TKIP_WITH_MIC:
+		return 8;
+	case HAL_TX_ENCRYPT_TYPE_WAPI:
+	case HAL_TX_ENCRYPT_TYPE_WAPI_GCM_SM4:
+		return 16;
+	case HAL_TX_ENCRYPT_TYPE_AES_CCMP_128:
+		return 8;
+	case HAL_TX_ENCRYPT_TYPE_AES_CCMP_256:
+	case HAL_TX_ENCRYPT_TYPE_AES_GCMP_128:
+	case HAL_TX_ENCRYPT_TYPE_AES_GCMP_256:
+		return 16;
+	case HAL_TX_ENCRYPT_TYPE_NO_CIPHER:
+	default:
+		return 0;
+	}
 }
 
 #ifdef WLAN_PKT_CAPTURE_TX_2_0

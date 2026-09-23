@@ -58,19 +58,10 @@ struct adreno_hwsched_ops {
 	 */
 	void (*create_hw_fence)(struct adreno_device *adreno_dev,
 		struct kgsl_sync_fence *kfence);
-
-};
-
-/**
- * struct adreno_hw_fence - Container for hardware fences instance
- */
-struct adreno_hw_fence {
-	/** @handle: Handle for hardware fences */
-	void *handle;
-	/** @descriptor: Memory descriptor for hardware fences */
-	struct msm_hw_fence_mem_addr mem_descriptor;
-	/** @memdesc: Kgsl memory descriptor for hardware fences queue */
-	struct kgsl_memdesc memdesc;
+	/**
+	 * @get_rb_hostptr - Target specific function to get ringbuffer host pointer
+	 */
+	void *(*get_rb_hostptr)(struct adreno_device *adreno_dev, u64 gpuaddr, u32 size);
 };
 
 /**
@@ -87,13 +78,8 @@ struct adreno_hwsched {
 	struct llist_head jobs[16];
 	/** @requeue - Array of lists for dispatch jobs that got requeued */
 	struct llist_head requeue[16];
-	/** @work: The work structure to execute dispatcher function */
-	struct kthread_work work;
 	/** @cmd_list: List of objects submitted to dispatch queues */
 	struct list_head cmd_list;
-	/** @fault: Atomic to record a fault */
-	atomic_t fault;
-	struct kthread_worker *worker;
 	/** @hwsched_ops: Container for target specific hwscheduler ops */
 	const struct adreno_hwsched_ops *hwsched_ops;
 	/** @ctxt_bad: Container for the context bad hfi packet */
@@ -109,8 +95,6 @@ struct adreno_hwsched {
 	/** @lsr_check_ws: Lsr work to update power stats */
 	struct work_struct lsr_check_ws;
 	/** @hw_fence: Container for the hw fences instance */
-	struct adreno_hw_fence hw_fence;
-	/** @hw_fence_cache: kmem cache for storing hardware output fences */
 	struct kmem_cache *hw_fence_cache;
 	/** @hw_fence_count: Number of hardware fences that haven't yet been sent to Tx Queue */
 	atomic_t hw_fence_count;
@@ -138,14 +122,6 @@ enum adreno_hwsched_flags {
 	ADRENO_HWSCHED_CONTEXT_QUEUE,
 	ADRENO_HWSCHED_HW_FENCE,
 };
-
-/**
- * adreno_hwsched_trigger - Function to schedule the hwsched thread
- * @adreno_dev: A handle to adreno device
- *
- * Schedule the hw dispatcher for retiring and submitting command objects
- */
-void adreno_hwsched_trigger(struct adreno_device *adreno_dev);
 
 /**
  * adreno_hwsched_start() - activate the hwsched dispatcher
@@ -190,8 +166,6 @@ void adreno_hwsched_clear_fault(struct adreno_device *adreno_dev);
  */
 void adreno_hwsched_parse_fault_cmdobj(struct adreno_device *adreno_dev,
 	struct kgsl_snapshot *snapshot);
-
-void adreno_hwsched_flush(struct adreno_device *adreno_dev);
 
 /**
  * adreno_hwsched_unregister_contexts - Reset context gmu_registered bit

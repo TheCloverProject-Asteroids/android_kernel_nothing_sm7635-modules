@@ -12,37 +12,6 @@
 #include "cam_ife_csid_soc.h"
 #include "cam_ife_csid_common.h"
 
-#define IFE_CSID_VER2_TOP_INFO_VOTE_UP                BIT(16)
-#define IFE_CSID_VER2_TOP_INFO_VOTE_DN                BIT(17)
-#define IFE_CSID_VER2_TOP_ERR_NO_VOTE_DN              BIT(18)
-
-#define IFE_CSID_VER2_RX_DL0_EOT_CAPTURED             BIT(0)
-#define IFE_CSID_VER2_RX_DL1_EOT_CAPTURED             BIT(1)
-#define IFE_CSID_VER2_RX_DL2_EOT_CAPTURED             BIT(2)
-#define IFE_CSID_VER2_RX_DL3_EOT_CAPTURED             BIT(3)
-#define IFE_CSID_VER2_RX_DL0_SOT_CAPTURED             BIT(4)
-#define IFE_CSID_VER2_RX_DL1_SOT_CAPTURED             BIT(5)
-#define IFE_CSID_VER2_RX_DL2_SOT_CAPTURED             BIT(6)
-#define IFE_CSID_VER2_RX_DL3_SOT_CAPTURED             BIT(7)
-#define IFE_CSID_VER2_RX_LONG_PKT_CAPTURED            BIT(8)
-#define IFE_CSID_VER2_RX_SHORT_PKT_CAPTURED           BIT(9)
-#define IFE_CSID_VER2_RX_CPHY_PKT_HDR_CAPTURED        BIT(10)
-#define IFE_CSID_VER2_RX_CPHY_EOT_RECEPTION           BIT(11)
-#define IFE_CSID_VER2_RX_CPHY_SOT_RECEPTION           BIT(12)
-#define IFE_CSID_VER2_RX_ERROR_CPHY_PH_CRC            BIT(13)
-#define IFE_CSID_VER2_RX_WARNING_ECC                  BIT(14)
-#define IFE_CSID_VER2_RX_LANE0_FIFO_OVERFLOW          BIT(15)
-#define IFE_CSID_VER2_RX_LANE1_FIFO_OVERFLOW          BIT(16)
-#define IFE_CSID_VER2_RX_LANE2_FIFO_OVERFLOW          BIT(17)
-#define IFE_CSID_VER2_RX_LANE3_FIFO_OVERFLOW          BIT(18)
-#define IFE_CSID_VER2_RX_ERROR_CRC                    BIT(19)
-#define IFE_CSID_VER2_RX_ERROR_ECC                    BIT(20)
-#define IFE_CSID_VER2_RX_MMAPPED_VC_DT                BIT(21)
-#define IFE_CSID_VER2_RX_UNMAPPED_VC_DT               BIT(22)
-#define IFE_CSID_VER2_RX_STREAM_UNDERFLOW             BIT(23)
-#define IFE_CSID_VER2_RX_UNBOUNDED_FRAME              BIT(24)
-#define IFE_CSID_VER2_RX_RST_DONE                     BIT(27)
-
 #define CAM_IFE_CSID_VER2_PAYLOAD_MAX           256
 
 #define IFE_CSID_VER2_PATH_ERROR_ILLEGAL_PROGRAM                 BIT(0)
@@ -105,6 +74,22 @@ enum cam_ife_csid_ver2_csid_reset_cmd {
 	CAM_IFE_CSID_RESET_CMD_HW_MAX,
 };
 
+struct cam_ife_csid_ver2_debug_info {
+	uint32_t                              debug_val;
+	uint32_t                              rx_capture_vc;
+	uint32_t                              rx_capture_dt;
+	uint32_t                              rst_capture_strobes;
+	uint32_t                              top_mask[CAM_IFE_CSID_TOP_IRQ_STATUS_REG_MAX];
+	uint32_t                              rx_mask[CAM_IFE_CSID_RX_IRQ_STATUS_REG_MAX];
+	uint32_t                              path_mask;
+	uint32_t                              test_bus_val;
+	uint32_t                              domain_id_value;
+	bool                                  rx_capture_debug_set;
+	bool                                  test_bus_enabled;
+	bool                                  set_domain_id_enabled;
+	bool                                  cdr_sweep_debug_enabled;
+};
+
 struct cam_ife_csid_ver2_top_cfg {
 	uint32_t      input_core_type;
 	uint32_t      dual_sync_core_sel;
@@ -146,7 +131,7 @@ struct cam_ife_csid_ver2_rx_cfg  {
 	uint32_t epd_supported;
 	uint32_t top_irq_handle;
 	uint32_t rx2_irq_handle;
-	uint32_t irq_handle;
+	uint32_t irq_handle[CAM_IFE_CSID_RX_IRQ_STATUS_REG_MAX];
 	uint32_t err_irq_handle[CAM_IFE_CSID_RX_IRQ_STATUS_REG_MAX];
 	bool     dynamic_sensor_switch_en;
 };
@@ -232,6 +217,7 @@ struct cam_ife_csid_ver2_csi2_rx_reg_info {
 	uint32_t non_fatal_err_mask[CAM_IFE_CSID_RX_IRQ_STATUS_REG_MAX];
 	uint32_t debug_irq_mask[CAM_IFE_CSID_RX_IRQ_STATUS_REG_MAX];
 	uint32_t top_irq_mask[CAM_IFE_CSID_TOP_IRQ_STATUS_REG_MAX];
+	uint32_t rx_rx2_irq_mask;
 };
 
 /*
@@ -297,6 +283,8 @@ struct cam_ife_csid_ver2_rup_aup_mask {
  * @sfe_shdr:               flag to indicate if sfe is inline shdr
  * @lcr_en:                 Flag to indicate if path is part can be input to LCR
  * @ts_comb_vcdt_en:        Indicates if Timestamp combined vcdt flag is enabled
+ * @is_aeb_en:              Flag to indicate if aeb mode is enabled
+ * @allow_epoch_cb:         Flag to indicate if epoch callback is allowed for last exposure
  *
  */
 struct cam_ife_csid_ver2_path_cfg {
@@ -343,6 +331,8 @@ struct cam_ife_csid_ver2_path_cfg {
 	bool                                 csid_out_unpack_msb;
 	bool                                 handle_camif_irq;
 	bool                                 ts_comb_vcdt_en;
+	bool                                 is_aeb_en;
+	bool                                 allow_epoch_cb;
 };
 
 struct cam_ife_csid_ver2_top_reg_info {
@@ -391,6 +381,7 @@ struct cam_ife_csid_ver2_path_reg_info {
 	uint32_t ctrl_addr;
 	uint32_t debug_clr_cmd_addr;
 	uint32_t multi_vcdt_cfg0_addr;
+	uint32_t multi_vcdt_cfg1_addr;
 	uint32_t cfg1_addr;
 	uint32_t bin_cfg0_addr;
 	uint32_t pix_store_cfg0_addr;
@@ -529,11 +520,14 @@ struct cam_ife_csid_ver2_path_reg_info {
 	uint32_t capabilities;
 	uint32_t default_out_format;
 	bool     crop_drop_enable;
+	bool     disable_sof_retime_default;
+	bool     use_master_slave_default;
 };
 
 struct cam_ife_csid_ver2_common_reg_info {
 	uint32_t hw_version_addr;
 	uint32_t cfg0_addr;
+	uint32_t cfg1_addr;
 	uint32_t global_cmd_addr;
 	uint32_t reset_cfg_addr;
 	uint32_t reset_cmd_addr;
@@ -562,6 +556,11 @@ struct cam_ife_csid_ver2_common_reg_info {
 	uint32_t debug_sensor_hbi_irq_vcdt_addr;
 	uint32_t debug_violation_addr;
 	uint32_t debug_cfg_addr;
+	uint32_t debug_err_vec_irq[CAM_IFE_CSID_DEBUG_VEC_ERR_REGS];
+	uint32_t debug_err_vec_cfg;
+	uint32_t debug_err_vec_ts_lb;
+	uint32_t debug_err_vec_ts_mb;
+	uint32_t rx_mode_id_cfg1_addr;
 
 	/*Shift Bit Configurations*/
 	uint32_t rst_done_shift_val;
@@ -572,6 +571,8 @@ struct cam_ife_csid_ver2_common_reg_info {
 	uint32_t vfr_en_shift_val;
 	uint32_t decode_format_shift_val;
 	uint32_t decode_format1_shift_val;
+	uint32_t decode_format2_shift_val;
+	uint32_t decode_format3_shift_val;
 	bool     decode_format1_supported;
 	uint32_t decode_format_mask;
 	uint32_t start_mode_shift_val;
@@ -612,6 +613,8 @@ struct cam_ife_csid_ver2_common_reg_info {
 	uint32_t stream_id_y_offset_shift_val;
 	uint32_t multi_vcdt_vc1_shift_val;
 	uint32_t multi_vcdt_dt1_shift_val;
+	uint32_t multi_vcdt_dt2_shift_val;
+	uint32_t multi_vcdt_dt3_shift_val;
 	uint32_t multi_vcdt_ts_combo_en_shift_val;
 	uint32_t multi_vcdt_en_shift_val;
 	uint32_t mup_shift_val;
@@ -647,15 +650,20 @@ struct cam_ife_csid_ver2_common_reg_info {
 	uint32_t overflow_ctrl_en;
 	uint32_t early_eof_supported;
 	uint32_t global_reset;
-	uint32_t rup_supported;
+	uint32_t aup_rup_supported;
 	uint32_t only_master_rup;
 	uint32_t sfe_ipp_input_rdi_res;
 	uint32_t phy_sel_base_idx;
+	uint32_t num_dt_supported;
 	bool     timestamp_enabled_in_cfg0;
 	bool     camif_irq_support;
 	bool     ts_comb_vcdt_en;
+	bool     direct_cid_config;
 	uint32_t drv_rup_en_val_map[CAM_IFE_PIX_PATH_RES_MAX];
 	uint32_t drv_path_idle_en_val_map[CAM_ISP_MAX_PATHS];
+	uint32_t path_domain_id_cfg0;
+	uint32_t path_domain_id_cfg1;
+	uint32_t path_domain_id_cfg2;
 
 	/* Masks */
 	uint32_t ts_comb_vcdt_mask;
@@ -675,6 +683,8 @@ struct cam_ife_csid_ver2_common_reg_info {
 	uint32_t format_measure_height_shift_val;
 	uint32_t format_measure_width_mask_val;
 	uint32_t format_measure_width_shift_val;
+	uint32_t format_measure_max_hbi_shift;
+	uint32_t format_measure_min_hbi_mask;
 	uint32_t measure_en_hbi_vbi_cnt_mask;
 	uint32_t measure_pixel_line_en_mask;
 	uint32_t ipp_irq_mask_all;
@@ -684,6 +694,7 @@ struct cam_ife_csid_ver2_common_reg_info {
 	uint32_t top_err_irq_mask[CAM_IFE_CSID_TOP_IRQ_STATUS_REG_MAX];
 	uint32_t top_reset_irq_mask[CAM_IFE_CSID_TOP_IRQ_STATUS_REG_MAX];
 	uint32_t top_buf_done_irq_mask;
+	uint32_t top_top2_irq_mask;
 	uint32_t epoch_factor;
 	uint32_t decode_format_payload_only;
 	uint32_t capabilities;
@@ -736,10 +747,13 @@ struct cam_ife_csid_ver2_reg_info {
 		    CAM_IFE_CSID_HW_NUM_MAX][CAM_IFE_CSID_INPUT_CORE_SEL_MAX];
 	const struct cam_ife_csid_top_irq_desc           (*top_irq_desc)[][32];
 	const struct cam_ife_csid_irq_desc               (*rx_irq_desc)[][32];
+	const char*                                      (*debug_vec_desc)[][32];
 	const struct cam_ife_csid_irq_desc               *path_irq_desc;
 	const uint32_t                                   *num_top_err_irqs;
 	const uint32_t                                   *num_rx_err_irqs;
 	const uint32_t                                    num_path_err_irqs;
+	const struct cam_ife_csid_top_debug_mask         *top_debug_mask;
+	const struct cam_ife_csid_rx_debug_mask          *rx_debug_mask;
 	const uint32_t                                    num_top_regs;
 	const uint32_t                                    num_rx_regs;
 	const uint32_t                                    fused_max_dualife_width[
@@ -790,6 +804,8 @@ struct cam_ife_csid_ver2_reg_info {
  * @discard_frame_per_path:   Count of paths dropping initial frames
  * @drv_init_done:            Indicates if drv init config is done
  * @is_drv_config_en:         If drv config is enabled
+ * @standby_asserted:         Standby was asserted at stream off
+ * @crc_error_threshold:      CRC error threshold to be treated as fatal error
  *
  */
 struct cam_ife_csid_ver2_hw {
@@ -800,7 +816,7 @@ struct cam_ife_csid_ver2_hw {
 	struct cam_ife_csid_ver2_rx_cfg        rx_cfg;
 	struct cam_ife_csid_hw_counters        counters;
 	struct cam_ife_csid_hw_flags           flags;
-	struct cam_ife_csid_debug_info         debug_info;
+	struct cam_ife_csid_ver2_debug_info    debug_info;
 	struct cam_ife_csid_timestamp          timestamp;
 	struct cam_ife_csid_ver2_evt_payload   rx_evt_payload[
 						CAM_IFE_CSID_VER2_PAYLOAD_MAX];
@@ -835,11 +851,14 @@ struct cam_ife_csid_ver2_hw {
 	int                                    top_info_irq_handle
 						[CAM_IFE_CSID_TOP_IRQ_STATUS_REG_MAX];
 	int                                    top_mc_irq_handle;
+	int                                    top_top2_irq_handle;
 	enum cam_isp_hw_sync_mode              sync_mode;
 	uint32_t                               mup;
 	atomic_t                               discard_frame_per_path;
 	bool                                   drv_init_done;
 	bool                                   is_drv_config_en;
+	bool                                   standby_asserted;
+	uint32_t                               crc_error_threshold;
 };
 
 /*

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_ISP_HW_H_
@@ -35,6 +35,19 @@
 
 /* Access core_info of isp resource node */
 #define cam_isp_res_core_info(res) (((struct cam_hw_info *)res->hw_intf->hw_priv)->core_info)
+
+/* Add reg/val pair to buffer array and update the index */
+#define CAM_ISP_ADD_REG_VAL_PAIR(buf_array, length, index, offset, val)                      \
+	do {                                                                                 \
+		if (unlikely(index >= (length - 1))) {                                       \
+			CAM_ERR(CAM_ISP,                                                     \
+				"Exceed buf size %u when adding reg/val at index %u and %u", \
+				length, index, index+1);                                     \
+		} else {                                                                     \
+			buf_array[(index)++] = offset;                                       \
+			buf_array[(index)++] = val;                                          \
+		}                                                                            \
+	} while (0)
 
 enum cam_isp_exposure_type {
 	CAM_ISP_LAST_EXPOSURE,
@@ -353,12 +366,16 @@ struct cam_isp_hw_error_event_info {
  * @res_id:             Resource IDs to report buf dones
  * @comp_grp_id:        Bus comp group id
  * @last_consumed_addr: Last consumed addr for resource ID at that index
+ * @is_hw_ctxt_comp:    Indicates if the buf done event is hw context composite
+ * @is_early_done:      Indicates if its an early done event
  *
  */
 struct cam_isp_hw_bufdone_event_info {
 	uint32_t res_id;
 	uint32_t comp_grp_id;
 	uint32_t last_consumed_addr;
+	bool     is_hw_ctxt_comp;
+	bool     is_early_done;
 };
 
 /*
@@ -620,20 +637,50 @@ struct cam_isp_hw_intf_data {
 	uint32_t                num_hw_pid;
 	uint32_t                hw_pid[CAM_ISP_HW_MAX_PID_VAL];
 };
+
+
+/**
+ * struct cam_isp_hw_regiter_dump_data - ISP skip reg dump data
+ *
+ * @Brief:        ISP skip reg dump data
+ *
+ * @skip_regdump:              Regdump skip required for this target or not
+ * @skip_regdump_start_offset: Start register address which needs to skip register dump
+ * @skip_regdump_stop_offset:  Register address which needs to stop skiping register dump
+ *
+ */
+
+struct cam_isp_hw_regiter_dump_data {
+	bool                    skip_regdump;
+	uint32_t                skip_regdump_start_offset;
+	uint32_t                skip_regdump_stop_offset;
+};
+
 /**
  * struct cam_isp_hw_bus_cap:
  *
- * @Brief:         ISP hw bus capabilities
+ * @Brief:         ISP hw capabilities
  *
  * @max_out_res_type:       Maximum value of out resource type supported by hw
  * @num_perf_counters:      Number of perf counters supported
+ * @max_fcg_ch_ctx:         Maximum number of channels/contexts in FCG config provided by hw header
+ * @max_fcg_predictions:    Maximum number of predictions in FCG config provided by hw header
+ * @max_dt_supported:       Maximum number of DTs CSID can decode
+ * @fcg_supported:          Indicate whether FCG config is supported by the hw
+ * @num_wr_perf_counters:   Number of perf counters for write
  * @support_consumed_addr:  Indicate whether HW has last consumed addr reg
  *
  */
 struct cam_isp_hw_cap {
-	uint32_t                max_out_res_type;
-	uint32_t                num_perf_counters;
-	bool                    support_consumed_addr;
+	uint32_t                             max_out_res_type;
+	uint32_t                             num_perf_counters;
+	uint32_t                             num_wr_perf_counters;
+	uint32_t                             max_fcg_ch_ctx;
+	uint32_t                             max_fcg_predictions;
+	uint32_t                             max_dt_supported;
+	bool                                 fcg_supported;
+	bool                                 support_consumed_addr;
+	struct cam_isp_hw_regiter_dump_data  skip_regdump_data;
 };
 
 /**

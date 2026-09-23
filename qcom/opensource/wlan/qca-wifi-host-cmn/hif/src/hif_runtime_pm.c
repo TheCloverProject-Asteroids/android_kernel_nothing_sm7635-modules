@@ -447,6 +447,11 @@ void hif_rtpm_start(struct hif_softc *scn)
 		return;
 	}
 
+	if (pld_is_one_msi(scn->qdf_dev->dev)) {
+		hif_info_high("RUNTIME PM is disabled for single MSI mode");
+		return;
+	}
+
 	if (mode == QDF_GLOBAL_FTM_MODE || QDF_IS_EPPING_ENABLED(mode) ||
 	    mode == QDF_GLOBAL_MONITOR_MODE) {
 		hif_info("RUNTIME PM is disabled for FTM/EPPING/MONITOR mode");
@@ -547,7 +552,8 @@ QDF_STATUS hif_rtpm_deregister(uint32_t id)
 
 QDF_STATUS hif_rtpm_set_autosuspend_delay(int delay)
 {
-	if (delay < HIF_RTPM_DELAY_MIN || delay > HIF_RTPM_DELAY_MAX) {
+	if ((delay < HIF_RTPM_DELAY_MIN || delay > HIF_RTPM_DELAY_MAX) &&
+	    delay > 0) {
 		hif_err("Invalid delay value %d ms", delay);
 		return QDF_STATUS_E_INVAL;
 	}

@@ -1,27 +1,23 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2020-2022, The Linux Foundation. All rights reserved.
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <soc/qcom/of_common.h>
 
 #include "msm_vidc_control.h"
-#include "msm_vidc_volcano.h"
+#include "msm_vidc_tuna.h"
 #include "msm_vidc_platform.h"
 #include "msm_vidc_debug.h"
-#include "msm_vidc_iris2.h"
+#include "msm_vidc_iris35.h"
 #include "hfi_property.h"
 #include "hfi_command.h"
 #include "venus_hfi.h"
 
-/* version: major[24:31], minor[16:23], revision[0:15] */
-#define DRIVER_VERSION          0x04000000
-#define DEFAULT_VIDEO_CONCEAL_COLOR_BLACK 0x8020010
+#define DEFAULT_VIDEO_CONCEAL_COLOR_BLACK 0x8000800010
 #define MAX_BASE_LAYER_PRIORITY_ID 63
 #define MAX_OP_POINT            31
-#define MAX_BITRATE             160000000
-#define MAX_BITRATE_V1          100000000
+#define MAX_BITRATE             245000000
 #define DEFAULT_BITRATE         20000000
 #define MINIMUM_FPS             1
 #define MAXIMUM_FPS             480
@@ -31,20 +27,16 @@
 #define MIN_SLICE_BYTE_SIZE     512
 #define MAX_SLICE_BYTE_SIZE       \
 	((MAX_BITRATE) >> 3)
-#define MAX_SLICE_BYTE_SIZE_V1    \
-	((MAX_BITRATE_V1) >> 3)
 #define MAX_SLICE_MB_SIZE         \
-	(((4096 + 15) >> 4) * ((2160 + 15) >> 4))
-#define MAX_LTR_FRAME_COUNT     2
+	(((4096 + 15) >> 4) * ((2304 + 15) >> 4))
 
 #define ENC     MSM_VIDC_ENCODER
 #define DEC     MSM_VIDC_DECODER
 #define H264    MSM_VIDC_H264
 #define HEVC    MSM_VIDC_HEVC
 #define VP9     MSM_VIDC_VP9
-#define HEIC    MSM_VIDC_HEIC
-#define CODECS_ALL    (H264 | HEVC | VP9 | HEIC)
-#define MAXIMUM_OVERRIDE_VP9_FPS 200
+#define CODECS_ALL     (H264 | HEVC | VP9)
+#define MAXIMUM_OVERRIDE_VP9_FPS 180
 
 #ifndef V4L2_PIX_FMT_QC08C
 #define V4L2_PIX_FMT_QC08C    v4l2_fourcc('Q', '0', '8', 'C')
@@ -54,7 +46,7 @@
 #define V4L2_PIX_FMT_QC10C    v4l2_fourcc('Q', '1', '0', 'C')
 #endif
 
-static struct codec_info codec_data_volcano[] = {
+static struct codec_info codec_data_tuna[] = {
 	{
 		.v4l2_codec  = V4L2_PIX_FMT_H264,
 		.vidc_codec  = MSM_VIDC_H264,
@@ -72,7 +64,7 @@ static struct codec_info codec_data_volcano[] = {
 	},
 };
 
-static struct color_format_info color_format_data_volcano[] = {
+static struct color_format_info color_format_data_tuna[] = {
 	{
 		.v4l2_color_format = V4L2_PIX_FMT_NV12,
 		.vidc_color_format = MSM_VIDC_FMT_NV12,
@@ -100,7 +92,7 @@ static struct color_format_info color_format_data_volcano[] = {
 	},
 };
 
-static struct color_primaries_info color_primaries_data_volcano[] = {
+static struct color_primaries_info color_primaries_data_tuna[] = {
 	{
 		.v4l2_color_primaries  = V4L2_COLORSPACE_DEFAULT,
 		.vidc_color_primaries  = MSM_VIDC_PRIMARIES_RESERVED,
@@ -135,7 +127,7 @@ static struct color_primaries_info color_primaries_data_volcano[] = {
 	},
 };
 
-static struct transfer_char_info transfer_char_data_volcano[] = {
+static struct transfer_char_info transfer_char_data_tuna[] = {
 	{
 		.v4l2_transfer_char  = V4L2_XFER_FUNC_DEFAULT,
 		.vidc_transfer_char  = MSM_VIDC_TRANSFER_RESERVED,
@@ -158,7 +150,7 @@ static struct transfer_char_info transfer_char_data_volcano[] = {
 	},
 };
 
-static struct matrix_coeff_info matrix_coeff_data_volcano[] = {
+static struct matrix_coeff_info matrix_coeff_data_tuna[] = {
 	{
 		.v4l2_matrix_coeff  = V4L2_YCBCR_ENC_DEFAULT,
 		.vidc_matrix_coeff  = MSM_VIDC_MATRIX_COEFF_RESERVED,
@@ -193,49 +185,48 @@ static struct matrix_coeff_info matrix_coeff_data_volcano[] = {
 	},
 };
 
-static struct msm_platform_core_capability core_data_volcano_v0[] = {
+static const struct msm_platform_core_capability core_data_tuna[] = {
 	/* {type, value} */
-	{ENC_CODECS, H264 | HEVC | HEIC},
-	{DEC_CODECS, H264 | HEVC | VP9 | HEIC},
+	{ENC_CODECS, H264 | HEVC},
+	{DEC_CODECS, H264 | HEVC | VP9},
 	{MAX_SESSION_COUNT, 16},
 	{MAX_NUM_720P_SESSIONS, 16},
 	{MAX_NUM_1080P_SESSIONS, 16},
-	{MAX_NUM_4K_SESSIONS, 4},
-	{MAX_SECURE_SESSION_COUNT, 3},
-	{MAX_RT_MBPF, 130560}, /* (4 * ((3840*2176)/256)) */
-	{MAX_MBPF, 139264}, /* (4 * ((4096*2176)/256)) */
-	/* max_load 3840x2176@120fps*/
-	/* Concurrency: UHD@30 decode + UHD@30 encode */
-	{MAX_MBPS, 3916800},
-	{MAX_IMAGE_MBPF, 1048576}, /* (16384x16384)/256 */
+	{MAX_NUM_4K_SESSIONS, 8},
+	{MAX_NUM_8K_SESSIONS, 2},
+	{MAX_RT_MBPF, 174080},	/* (8192x4352)/256 + (4096x2176)/256*/
+	{MAX_MBPF, 278528}, /* ((8192x4352)/256) * 2 */
+	{MAX_MBPS, 7833600},
+	/* max_load
+	 * 7680x4320@60fps or 3840x2176@240fps
+	 * which is greater than 4096x2176@120fps,
+	 * 8192x4320@48fps
+	 */
 	{MAX_MBPF_HQ, 8160}, /* ((1920x1088)/256) */
-	{MAX_MBPS_HQ, 244800}, /* ((1920x1088)/256)@30fps */
+	{MAX_MBPS_HQ, 489600}, /* ((1920x1088)/256)@60fps */
 	{MAX_MBPF_B_FRAME, 32640}, /* 3840x2176/256 */
-	{MAX_MBPS_B_FRAME, 979200}, /* 3840x2176/256 MBs@30fps */
-	{MAX_MBPS_ALL_INTRA, 489600}, /* ((1920x1088)/256)@60fps */
+	{MAX_MBPS_B_FRAME, 1958400}, /* 3840x2176/256 MBs@60fps */
+	{MAX_MBPS_ALL_INTRA, 1044480}, /* 4096x2176/256 MBs@30fps */
 	{MAX_ENH_LAYER_COUNT, 5},
-	{NUM_VPP_PIPE, 2},
+	{NUM_VPP_PIPE, 4},
 	{SW_PC, 1},
 	{FW_UNLOAD, 0},
 	{HW_RESPONSE_TIMEOUT, HW_RESPONSE_TIMEOUT_VALUE}, /* 1000 ms */
 	{SW_PC_DELAY,         SW_PC_DELAY_VALUE        }, /* 1500 ms (>HW_RESPONSE_TIMEOUT)*/
 	{FW_UNLOAD_DELAY,     FW_UNLOAD_DELAY_VALUE    }, /* 3000 ms (>SW_PC_DELAY)*/
-	{PAGEFAULT_NON_FATAL, 1},
-	{PAGETABLE_CACHING, 0},
 	{DCVS, 1},
 	{DECODE_BATCH, 1},
 	{DECODE_BATCH_TIMEOUT, 200},
 	{STATS_TIMEOUT_MS, 2000},
-	{AV_SYNC_WINDOW_SIZE, 40},
 	{NON_FATAL_FAULTS, 1},
-	{ENC_AUTO_FRAMERATE, 0},
-	{DEVICE_CAPS, V4L2_CAP_VIDEO_M2M_MPLANE | V4L2_CAP_META_CAPTURE |
-		V4L2_CAP_STREAMING},
-	{SUPPORTS_SYNX_FENCE, 1},
+	{ENC_AUTO_FRAMERATE, 1},
+	{DEVICE_CAPS, V4L2_CAP_VIDEO_M2M_MPLANE | V4L2_CAP_STREAMING},
+	// TODO gdoddabe Enable when Synx changes are available
+	// {SUPPORTS_SYNX_FENCE, 0},
 	{SUPPORTS_REQUESTS, 0},
 };
 
-static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
+static struct msm_platform_inst_capability instance_cap_data_tuna[] = {
 	/* {cap, domain, codec,
 	 *      min, max, step_or_mask, value,
 	 *      v4l2_id,
@@ -243,29 +234,29 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 	 *      flags}
 	 */
 
-	{FRAME_WIDTH, DEC, CODECS_ALL, 96, 4096, 1, 1920},
+	{FRAME_WIDTH, DEC, CODECS_ALL, 96, 8192, 1, 1920},
 
-	{FRAME_WIDTH, ENC, CODECS_ALL, 128, 4096, 1, 1920},
+	{FRAME_WIDTH, DEC, VP9, 96, 4096, 1, 1920},
 
-	{FRAME_WIDTH, ENC, HEIC, 128, 16384, 1, 16384},
+	{FRAME_WIDTH, ENC, CODECS_ALL, 128, 8192, 1, 1920},
 
-	{LOSSLESS_FRAME_WIDTH, ENC, H264|HEVC, 128, 4096, 1, 1920},
+	{FRAME_WIDTH, ENC, HEVC, 96, 8192, 1, 1920},
 
-	{SECURE_FRAME_WIDTH, DEC, CODECS_ALL, 96, 4096, 1, 1920},
+	{LOSSLESS_FRAME_WIDTH, ENC, CODECS_ALL, 128, 4096, 1, 1920},
 
-	{SECURE_FRAME_WIDTH, ENC, CODECS_ALL, 128, 4096, 1, 1920},
+	{LOSSLESS_FRAME_WIDTH, ENC, HEVC, 96, 4096, 1, 1920},
 
-	{FRAME_HEIGHT, DEC, CODECS_ALL, 96, 4096, 1, 1080},
+	{FRAME_HEIGHT, DEC, CODECS_ALL, 96, 8192, 1, 1080},
 
-	{FRAME_HEIGHT, ENC, CODECS_ALL, 128, 4096, 1, 1080},
+	{FRAME_HEIGHT, DEC, VP9, 96, 4096, 1, 1080},
 
-	{FRAME_HEIGHT, ENC, HEIC, 128, 16384, 1, 16384},
+	{FRAME_HEIGHT, ENC, CODECS_ALL, 128, 8192, 1, 1080},
+
+	{FRAME_HEIGHT, ENC, HEVC, 96, 8192, 1, 1080},
 
 	{LOSSLESS_FRAME_HEIGHT, ENC, CODECS_ALL, 128, 4096, 1, 1080},
 
-	{SECURE_FRAME_HEIGHT, DEC, CODECS_ALL, 96, 4096, 1, 1080},
-
-	{SECURE_FRAME_HEIGHT, ENC, CODECS_ALL, 128, 4096, 1, 1080},
+	{LOSSLESS_FRAME_HEIGHT, ENC, HEVC, 96, 4096, 1, 1080},
 
 	{PIX_FMTS, ENC | DEC, H264,
 		MSM_VIDC_FMT_NV12,
@@ -273,39 +264,14 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		MSM_VIDC_FMT_NV12 | MSM_VIDC_FMT_NV21 | MSM_VIDC_FMT_NV12C,
 		MSM_VIDC_FMT_NV12C},
 
-	{PIX_FMTS, ENC | DEC, HEVC,
+	{PIX_FMTS, ENC | DEC, HEVC | VP9,
 		MSM_VIDC_FMT_NV12,
 		MSM_VIDC_FMT_TP10C,
 		MSM_VIDC_FMT_NV12 | MSM_VIDC_FMT_NV21 | MSM_VIDC_FMT_NV12C |
-		MSM_VIDC_FMT_P010 | MSM_VIDC_FMT_TP10C,
-		MSM_VIDC_FMT_NV12C},
-
-	{PIX_FMTS, ENC, HEIC,
-		MSM_VIDC_FMT_NV12,
-		MSM_VIDC_FMT_P010,
-		MSM_VIDC_FMT_NV12 | MSM_VIDC_FMT_NV21 | MSM_VIDC_FMT_P010,
-		MSM_VIDC_FMT_NV12},
-
-	{PIX_FMTS, DEC, HEIC,
-		MSM_VIDC_FMT_NV12,
 		MSM_VIDC_FMT_TP10C,
-		MSM_VIDC_FMT_NV12 | MSM_VIDC_FMT_NV21 | MSM_VIDC_FMT_NV12C |
-		MSM_VIDC_FMT_P010 | MSM_VIDC_FMT_TP10C,
-		MSM_VIDC_FMT_NV12C},
-
-	{PIX_FMTS, DEC, VP9,
-		MSM_VIDC_FMT_NV12,
-		MSM_VIDC_FMT_TP10C,
-		MSM_VIDC_FMT_NV12 | MSM_VIDC_FMT_NV21 | MSM_VIDC_FMT_NV12C |
-		MSM_VIDC_FMT_P010 | MSM_VIDC_FMT_TP10C,
 		MSM_VIDC_FMT_NV12C},
 
 	{MIN_BUFFERS_INPUT, ENC | DEC, CODECS_ALL, 0, 64, 1, 4,
-		V4L2_CID_MIN_BUFFERS_FOR_OUTPUT,
-		0,
-		CAP_FLAG_VOLATILE},
-
-	{MIN_BUFFERS_INPUT, ENC | DEC, HEIC, 0, 64, 1, 1,
 		V4L2_CID_MIN_BUFFERS_FOR_OUTPUT,
 		0,
 		CAP_FLAG_VOLATILE},
@@ -316,37 +282,25 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		HFI_PROP_BUFFER_FW_MIN_OUTPUT_COUNT,
 		CAP_FLAG_OUTPUT_PORT | CAP_FLAG_VOLATILE},
 
-	/* (4096 * 2176) / 256 */
-	{MBPF, ENC, CODECS_ALL, 64, 34816, 1, 34816},
+	/* (8192 * 4320) / 256 */
+	{MBPF, ENC, CODECS_ALL, 64, 138240, 1, 138240},
 
-	/* ((16384x16384)/256) */
-	{MBPF, ENC, HEIC, 64, 1048576, 1, 1048576},
+	{MBPF, ENC, HEVC, 36, 138240, 1, 138240},
 
-	/* (4 * ((4096 * 2176)/256) */
-	{MBPF, DEC, CODECS_ALL, 36, 139264, 1, 139264},
+	{MBPF, DEC, CODECS_ALL, 36, 138240, 1, 138240},
 
-	/* (4096 * 2176) / 256 */
-	{MBPF, DEC, VP9, 36, 34816, 1, 34816},
+	/* (4096 * 2304) / 256 */
+	{MBPF, DEC, VP9, 36, 36864, 1, 36864},
 
-	/* ((8192x8192)/256) */
-	{MBPF, DEC, HEIC, 64, 262144,  1, 262144 },
-
-	/* (4096 * 2176) / 256 */
-	{LOSSLESS_MBPF, ENC, H264 | HEVC, 64, 34816, 1, 34816},
+	/* (4096 * 2304) / 256 */
+	{LOSSLESS_MBPF, ENC, H264 | HEVC, 64, 36864, 1, 36864},
 
 	/* Batch Mode Decode */
-	/* BATCH_MBPF + 2 is done for chipsets other than lanai
-	 * due to timeline constraints since msm_vidc_allow_decode_batch
-	 * has checks to allow batching for less than BATCH_MBPF.
-	 * Same applies for BATCH_FPS.
-	 */
-	/* (1920 * 1088) / 256 */
-	{BATCH_MBPF, DEC, H264 | HEVC | VP9, 64, 8162, 1, 8162},
+	/* TODO: update with new values based on updated voltage corner */
+	{BATCH_MBPF, DEC, H264 | HEVC | VP9, 64, 34816, 1, 34816},
 
-	{BATCH_FPS, DEC, H264 | HEVC | VP9, 1, 61, 1, 61},
-
-    /* (4096 * 2176) / 256 */
-	{SECURE_MBPF, ENC | DEC, H264 | HEVC | VP9, 64, 34816, 1, 34816},
+	/* (4096 * 2304) / 256 */
+	{BATCH_FPS, DEC, H264 | HEVC | VP9, 1, 120, 1, 120},
 
 	{FRAME_RATE, ENC, CODECS_ALL,
 		(MINIMUM_FPS << 16), (MAXIMUM_FPS << 16),
@@ -383,12 +337,14 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 
 	{MB_CYCLES_LP, DEC, CODECS_ALL, 200, 200, 1, 200},
 
-	{MB_CYCLES_FW, ENC | DEC, CODECS_ALL, 326389, 326389, 1, 326389},
+	{MB_CYCLES_FW, ENC | DEC, CODECS_ALL, 489583, 489583, 1, 489583},
 
-	{MB_CYCLES_FW_VPP, ENC | DEC, CODECS_ALL, 44156, 44156, 1, 44156},
+	{MB_CYCLES_FW_VPP, ENC, CODECS_ALL, 48405, 48405, 1, 48405},
 
-	{ENC_RING_BUFFER_COUNT, ENC, CODECS_ALL,
-		0, 0, 1, 0},
+	{MB_CYCLES_FW_VPP, DEC, CODECS_ALL, 66234, 66234, 1, 66234},
+
+	{ENC_RING_BUFFER_COUNT, ENC, H264,
+		0, MAX_ENC_RING_BUF_COUNT, 1, 0},
 
 	{CLIENT_ID, ENC | DEC, CODECS_ALL,
 		INVALID_CLIENT_ID, INT_MAX, 1, INVALID_CLIENT_ID,
@@ -498,10 +454,10 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		160000000, 1, 160000000},
 
 	{CAVLC_MAX_BITRATE, ENC, H264, 0,
-		160000000, 1, 160000000},
+		220000000, 1, 220000000},
 
 	{ALLINTRA_MAX_BITRATE, ENC, H264 | HEVC, 0,
-		160000000, 1, 160000000},
+		245000000, 1, 245000000},
 
 	{LOWLATENCY_MAX_BITRATE, ENC, H264 | HEVC, 0,
 		70000000, 1, 70000000},
@@ -510,7 +466,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		0, 1, 1, 0,
 		V4L2_CID_MPEG_VIDEO_HEVC_LOSSLESS_CU},
 
-	{FRAME_SKIP_MODE, ENC, H264 | HEVC | HEIC,
+	{FRAME_SKIP_MODE, ENC, H264 | HEVC,
 		V4L2_MPEG_VIDEO_FRAME_SKIP_MODE_DISABLED,
 		V4L2_MPEG_VIDEO_FRAME_SKIP_MODE_BUF_LIMIT,
 		BIT(V4L2_MPEG_VIDEO_FRAME_SKIP_MODE_DISABLED) |
@@ -521,7 +477,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		0,
 		CAP_FLAG_OUTPUT_PORT | CAP_FLAG_MENU},
 
-	{FRAME_RC_ENABLE, ENC, H264 | HEVC | HEIC,
+	{FRAME_RC_ENABLE, ENC, H264 | HEVC,
 		0, 1, 1, 1,
 		V4L2_CID_MPEG_VIDEO_FRAME_RC_ENABLE},
 
@@ -561,8 +517,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 	{CSC, ENC, CODECS_ALL,
 		0, 1, 1, 0,
 		0,
-		HFI_PROP_CSC,
-		CAP_FLAG_OUTPUT_PORT},
+		HFI_PROP_CSC},
 
 	{LOWLATENCY_MODE, ENC, H264 | HEVC,
 		0, 1, 1, 0,
@@ -577,14 +532,14 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		CAP_FLAG_INPUT_PORT | CAP_FLAG_DYNAMIC_ALLOWED},
 
 	{LTR_COUNT, ENC, H264 | HEVC,
-		0, MAX_LTR_FRAME_COUNT, 1, 0,
+		0, MAX_LTR_FRAME_COUNT_5, 1, 0,
 		V4L2_CID_MPEG_VIDEO_LTR_COUNT,
 		HFI_PROP_LTR_COUNT,
 		CAP_FLAG_OUTPUT_PORT},
 
 	{USE_LTR, ENC, H264 | HEVC,
 		0,
-		((1 << MAX_LTR_FRAME_COUNT) - 1),
+		((1 << MAX_LTR_FRAME_COUNT_5) - 1),
 		0, 0,
 		V4L2_CID_MPEG_VIDEO_USE_LTR_FRAMES,
 		HFI_PROP_LTR_USE,
@@ -592,7 +547,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 
 	{MARK_LTR, ENC, H264 | HEVC,
 		INVALID_DEFAULT_MARK_OR_USE_LTR,
-		(MAX_LTR_FRAME_COUNT - 1),
+		(MAX_LTR_FRAME_COUNT_5 - 1),
 		1, INVALID_DEFAULT_MARK_OR_USE_LTR,
 		V4L2_CID_MPEG_VIDEO_FRAME_LTR_INDEX,
 		HFI_PROP_LTR_MARK,
@@ -651,7 +606,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		HFI_PROP_MIN_QP_PACKED,
 		CAP_FLAG_OUTPUT_PORT},
 
-	{MIN_FRAME_QP, ENC, HEVC | HEIC,
+	{MIN_FRAME_QP, ENC, HEVC,
 		MIN_QP_10BIT, MAX_QP, 1, MIN_QP_10BIT,
 		V4L2_CID_MPEG_VIDEO_HEVC_MIN_QP,
 		HFI_PROP_MIN_QP_PACKED,
@@ -661,7 +616,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		MIN_QP_8BIT, MAX_QP, 1, MIN_QP_8BIT,
 		V4L2_CID_MPEG_VIDEO_H264_I_FRAME_MIN_QP},
 
-	{I_FRAME_MIN_QP, ENC, HEVC | HEIC,
+	{I_FRAME_MIN_QP, ENC, HEVC,
 		MIN_QP_10BIT, MAX_QP, 1, MIN_QP_10BIT,
 		V4L2_CID_MPEG_VIDEO_HEVC_I_FRAME_MIN_QP},
 
@@ -669,7 +624,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		MIN_QP_8BIT, MAX_QP, 1, MIN_QP_8BIT,
 		V4L2_CID_MPEG_VIDEO_H264_P_FRAME_MIN_QP},
 
-	{P_FRAME_MIN_QP, ENC, HEVC | HEIC,
+	{P_FRAME_MIN_QP, ENC, HEVC,
 		MIN_QP_10BIT, MAX_QP, 1, MIN_QP_10BIT,
 		V4L2_CID_MPEG_VIDEO_HEVC_P_FRAME_MIN_QP},
 
@@ -677,7 +632,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		MIN_QP_8BIT, MAX_QP, 1, MIN_QP_8BIT,
 		V4L2_CID_MPEG_VIDEO_H264_B_FRAME_MIN_QP},
 
-	{B_FRAME_MIN_QP, ENC, HEVC | HEIC,
+	{B_FRAME_MIN_QP, ENC, HEVC,
 		MIN_QP_10BIT, MAX_QP, 1, MIN_QP_10BIT,
 		V4L2_CID_MPEG_VIDEO_HEVC_B_FRAME_MIN_QP},
 
@@ -687,7 +642,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		HFI_PROP_MAX_QP_PACKED,
 		CAP_FLAG_OUTPUT_PORT},
 
-	{MAX_FRAME_QP, ENC, HEVC | HEIC,
+	{MAX_FRAME_QP, ENC, HEVC,
 		MIN_QP_10BIT, MAX_QP, 1, MAX_QP,
 		V4L2_CID_MPEG_VIDEO_HEVC_MAX_QP,
 		HFI_PROP_MAX_QP_PACKED,
@@ -697,7 +652,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		MIN_QP_8BIT, MAX_QP, 1, MAX_QP,
 		V4L2_CID_MPEG_VIDEO_H264_I_FRAME_MAX_QP},
 
-	{I_FRAME_MAX_QP, ENC, HEVC | HEIC,
+	{I_FRAME_MAX_QP, ENC, HEVC,
 		MIN_QP_10BIT, MAX_QP, 1, MAX_QP,
 		V4L2_CID_MPEG_VIDEO_HEVC_I_FRAME_MAX_QP},
 
@@ -705,7 +660,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		MIN_QP_8BIT, MAX_QP, 1, MAX_QP,
 		V4L2_CID_MPEG_VIDEO_H264_P_FRAME_MAX_QP},
 
-	{P_FRAME_MAX_QP, ENC, HEVC | HEIC,
+	{P_FRAME_MAX_QP, ENC, HEVC,
 		MIN_QP_10BIT, MAX_QP, 1, MAX_QP,
 		V4L2_CID_MPEG_VIDEO_HEVC_P_FRAME_MAX_QP},
 
@@ -713,7 +668,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		MIN_QP_8BIT, MAX_QP, 1, MAX_QP,
 		V4L2_CID_MPEG_VIDEO_H264_B_FRAME_MAX_QP},
 
-	{B_FRAME_MAX_QP, ENC, HEVC | HEIC,
+	{B_FRAME_MAX_QP, ENC, HEVC,
 		MIN_QP_10BIT, MAX_QP, 1, MAX_QP,
 		V4L2_CID_MPEG_VIDEO_HEVC_B_FRAME_MAX_QP},
 
@@ -804,6 +759,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		HFI_PROP_LAYER_COUNT,
 		CAP_FLAG_OUTPUT_PORT | CAP_FLAG_INPUT_PORT |
 			CAP_FLAG_DYNAMIC_ALLOWED},
+
 	{L0_BR, ENC, H264,
 		1, MAX_BITRATE, 1, DEFAULT_BITRATE,
 		V4L2_CID_MPEG_VIDEO_H264_HIER_CODING_L0_BR,
@@ -919,7 +875,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		HFI_PROP_PROFILE,
 		CAP_FLAG_OUTPUT_PORT | CAP_FLAG_MENU},
 
-	{PROFILE, ENC | DEC, HEVC | HEIC,
+	{PROFILE, ENC | DEC, HEVC,
 		V4L2_MPEG_VIDEO_HEVC_PROFILE_MAIN,
 		V4L2_MPEG_VIDEO_HEVC_PROFILE_MAIN_10_STILL_PICTURE,
 		BIT(V4L2_MPEG_VIDEO_HEVC_PROFILE_MAIN) |
@@ -962,12 +918,12 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_5_1) |
 		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_5_2) |
 		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_6_0),
-		V4L2_MPEG_VIDEO_H264_LEVEL_6_0,
+		V4L2_MPEG_VIDEO_H264_LEVEL_5_0,
 		V4L2_CID_MPEG_VIDEO_H264_LEVEL,
 		HFI_PROP_LEVEL,
 		CAP_FLAG_OUTPUT_PORT | CAP_FLAG_MENU},
 
-	{LEVEL, DEC, HEVC | HEIC,
+	{LEVEL, ENC, HEVC,
 		V4L2_MPEG_VIDEO_HEVC_LEVEL_1,
 		V4L2_MPEG_VIDEO_HEVC_LEVEL_6,
 		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_1) |
@@ -981,14 +937,63 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_5_1) |
 		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_5_2) |
 		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_6),
-		V4L2_MPEG_VIDEO_HEVC_LEVEL_6,
+		V4L2_MPEG_VIDEO_HEVC_LEVEL_5,
+		V4L2_CID_MPEG_VIDEO_HEVC_LEVEL,
+		HFI_PROP_LEVEL,
+		CAP_FLAG_OUTPUT_PORT | CAP_FLAG_MENU},
+
+	{LEVEL, DEC, H264,
+		V4L2_MPEG_VIDEO_H264_LEVEL_1_0,
+		V4L2_MPEG_VIDEO_H264_LEVEL_6_2,
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_1_0) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_1B) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_1_1) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_1_2) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_1_3) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_2_0) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_2_1) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_2_2) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_3_0) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_3_1) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_3_2) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_4_0) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_4_1) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_4_2) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_5_0) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_5_1) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_5_2) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_6_0) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_6_1) |
+		BIT(V4L2_MPEG_VIDEO_H264_LEVEL_6_2),
+		V4L2_MPEG_VIDEO_H264_LEVEL_6_1,
+		V4L2_CID_MPEG_VIDEO_H264_LEVEL,
+		HFI_PROP_LEVEL,
+		CAP_FLAG_OUTPUT_PORT | CAP_FLAG_MENU},
+
+	{LEVEL, DEC, HEVC,
+		V4L2_MPEG_VIDEO_HEVC_LEVEL_1,
+		V4L2_MPEG_VIDEO_HEVC_LEVEL_6_2,
+		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_1) |
+		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_2) |
+		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_2_1) |
+		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_3) |
+		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_3_1) |
+		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_4) |
+		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_4_1) |
+		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_5) |
+		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_5_1) |
+		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_5_2) |
+		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_6) |
+		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_6_1) |
+		BIT(V4L2_MPEG_VIDEO_HEVC_LEVEL_6_2),
+		V4L2_MPEG_VIDEO_HEVC_LEVEL_6_1,
 		V4L2_CID_MPEG_VIDEO_HEVC_LEVEL,
 		HFI_PROP_LEVEL,
 		CAP_FLAG_OUTPUT_PORT | CAP_FLAG_MENU},
 
 	{LEVEL, DEC, VP9,
 		V4L2_MPEG_VIDEO_VP9_LEVEL_1_0,
-		V4L2_MPEG_VIDEO_VP9_LEVEL_5_2,
+		V4L2_MPEG_VIDEO_VP9_LEVEL_6_0,
 		BIT(V4L2_MPEG_VIDEO_VP9_LEVEL_1_0) |
 		BIT(V4L2_MPEG_VIDEO_VP9_LEVEL_1_1) |
 		BIT(V4L2_MPEG_VIDEO_VP9_LEVEL_2_0) |
@@ -999,11 +1004,13 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		BIT(V4L2_MPEG_VIDEO_VP9_LEVEL_4_1) |
 		BIT(V4L2_MPEG_VIDEO_VP9_LEVEL_5_0) |
 		BIT(V4L2_MPEG_VIDEO_VP9_LEVEL_5_1) |
-		BIT(V4L2_MPEG_VIDEO_VP9_LEVEL_5_2),
-		V4L2_MPEG_VIDEO_VP9_LEVEL_5_2,
+		BIT(V4L2_MPEG_VIDEO_VP9_LEVEL_5_2) |
+		BIT(V4L2_MPEG_VIDEO_VP9_LEVEL_6_0),
+		V4L2_MPEG_VIDEO_VP9_LEVEL_6_0,
 		V4L2_CID_MPEG_VIDEO_VP9_LEVEL,
 		HFI_PROP_LEVEL,
 		CAP_FLAG_OUTPUT_PORT | CAP_FLAG_MENU},
+
 	{HEVC_TIER, ENC | DEC, HEVC,
 		V4L2_MPEG_VIDEO_HEVC_TIER_MAIN,
 		V4L2_MPEG_VIDEO_HEVC_TIER_HIGH,
@@ -1040,7 +1047,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		-6, 6, 1, 0,
 		V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_ALPHA},
 
-	{LF_ALPHA, ENC, HEVC | HEIC,
+	{LF_ALPHA, ENC, HEVC,
 		-6, 6, 1, 0,
 		V4L2_CID_MPEG_VIDEO_HEVC_LF_TC_OFFSET_DIV2},
 
@@ -1048,7 +1055,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		-6, 6, 1, 0,
 		V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_BETA},
 
-	{LF_BETA, ENC, HEVC | HEIC,
+	{LF_BETA, ENC, HEVC,
 		-6, 6, 1, 0,
 		V4L2_CID_MPEG_VIDEO_HEVC_LF_BETA_OFFSET_DIV2},
 
@@ -1088,8 +1095,8 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		HFI_PROP_8X8_TRANSFORM,
 		CAP_FLAG_OUTPUT_PORT},
 
-	{CHROMA_QP_INDEX_OFFSET, ENC, HEVC,
-		MIN_CHROMA_QP_OFFSET, MAX_CHROMA_QP_OFFSET,
+	{CHROMA_QP_INDEX_OFFSET, ENC, HEVC | H264,
+		MIN_CHROMA_QP_OFFSET, MAX_CHROMA_QP_OFFSET_MASK,
 		1, MAX_CHROMA_QP_OFFSET,
 		V4L2_CID_MPEG_VIDEO_H264_CHROMA_QP_INDEX_OFFSET,
 		HFI_PROP_CHROMA_QP_OFFSET,
@@ -1127,29 +1134,29 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		HFI_PROP_BUFFER_HOST_MAX_COUNT,
 		CAP_FLAG_OUTPUT_PORT},
 
-	{CONCEAL_COLOR_8BIT, DEC, CODECS_ALL, 0x0, 0xff3fcff, 1,
+	{CONCEAL_COLOR_8BIT, DEC, CODECS_ALL, 0x0, 0xFF00FF00FF, 1,
 		DEFAULT_VIDEO_CONCEAL_COLOR_BLACK,
-		V4L2_CID_MPEG_VIDEO_MUTE_YUV,
+		V4L2_CID_MPEG_VIDEO_DEC_CONCEAL_COLOR,
 		HFI_PROP_CONCEAL_COLOR_8BIT,
 		CAP_FLAG_INPUT_PORT},
 
-	{CONCEAL_COLOR_10BIT, DEC, CODECS_ALL, 0x0, 0x3fffffff, 1,
+	{CONCEAL_COLOR_10BIT, DEC, CODECS_ALL, 0x0, 0x3FF03FF03FF, 1,
 		DEFAULT_VIDEO_CONCEAL_COLOR_BLACK,
-		V4L2_CID_MPEG_VIDEO_MUTE_YUV,
+		V4L2_CID_MPEG_VIDEO_DEC_CONCEAL_COLOR,
 		HFI_PROP_CONCEAL_COLOR_10BIT,
 		CAP_FLAG_INPUT_PORT},
 
-	{STAGE, DEC|ENC, CODECS_ALL,
+	{STAGE, DEC | ENC, CODECS_ALL,
 		MSM_VIDC_STAGE_1,
 		MSM_VIDC_STAGE_2, 1,
 		MSM_VIDC_STAGE_2,
 		0,
 		HFI_PROP_STAGE},
 
-	{PIPE, DEC|ENC, CODECS_ALL,
+	{PIPE, DEC | ENC, CODECS_ALL,
 		MSM_VIDC_PIPE_1,
-		MSM_VIDC_PIPE_2, 1,
-		MSM_VIDC_PIPE_2,
+		MSM_VIDC_PIPE_4, 1,
+		MSM_VIDC_PIPE_4,
 		0,
 		HFI_PROP_PIPE},
 
@@ -1217,7 +1224,7 @@ static struct msm_platform_inst_capability instance_cap_data_volcano_v0[] = {
 		0},
 };
 
-static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_volcano_v0[] = {
+static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_tuna[] = {
 	/* {cap, domain, codec,
 	 *      parents,
 	 *      children,
@@ -1272,34 +1279,34 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_volc
 		msm_vidc_set_req_sync_frame},
 
 	{BIT_RATE, ENC, H264,
-		{PEAK_BITRATE, BITRATE_BOOST, L0_BR},
+		{PEAK_BITRATE, L0_BR},
 		msm_vidc_adjust_bitrate,
 		msm_vidc_set_bitrate},
 
 	{BIT_RATE, ENC, HEVC,
-		{PEAK_BITRATE, BITRATE_BOOST, L0_BR},
+		{PEAK_BITRATE, L0_BR},
 		msm_vidc_adjust_bitrate,
 		msm_vidc_set_bitrate},
 
 	{BITRATE_MODE, ENC, H264,
-		{LTR_COUNT, IR_PERIOD, TIME_DELTA_BASED_RC, I_FRAME_QP,
-			P_FRAME_QP, B_FRAME_QP, ENH_LAYER_COUNT, BIT_RATE,
-			META_ROI_INFO, MIN_QUALITY, BITRATE_BOOST, VBV_DELAY,
-			PEAK_BITRATE, SLICE_MODE, CONTENT_ADAPTIVE_CODING,
-			BLUR_TYPES, LOWLATENCY_MODE, META_TRANSCODING_STAT_INFO},
-		msm_vidc_adjust_bitrate_mode,
-		msm_vidc_set_u32_enum},
-
-	{BITRATE_MODE, ENC, HEVC,
-		{LTR_COUNT, IR_PERIOD, TIME_DELTA_BASED_RC, I_FRAME_QP,
-			P_FRAME_QP, B_FRAME_QP, CONSTANT_QUALITY, ENH_LAYER_COUNT,
-			BIT_RATE, META_ROI_INFO, MIN_QUALITY, BITRATE_BOOST, VBV_DELAY,
+		{LTR_COUNT, I_FRAME_QP, P_FRAME_QP,
+			B_FRAME_QP, ENH_LAYER_COUNT, BIT_RATE,
+			MIN_QUALITY, VBV_DELAY,
 			PEAK_BITRATE, SLICE_MODE, CONTENT_ADAPTIVE_CODING,
 			BLUR_TYPES, LOWLATENCY_MODE},
 		msm_vidc_adjust_bitrate_mode,
 		msm_vidc_set_u32_enum},
 
-	{CONSTANT_QUALITY, ENC, HEVC | HEIC,
+	{BITRATE_MODE, ENC, HEVC,
+		{LTR_COUNT, I_FRAME_QP, P_FRAME_QP,
+			B_FRAME_QP, CONSTANT_QUALITY, ENH_LAYER_COUNT,
+			BIT_RATE, MIN_QUALITY, VBV_DELAY,
+			PEAK_BITRATE, SLICE_MODE, CONTENT_ADAPTIVE_CODING,
+			BLUR_TYPES, LOWLATENCY_MODE},
+		msm_vidc_adjust_bitrate_mode,
+		msm_vidc_set_u32_enum},
+
+	{CONSTANT_QUALITY, ENC, HEVC,
 		{0},
 		NULL,
 		msm_vidc_set_constant_quality},
@@ -1314,7 +1321,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_volc
 		msm_vidc_adjust_b_frame,
 		msm_vidc_set_u32},
 
-	{B_FRAME, ENC, HEIC,
+	{BLUR_TYPES, ENC, H264 | HEVC,
 		{0},
 		msm_vidc_adjust_blur_type,
 		msm_vidc_set_u32_enum},
@@ -1326,7 +1333,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_volc
 
 	{LOWLATENCY_MODE, DEC, H264 | HEVC | VP9,
 		{STAGE},
-		msm_vidc_adjust_dec_lowlatency_mode,
+		NULL,
 		NULL},
 
 	{LTR_COUNT, ENC, H264 | HEVC,
@@ -1364,7 +1371,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_volc
 		msm_vidc_adjust_min_quality,
 		msm_vidc_set_u32},
 
-	{MIN_QUALITY, ENC, H264 | HEVC,
+	{MIN_QUALITY, ENC, HEVC,
 		{BLUR_TYPES},
 		msm_vidc_adjust_min_quality,
 		msm_vidc_set_u32},
@@ -1436,7 +1443,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_volc
 		{CONTENT_ADAPTIVE_CODING}},
 
 	{ENH_LAYER_COUNT, ENC, H264 | HEVC,
-		{GOP_SIZE, B_FRAME, BIT_RATE, MIN_QUALITY, SLICE_MODE, LTR_COUNT},
+		{GOP_SIZE, B_FRAME, BIT_RATE, MIN_QUALITY, LTR_COUNT},
 		msm_vidc_adjust_layer_count,
 		msm_vidc_set_layer_count_and_type},
 
@@ -1476,7 +1483,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_volc
 		msm_vidc_set_u32},
 
 	{PROFILE, ENC, H264,
-		{ENTROPY_MODE, TRANSFORM_8X8},
+		{ENTROPY_MODE, TRANSFORM_8X8, CHROMA_QP_INDEX_OFFSET},
 		NULL,
 		msm_vidc_set_u32_enum},
 
@@ -1505,7 +1512,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_volc
 		NULL,
 		msm_vidc_set_level},
 
-	{HEVC_TIER, ENC | DEC, HEVC | HEIC,
+	{HEVC_TIER, ENC | DEC, HEVC,
 		{0},
 		NULL,
 		msm_vidc_set_u32_enum},
@@ -1525,7 +1532,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_volc
 		msm_vidc_adjust_transform_8x8,
 		msm_vidc_set_u32},
 
-	{CHROMA_QP_INDEX_OFFSET, ENC, HEVC,
+	{CHROMA_QP_INDEX_OFFSET, ENC, HEVC | H264,
 		{0},
 		msm_vidc_adjust_chroma_qp_index_offset,
 		msm_vidc_set_chroma_qp_index_offset},
@@ -1568,12 +1575,12 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_volc
 	{CONCEAL_COLOR_8BIT, DEC, CODECS_ALL,
 		{0},
 		NULL,
-		msm_vidc_set_u32_packed},
+		msm_vidc_set_conceal_color},
 
 	{CONCEAL_COLOR_10BIT, DEC, CODECS_ALL,
 		{0},
 		NULL,
-		msm_vidc_set_u32_packed},
+		msm_vidc_set_conceal_color},
 
 	{STAGE, ENC | DEC, CODECS_ALL,
 		{0},
@@ -1585,7 +1592,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_volc
 		NULL,
 		msm_vidc_set_pipe},
 
-	{THUMBNAIL_MODE, DEC, H264 | HEVC | VP9,
+	{THUMBNAIL_MODE, DEC, CODECS_ALL,
 		{OUTPUT_ORDER},
 		NULL,
 		msm_vidc_set_u32},
@@ -1601,51 +1608,50 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_volc
 		NULL},
 
 	{ALL_INTRA, ENC, H264 | HEVC,
-		{LTR_COUNT, IR_PERIOD, SLICE_MODE, BIT_RATE},
+		{LTR_COUNT, SLICE_MODE, BIT_RATE},
 		msm_vidc_adjust_all_intra,
 		NULL},
 };
 
 /* Default UBWC config for LPDDR5 */
-static struct msm_vidc_ubwc_config_data ubwc_config_volcano[] = {
-	UBWC_CONFIG(8, 32, 15, 0, 1, 1, 1),
+static struct msm_vidc_ubwc_config_data ubwc_config_tuna[] = {
+	UBWC_CONFIG(8, 32, 16, 0, 1, 1, 1),
 };
 
-static struct msm_vidc_format_capability format_data_volcano = {
-	.codec_info = codec_data_volcano,
-	.codec_info_size = ARRAY_SIZE(codec_data_volcano),
-	.color_format_info = color_format_data_volcano,
-	.color_format_info_size = ARRAY_SIZE(color_format_data_volcano),
-	.color_prim_info = color_primaries_data_volcano,
-	.color_prim_info_size = ARRAY_SIZE(color_primaries_data_volcano),
-	.transfer_char_info = transfer_char_data_volcano,
-	.transfer_char_info_size = ARRAY_SIZE(transfer_char_data_volcano),
-	.matrix_coeff_info = matrix_coeff_data_volcano,
-	.matrix_coeff_info_size = ARRAY_SIZE(matrix_coeff_data_volcano),
+static struct msm_vidc_format_capability format_data_tuna = {
+	.codec_info = codec_data_tuna,
+	.codec_info_size = ARRAY_SIZE(codec_data_tuna),
+	.color_format_info = color_format_data_tuna,
+	.color_format_info_size = ARRAY_SIZE(color_format_data_tuna),
+	.color_prim_info = color_primaries_data_tuna,
+	.color_prim_info_size = ARRAY_SIZE(color_primaries_data_tuna),
+	.transfer_char_info = transfer_char_data_tuna,
+	.transfer_char_info_size = ARRAY_SIZE(transfer_char_data_tuna),
+	.matrix_coeff_info = matrix_coeff_data_tuna,
+	.matrix_coeff_info_size = ARRAY_SIZE(matrix_coeff_data_tuna),
 };
-static const struct msm_vidc_platform_data volcano_data_v0 = {
-	/* caps related resorces */
-	.core_data = core_data_volcano_v0,
-	.core_data_size = ARRAY_SIZE(core_data_volcano_v0),
-	.inst_cap_data = instance_cap_data_volcano_v0,
-	.inst_cap_data_size = ARRAY_SIZE(instance_cap_data_volcano_v0),
-	.inst_cap_dependency_data = instance_cap_dependency_data_volcano_v0,
-	.inst_cap_dependency_data_size = ARRAY_SIZE(instance_cap_dependency_data_volcano_v0),
+
+static const struct msm_vidc_platform_data tuna_data = {
+	.core_data = core_data_tuna,
+	.core_data_size = ARRAY_SIZE(core_data_tuna),
+	.inst_cap_data = instance_cap_data_tuna,
+	.inst_cap_data_size = ARRAY_SIZE(instance_cap_data_tuna),
+	.inst_cap_dependency_data = instance_cap_dependency_data_tuna,
+	.inst_cap_dependency_data_size = ARRAY_SIZE(instance_cap_dependency_data_tuna),
 	.csc_data.vpe_csc_custom_bias_coeff = vpe_csc_custom_bias_coeff,
 	.csc_data.vpe_csc_custom_matrix_coeff = vpe_csc_custom_matrix_coeff,
 	.csc_data.vpe_csc_custom_limit_coeff = vpe_csc_custom_limit_coeff,
-	.ubwc_config = ubwc_config_volcano,
-	.format_data = &format_data_volcano,
+	.ubwc_config = ubwc_config_tuna,
+	.format_data = &format_data_tuna,
 };
 
-int msm_vidc_volcano_check_ddr_type(
-		struct msm_vidc_platform_data *platform_data, u32 hbb_override_val)
+int msm_vidc_tuna_check_ddr_type(void)
 {
 	u32 ddr_type;
 
 	ddr_type = of_fdt_get_ddrtype();
 	if (ddr_type != DDR_TYPE_LPDDR5 &&
-		ddr_type != DDR_TYPE_LPDDR5X) {
+	    ddr_type != DDR_TYPE_LPDDR5X) {
 		d_vpr_e("%s: wrong ddr type %d\n", __func__, ddr_type);
 		return -EINVAL;
 	}
@@ -1658,18 +1664,18 @@ static int msm_vidc_init_data(struct msm_vidc_core *core)
 {
 	int rc = 0;
 
-	d_vpr_h("%s: initialize volcano", __func__);
+	d_vpr_h("%s: initialize tuna data\n", __func__);
 
-	core->platform->data = volcano_data_v0;
+	core->platform->data = tuna_data;
 
-	rc = msm_vidc_volcano_check_ddr_type(&core->platform->data, 0xe);
+	rc = msm_vidc_tuna_check_ddr_type();
 	if (rc)
 		return rc;
 
 	return rc;
 }
 
-int msm_vidc_init_platform_volcano(struct msm_vidc_core *core)
+int msm_vidc_init_platform_tuna(struct msm_vidc_core *core)
 {
 	int rc = 0;
 

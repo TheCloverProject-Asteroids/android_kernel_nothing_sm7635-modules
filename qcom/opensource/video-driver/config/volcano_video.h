@@ -3,4 +3,4 @@
  * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
-#define CONFIG_MSM_VIDC_VOLCANO 1
+#define  CONFIG_QCOM_SI_CORE_TEST 1

@@ -9,9 +9,7 @@
 #include <linux/of_address.h>
 #include <linux/slab.h>
 
-#include <soc/qcom/rpmh.h>
 #include <soc/qcom/socinfo.h>
-
 #include "cam_compat.h"
 #include "cam_debug_util.h"
 #include "cam_cpas_api.h"
@@ -20,6 +18,8 @@
 #include "cam_eeprom_core.h"
 
 #if IS_ENABLED(CONFIG_SPECTRA_USE_RPMH_DRV_API)
+#include <soc/qcom/rpmh.h>
+
 #define CAM_RSC_DRV_IDENTIFIER "cam_rsc"
 
 const struct device *cam_cpas_get_rsc_dev_for_drv(uint32_t index)
@@ -163,27 +163,29 @@ int cam_reserve_icp_fw(struct cam_fw_alloc_info *icp_fw, size_t fw_length)
 	struct resource     res;
 
 	of_node = (icp_fw->fw_dev)->of_node;
-	mem_node = of_parse_phandle(of_node, "memory-region", 0);
+	mem_node = of_parse_phandle(of_node, "memory-region", icp_fw->fw_id);
 	if (!mem_node) {
 		rc = -ENOMEM;
-		CAM_ERR(CAM_SMMU, "FW memory carveout not found");
+		CAM_ERR(CAM_SMMU, "FW memory carveout of ICP%d not found", icp_fw->fw_id);
 		goto end;
 	}
+
 	rc = of_address_to_resource(mem_node, 0, &res);
 	of_node_put(mem_node);
 	if (rc < 0) {
-		CAM_ERR(CAM_SMMU, "Unable to get start of FW mem carveout");
+		CAM_ERR(CAM_SMMU, "Unable to get start of FW mem carveout of ICP%u", icp_fw->fw_id);
 		goto end;
 	}
+
 	icp_fw->fw_hdl = res.start;
 	icp_fw->fw_kva = ioremap_wc(icp_fw->fw_hdl, fw_length);
 	if (!icp_fw->fw_kva) {
-		CAM_ERR(CAM_SMMU, "Failed to map the FW.");
+		CAM_ERR(CAM_SMMU, "Failed to map the FW of ICP%d", icp_fw->fw_id);
 		rc = -ENOMEM;
 		goto end;
 	}
-	memset_io(icp_fw->fw_kva, 0, fw_length);
 
+	memset_io(icp_fw->fw_kva, 0, fw_length);
 end:
 	return rc;
 }
@@ -244,7 +246,7 @@ int cam_reserve_icp_fw(struct cam_fw_alloc_info *icp_fw, size_t fw_length)
 		&icp_fw->fw_hdl, GFP_KERNEL);
 
 	if (!icp_fw->fw_kva) {
-		CAM_ERR(CAM_SMMU, "FW memory alloc failed");
+		CAM_ERR(CAM_SMMU, "FW memory of ICP%u alloc failed", icp_fw->fw_id);
 		rc = -ENOMEM;
 	}
 
@@ -320,7 +322,7 @@ void cam_free_clear(const void * ptr)
 
 #ifdef CONFIG_CSF_2_5_SECURE_CAMERA
 int cam_csiphy_notify_secure_mode(struct csiphy_device *csiphy_dev,
-	bool protect, int32_t offset, bool is_shutdown)
+	bool protect, int32_t offset, bool __maybe_unused is_shutdown)
 {
 	int rc = 0;
 	struct Object client_env, sc_object;
@@ -332,7 +334,9 @@ int cam_csiphy_notify_secure_mode(struct csiphy_device *csiphy_dev,
 		return -EINVAL;
 	}
 
+#if !IS_ENABLED(CONFIG_QCOM_SI_CORE)
 	if (!is_shutdown) {
+#endif
 		rc = get_client_env_object(&client_env);
 		if (rc) {
 			CAM_ERR(CAM_CSIPHY, "Failed getting mink env object, rc: %d", rc);
@@ -370,6 +374,7 @@ int cam_csiphy_notify_secure_mode(struct csiphy_device *csiphy_dev,
 			CAM_ERR(CAM_CSIPHY, "Failed releasing mink env object, rc: %d", rc);
 			return rc;
 		}
+#if !IS_ENABLED(CONFIG_QCOM_SI_CORE)
 	} else {
 		/* This is a temporary work around until the SMC Invoke driver is
 		 * refactored to avoid the dependency on FDs, which was causing issues
@@ -381,6 +386,7 @@ int cam_csiphy_notify_secure_mode(struct csiphy_device *csiphy_dev,
 			return rc;
 		}
 	}
+#endif
 
 	return 0;
 }
@@ -684,13 +690,6 @@ int cam_req_mgr_ordered_list_cmp(void *priv,
 	return cam_subdev_list_cmp(list_entry(head_1, struct cam_subdev, list),
 		list_entry(head_2, struct cam_subdev, list));
 }
-
-void cam_i3c_driver_remove(struct i3c_device *client)
-{
-	CAM_DBG(CAM_SENSOR, "I3C remove invoked for %s",
-		(client ? dev_name(&client->dev) : "none"));
-}
-
 #else
 void cam_smmu_util_iommu_custom(struct device *dev,
 	dma_addr_t discard_start, size_t discard_length)
@@ -708,13 +707,6 @@ int cam_req_mgr_ordered_list_cmp(void *priv,
 {
 	return cam_subdev_list_cmp(list_entry(head_1, struct cam_subdev, list),
 		list_entry(head_2, struct cam_subdev, list));
-}
-
-int cam_i3c_driver_remove(struct i3c_device *client)
-{
-	CAM_DBG(CAM_SENSOR, "I3C remove invoked for %s",
-		(client ? dev_name(&client->dev) : "none"));
-	return 0;
 }
 #endif
 
@@ -758,28 +750,43 @@ void cam_eeprom_spi_driver_remove(struct spi_device *sdev)
 	mutex_unlock(&(e_ctrl->eeprom_mutex));
 	mutex_destroy(&(e_ctrl->eeprom_mutex));
 	cam_unregister_subdev(&(e_ctrl->v4l2_dev_str));
-	kfree(e_ctrl->io_master_info.spi_client);
+	CAM_MEM_FREE(e_ctrl->io_master_info.spi_client);
 	e_ctrl->io_master_info.spi_client = NULL;
 	soc_private =
 		(struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
 	if (soc_private) {
-		kfree(soc_private->power_info.gpio_num_info);
+		CAM_MEM_FREE(soc_private->power_info.gpio_num_info);
 		soc_private->power_info.gpio_num_info = NULL;
-		kfree(soc_private);
+		CAM_MEM_FREE(soc_private);
 		soc_private = NULL;
 	}
 	v4l2_set_subdevdata(&e_ctrl->v4l2_dev_str.sd, NULL);
-	kfree(e_ctrl);
+	CAM_MEM_FREE(e_ctrl);
 }
 
 int cam_compat_util_get_irq(struct cam_hw_soc_info *soc_info)
 {
-	int rc = 0;
+	int rc = 0, i;
+	struct device_node *of_node = NULL;
 
-	soc_info->irq_num[0] = platform_get_irq(soc_info->pdev, 0);
-	if (soc_info->irq_num[0] < 0) {
-		rc = soc_info->irq_num[0];
-		return rc;
+	of_node = soc_info->dev->of_node;
+
+	for (i = 0; i < soc_info->irq_count; i++) {
+		rc = of_property_read_string_index(of_node, "interrupt-names",
+			i, &soc_info->irq_name[i]);
+		if (rc) {
+			CAM_ERR(CAM_UTIL, "Failed to get irq names at i = %d rc = %d",
+				i, rc);
+			return -EINVAL;
+		}
+
+		soc_info->irq_num[i] = platform_get_irq(soc_info->pdev, i);
+		if (soc_info->irq_num[i] < 0) {
+			rc = soc_info->irq_num[i];
+			CAM_ERR(CAM_UTIL, "Failed to get irq resource at i = %d rc = %d",
+				i, rc);
+			return rc;
+		}
 	}
 
 	return rc;
@@ -809,18 +816,18 @@ int cam_eeprom_spi_driver_remove(struct spi_device *sdev)
 	mutex_unlock(&(e_ctrl->eeprom_mutex));
 	mutex_destroy(&(e_ctrl->eeprom_mutex));
 	cam_unregister_subdev(&(e_ctrl->v4l2_dev_str));
-	kfree(e_ctrl->io_master_info.spi_client);
+	CAM_MEM_FREE(e_ctrl->io_master_info.spi_client);
 	e_ctrl->io_master_info.spi_client = NULL;
 	soc_private =
 		(struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
 	if (soc_private) {
-		kfree(soc_private->power_info.gpio_num_info);
+		CAM_MEM_FREE(soc_private->power_info.gpio_num_info);
 		soc_private->power_info.gpio_num_info = NULL;
-		kfree(soc_private);
+		CAM_MEM_FREE(soc_private);
 		soc_private = NULL;
 	}
 	v4l2_set_subdevdata(&e_ctrl->v4l2_dev_str.sd, NULL);
-	kfree(e_ctrl);
+	CAM_MEM_FREE(e_ctrl);
 
 	return 0;
 }
@@ -828,8 +835,19 @@ int cam_eeprom_spi_driver_remove(struct spi_device *sdev)
 int cam_compat_util_get_irq(struct cam_hw_soc_info *soc_info)
 {
 	int rc = 0, i;
+	struct device_node *of_node = NULL;
+
+	of_node = soc_info->dev->of_node;
 
 	for (i = 0; i < soc_info->irq_count; i++) {
+		rc = of_property_read_string_index(of_node, "interrupt-names",
+			i, &soc_info->irq_name[i]);
+		if (rc) {
+			CAM_ERR(CAM_UTIL, "Failed to get irq names at i = %d rc = %d",
+				i, rc);
+			return -EINVAL;
+		}
+
 		soc_info->irq_line[i] = platform_get_resource_byname(soc_info->pdev,
 			IORESOURCE_IRQ, soc_info->irq_name[i]);
 		if (!soc_info->irq_line[i]) {

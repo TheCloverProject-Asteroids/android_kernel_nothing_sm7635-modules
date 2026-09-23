@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef __SYNX_SHARED_MEM_H__
@@ -25,6 +25,7 @@ enum synx_core_id {
 	SYNX_CORE_EVA,
 	SYNX_CORE_IRIS,
 	SYNX_CORE_ICP,
+	SYNX_CORE_SOCCP,
 	SYNX_CORE_MAX,
 };
 
@@ -45,6 +46,14 @@ enum synx_core_id {
 /* spin lock timeout (ms) */
 #define SYNX_HWSPIN_TIMEOUT            500
 #define SYNX_HWSPIN_ID                 10
+
+/* internal signal states */
+#define SYNX_STATE_INVALID             0
+#define SYNX_STATE_ACTIVE              1
+#define SYNX_STATE_SIGNALED_ERROR      3
+#define SYNX_STATE_SIGNALED_EXTERNAL   5
+#define SYNX_STATE_SIGNALED_SSR        6
+#define SYNX_STATE_TIMEOUT             7
 
 /* dma fence states */
 #define SYNX_DMA_FENCE_STATE_MAX             4096
@@ -70,6 +79,7 @@ struct synx_global_coredata {
 	u16 subscribers;
 	u16 waiters;
 	u16 parents[SYNX_GLOBAL_MAX_PARENTS];
+	u32 h_hwfence;
 };
 
 /**

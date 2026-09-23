@@ -24,6 +24,7 @@
 #include "cam_tasklet_util.h"
 #include "cam_common_util.h"
 #include "cam_subdev.h"
+#include "cam_mem_mgr_api.h"
 
 #define IFE_CSID_TIMEOUT                               1000
 
@@ -298,7 +299,7 @@ int cam_ife_csid_ver1_get_hw_caps(void *hw_priv,
 	hw_caps->minor_version = csid_reg->cmn_reg->minor_version;
 	hw_caps->version_incr = csid_reg->cmn_reg->version_incr;
 	hw_caps->global_reset_en = csid_reg->cmn_reg->global_reset;
-	hw_caps->rup_en = csid_reg->cmn_reg->rup_supported;
+	hw_caps->aup_rup_en = csid_reg->cmn_reg->aup_rup_supported;
 	hw_caps->is_lite = soc_private->is_ife_csid_lite;
 
 	CAM_DBG(CAM_ISP,
@@ -3943,9 +3944,10 @@ static int cam_ife_csid_ver1_put_evt_payload(
 			csid_hw->hw_intf->hw_idx);
 		return -EINVAL;
 	}
+
+	CAM_COMMON_SANITIZE_LIST_ENTRY((*evt_payload), struct cam_ife_csid_ver1_evt_payload);
 	spin_lock_irqsave(&csid_hw->lock_state, flags);
-	list_add_tail(&(*evt_payload)->list,
-		payload_list);
+	list_add_tail(&(*evt_payload)->list, payload_list);
 	*evt_payload = NULL;
 	spin_unlock_irqrestore(&csid_hw->lock_state, flags);
 
@@ -4598,7 +4600,7 @@ static void cam_ife_csid_ver1_free_res(struct cam_ife_csid_ver1_hw *ife_csid_hw)
 
 	for (i = 0; i < num_paths; i++) {
 		res = &ife_csid_hw->path_res[CAM_IFE_PIX_PATH_RES_UDI_0 + i];
-		kfree(res->res_priv);
+		CAM_MEM_FREE(res->res_priv);
 		res->res_priv = NULL;
 	}
 
@@ -4606,13 +4608,13 @@ static void cam_ife_csid_ver1_free_res(struct cam_ife_csid_ver1_hw *ife_csid_hw)
 
 	for (i = 0; i < num_paths; i++) {
 		res = &ife_csid_hw->path_res[CAM_IFE_PIX_PATH_RES_RDI_0 + i];
-		kfree(res->res_priv);
+		CAM_MEM_FREE(res->res_priv);
 		res->res_priv = NULL;
 	}
 
-	kfree(ife_csid_hw->path_res[CAM_IFE_PIX_PATH_RES_IPP].res_priv);
+	CAM_MEM_FREE(ife_csid_hw->path_res[CAM_IFE_PIX_PATH_RES_IPP].res_priv);
 	ife_csid_hw->path_res[CAM_IFE_PIX_PATH_RES_IPP].res_priv = NULL;
-	kfree(ife_csid_hw->path_res[CAM_IFE_PIX_PATH_RES_PPP].res_priv);
+	CAM_MEM_FREE(ife_csid_hw->path_res[CAM_IFE_PIX_PATH_RES_PPP].res_priv);
 	ife_csid_hw->path_res[CAM_IFE_PIX_PATH_RES_PPP].res_priv = NULL;
 }
 
@@ -4625,7 +4627,7 @@ static int cam_ife_ver1_hw_alloc_res(
 {
 	struct cam_ife_csid_ver1_path_cfg *path_cfg = NULL;
 
-	path_cfg = kzalloc(sizeof(*path_cfg), GFP_KERNEL);
+	path_cfg = CAM_MEM_ZALLOC(sizeof(*path_cfg), GFP_KERNEL);
 
 	if (!path_cfg)
 		return -ENOMEM;
@@ -4741,7 +4743,7 @@ int cam_ife_csid_hw_ver1_init(struct cam_hw_intf  *hw_intf,
 
 	hw_info = (struct cam_hw_info  *)hw_intf->hw_priv;
 
-	ife_csid_hw = kzalloc(sizeof(struct cam_ife_csid_ver1_hw), GFP_KERNEL);
+	ife_csid_hw = CAM_MEM_ZALLOC(sizeof(struct cam_ife_csid_ver1_hw), GFP_KERNEL);
 
 	if (!ife_csid_hw) {
 		CAM_ERR(CAM_ISP, "Csid core %d hw allocation fails",

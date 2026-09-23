@@ -196,6 +196,12 @@ ucfg_pmo_disable_ns_offload_in_fwr(struct wlan_objmgr_vdev *vdev,
 }
 #endif /* WLAN_NS_OFFLOAD */
 
+bool
+ucfg_pmo_tgt_psoc_get_runtime_pm_in_progress(struct wlan_objmgr_psoc *psoc)
+{
+	return pmo_tgt_psoc_get_runtime_pm_inprogress(psoc);
+}
+
 #ifdef FEATURE_WLAN_DYNAMIC_ARP_NS_OFFLOAD
 QDF_STATUS
 ucfg_pmo_dynamic_arp_ns_offload_enable(struct wlan_objmgr_vdev *vdev)
@@ -252,6 +258,11 @@ ucfg_pmo_ns_addr_scope(uint32_t ipv6_scope)
 	}
 
 	return PMO_NS_ADDR_SCOPE_INVALID;
+}
+
+bool ucfg_pmo_rate_limit_needed(struct wlan_objmgr_psoc *psoc)
+{
+	return pmo_rate_limit_needed(psoc);
 }
 
 QDF_STATUS ucfg_pmo_cache_mc_addr_list(
@@ -763,6 +774,40 @@ ucfg_pmo_get_sta_dynamic_dtim(struct wlan_objmgr_psoc *psoc)
 }
 
 uint8_t
+ucfg_pmo_get_sta_teles_dtim(struct wlan_objmgr_psoc *psoc)
+{
+	struct pmo_psoc_priv_obj *pmo_psoc_ctx = pmo_psoc_get_priv(psoc);
+
+	return pmo_psoc_ctx->psoc_cfg.sta_teles_dtim;
+}
+
+void
+ucfg_pmo_set_sta_teles_dtim(struct wlan_objmgr_psoc *psoc,
+			    uint8_t val)
+{
+	struct pmo_psoc_priv_obj *pmo_psoc_ctx = pmo_psoc_get_priv(psoc);
+
+	pmo_psoc_ctx->psoc_cfg.sta_teles_dtim = val;
+}
+
+uint8_t
+ucfg_pmo_get_sta_min_teles_dtim(struct wlan_objmgr_psoc *psoc)
+{
+	struct pmo_psoc_priv_obj *pmo_psoc_ctx = pmo_psoc_get_priv(psoc);
+
+	return pmo_psoc_ctx->psoc_cfg.min_teles_dtim;
+}
+
+void
+ucfg_pmo_set_sta_min_teles_dtim(struct wlan_objmgr_psoc *psoc,
+				uint8_t val)
+{
+	struct pmo_psoc_priv_obj *pmo_psoc_ctx = pmo_psoc_get_priv(psoc);
+
+	pmo_psoc_ctx->psoc_cfg.min_teles_dtim = val;
+}
+
+uint8_t
 ucfg_pmo_get_sta_mod_dtim(struct wlan_objmgr_psoc *psoc)
 {
 	struct pmo_psoc_priv_obj *pmo_psoc_ctx = pmo_psoc_get_priv(psoc);
@@ -1111,4 +1156,24 @@ QDF_STATUS ucfg_pmo_get_vdev_bridge_addr(struct wlan_objmgr_vdev *vdev,
 					 struct qdf_mac_addr *bridgeaddr)
 {
 	return pmo_get_vdev_bridge_addr(vdev, bridgeaddr);
+}
+
+bool ucfg_pmo_is_fw_debug_enable(struct wlan_objmgr_psoc *psoc)
+{
+	return cfg_get(psoc, CFG_PMO_FW_DEBUG_ENABLE);
+}
+
+bool
+ucfg_pmo_get_ns_offload_enable_dynamic(struct wlan_objmgr_vdev *vdev)
+{
+	return pmo_core_get_ns_offload_enable_dynamic(vdev);
+}
+
+void
+ucfg_pmo_set_ns_offload_enable_dynamic(struct wlan_objmgr_vdev *vdev,
+				       enum pmo_offload_trigger trigger,
+				       bool ns_offload_enable_dyn)
+{
+	return pmo_core_set_ns_offload_enable_dynamic(vdev, trigger,
+						      ns_offload_enable_dyn);
 }

@@ -114,6 +114,8 @@
 #define MAX_BSSID_FAVORED      16
 #define WLAN_MAX_BTM_CANDIDATES      8
 
+#define FW_ROAM_SYNC_TIMEOUT 7000
+
 /* Default value of WTC reason code */
 #define DISABLE_VENDOR_BTM_CONFIG 2
 
@@ -164,18 +166,16 @@
 #define NEIGHBOR_REPORT_PARAM_INVALID (0xFFFFFFFFU)
 
 /*
- * Currently roam score delta value is sent for 2 triggers and min rssi
- * values are sent for 3 triggers
+ * Currently  min rssi values are sent for 3 triggers
  */
-#define NUM_OF_ROAM_TRIGGERS 2
-#define IDLE_ROAM_TRIGGER 0
-#define BTM_ROAM_TRIGGER  1
-
 #define NUM_OF_ROAM_MIN_RSSI 3
 #define DEAUTH_MIN_RSSI 0
 #define BMISS_MIN_RSSI  1
 #define MIN_RSSI_2G_TO_5G_ROAM 2
 #define CM_CFG_VALID_CHANNEL_LIST_LEN 100
+
+#define WLAN_ROAM_SCAN_TYPE_PARTIAL_SCAN 0
+#define WLAN_ROAM_SCAN_TYPE_FULL_SCAN 1
 
 /**
  * enum roam_trigger_sub_reason - Roam trigger sub reasons
@@ -200,6 +200,8 @@
  * @ROAM_TRIGGER_SUB_REASON_INACTIVITY_TIMER_CU: Roam scan triggered due to
  * first periodic timer exiry when full scan count is 0 and roam scan trigger
  * is CU load
+ * @ROAM_TRIGGER_SUB_REASON_MLD_EXTRA_PARTIAL_SCAN: Additional partial roam scan
+ * triggered during MLO usecase.
  */
 enum roam_trigger_sub_reason {
 	ROAM_TRIGGER_SUB_REASON_PERIODIC_TIMER = 1,
@@ -211,6 +213,7 @@ enum roam_trigger_sub_reason {
 	ROAM_TRIGGER_SUB_REASON_PERIODIC_TIMER_AFTER_INACTIVITY,
 	ROAM_TRIGGER_SUB_REASON_PERIODIC_TIMER_AFTER_INACTIVITY_CU,
 	ROAM_TRIGGER_SUB_REASON_INACTIVITY_TIMER_CU,
+	ROAM_TRIGGER_SUB_REASON_MLD_EXTRA_PARTIAL_SCAN,
 };
 
 /**
@@ -320,6 +323,8 @@ struct rso_chan_info {
  * @roam_scan_n_probes:
  * @roam_scan_inactivity_time:
  * @roam_inactive_data_packet_count:
+ * @roam_rssi_delta_6ghz_to_non_6ghz: RSSI Delta value to be used for roaming
+ * from 6 GHz to Non 6GHz AP.
  */
 struct rso_cfg_params {
 	uint32_t neighbor_scan_period;
@@ -351,6 +356,7 @@ struct rso_cfg_params {
 	uint8_t roam_scan_n_probes;
 	uint32_t roam_scan_inactivity_time;
 	uint32_t roam_inactive_data_packet_count;
+	uint8_t roam_rssi_delta_6ghz_to_non_6ghz;
 };
 
 /**
@@ -965,6 +971,7 @@ struct ap_profile {
  *                BITS 16-23 :- It contains scoring percentage of WPA3 security
  *                BITS 24-31 :- reserved
  *                The value of each index must be 0-100
+ * @sta_sap_mcc_weightage: STA + SAP MCC weightage
  */
 struct scoring_param {
 	uint32_t disable_bitmap;
@@ -994,10 +1001,11 @@ struct scoring_param {
 	struct per_slot_score oce_wan_scoring;
 #ifdef WLAN_FEATURE_11BE_MLO
 	uint8_t eht_caps_weightage;
-	uint8_t mlo_weightage;
+	uint32_t mlo_weightage;
 #endif
 	int32_t security_weightage;
 	uint32_t security_index_score;
+	uint32_t sta_sap_mcc_weightage;
 };
 
 /**
@@ -1222,7 +1230,7 @@ struct wlan_roam_triggers {
 	uint32_t roam_scan_scheme_bitmap;
 	struct wlan_cm_roam_vendor_btm_params vendor_btm_param;
 	struct roam_trigger_min_rssi min_rssi_params[NUM_OF_ROAM_MIN_RSSI];
-	struct roam_trigger_score_delta score_delta_param[NUM_OF_ROAM_TRIGGERS];
+	struct roam_trigger_score_delta score_delta_param[ROAM_TRIGGER_REASON_MAX];
 };
 
 /**
@@ -1239,7 +1247,7 @@ struct ap_profile_params {
 	struct ap_profile profile;
 	struct scoring_param param;
 	struct roam_trigger_min_rssi min_rssi_params[NUM_OF_ROAM_MIN_RSSI];
-	struct roam_trigger_score_delta score_delta_param[NUM_OF_ROAM_TRIGGERS];
+	struct roam_trigger_score_delta score_delta_param[ROAM_TRIGGER_REASON_MAX];
 	struct owe_transition_mode_info owe_ap_profile;
 };
 
@@ -2054,6 +2062,8 @@ struct wlan_roam_mlo_config {
  * scan only on prior discovery of any 6 GHz support in the environment.
  * @wlan_roam_rssi_diff_6ghz: This value is used as to how better the RSSI of
  * the new/roamable 6GHz AP should be for roaming.
+ * @wlan_roam_rssi_delta_6ghz_to_non_6ghz: This value is used as to how better
+ * the RSSI of the new/roamable non 6GHz AP should be for roaming.
  */
 struct wlan_roam_start_config {
 	struct wlan_roam_offload_scan_rssi_params rssi_params;
@@ -2079,6 +2089,7 @@ struct wlan_roam_start_config {
 	uint8_t wlan_exclude_rm_partial_scan_freq;
 	uint8_t wlan_roam_full_scan_6ghz_on_disc;
 	uint8_t wlan_roam_rssi_diff_6ghz;
+	uint8_t wlan_roam_rssi_delta_6ghz_to_non_6ghz;
 	/* other wmi cmd structures */
 };
 
@@ -2136,6 +2147,8 @@ struct wlan_roam_stop_config {
  * scan only on prior discovery of any 6 GHz support in the environment.
  * @wlan_roam_rssi_diff_6ghz: This value is used as to how better the RSSI of
  * the new/roamable 6GHz AP should be for roaming.
+ * @wlan_roam_rssi_delta_6ghz_to_non_6ghz: This value is used as to how better
+ * the RSSI of the new/roamable non 6GHz AP should be for roaming.
  */
 struct wlan_roam_update_config {
 	struct wlan_roam_beacon_miss_cnt beacon_miss_cnt;
@@ -2155,6 +2168,7 @@ struct wlan_roam_update_config {
 	uint8_t wlan_exclude_rm_partial_scan_freq;
 	uint8_t wlan_roam_full_scan_6ghz_on_disc;
 	uint8_t wlan_roam_rssi_diff_6ghz;
+	uint8_t wlan_roam_rssi_delta_6ghz_to_non_6ghz;
 };
 
 #if defined(WLAN_FEATURE_HOST_ROAM) || defined(WLAN_FEATURE_ROAM_OFFLOAD)
@@ -2182,6 +2196,21 @@ enum roam_offload_state {
 	WLAN_ROAMING_IN_PROG,
 	WLAN_ROAM_SYNCH_IN_PROG,
 	WLAN_MLO_ROAM_SYNCH_IN_PROG,
+};
+
+/**
+ * enum wlan_roam_policy - Represents the policies for roaming.
+ * @WLAN_ROAMING_NOT_ALLOWED: Roaming is not allowed/disabled.
+ * @WLAN_ROAMING_ALLOWED_WITHIN_ESS: Roaming is allowed with in an ESS with
+ * default RSSI thresholds.
+ * @WLAN_ROAMING_MODE_AGGRESSIVE: This mode is an extension of
+ * WLAN_ROAMING_MODE_AGGRESSIVE. The driver/firmware roams on higher RSSI
+ * thresholds when compared to WLAN_ROAMING_ALLOWED_WITHIN_ESS.
+ */
+enum wlan_roam_policy {
+	WLAN_ROAMING_NOT_ALLOWED,
+	WLAN_ROAMING_ALLOWED_WITHIN_ESS,
+	WLAN_ROAMING_MODE_AGGRESSIVE,
 };
 
 #define WLAN_ROAM_SCAN_CANDIDATE_AP 0
@@ -2357,6 +2386,7 @@ struct roam_frame_info {
  * @RSO_SAP_CHANNEL_CHANGE: disable roaming due to SAP channel change
  * @RSO_NDP_CON_ON_NDI: disable roaming due to NDP connection on NDI
  * @RSO_SET_PCL: Disable roaming to set pcl to firmware
+ * @RSO_SET_LINK: Avoid enable roaming due to SET_LINK is in progress
  */
 enum wlan_cm_rso_control_requestor {
 	RSO_INVALID_REQUESTOR,
@@ -2366,6 +2396,7 @@ enum wlan_cm_rso_control_requestor {
 	RSO_SAP_CHANNEL_CHANGE = BIT(3),
 	RSO_NDP_CON_ON_NDI     = BIT(4),
 	RSO_SET_PCL            = BIT(5),
+	RSO_SET_LINK           = BIT(6),
 };
 #endif
 
@@ -2489,6 +2520,7 @@ enum roam_reason {
  * @reject_reason: reason to add the BSSID to DLM
  * @original_timeout: original timeout sent by the AP
  * @source: Source of adding the BSSID to DLM
+ * @reject_mlo_ap_info: reject mlo ap info
  */
 struct roam_denylist_timeout {
 	struct qdf_mac_addr bssid;
@@ -2498,6 +2530,9 @@ struct roam_denylist_timeout {
 	enum dlm_reject_ap_reason reject_reason;
 	uint32_t original_timeout;
 	enum dlm_reject_ap_source source;
+#ifdef WLAN_FEATURE_11BE_MLO
+	struct reject_mlo_ap_info reject_mlo_ap_info;
+#endif
 };
 
 /**

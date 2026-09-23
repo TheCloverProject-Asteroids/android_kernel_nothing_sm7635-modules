@@ -18,6 +18,7 @@
 #include "cam_vfe_camif_lite_ver2.h"
 #include "cam_debug_util.h"
 #include "cam_cdm_util.h"
+#include "cam_mem_mgr_api.h"
 
 struct cam_vfe_mux_camif_lite_data {
 	void __iomem                                *mem_base;
@@ -77,9 +78,9 @@ static int cam_vfe_camif_lite_put_evt_payload(
 		return -EINVAL;
 	}
 
+	CAM_COMMON_SANITIZE_LIST_ENTRY((*evt_payload), struct cam_vfe_top_irq_evt_payload);
 	spin_lock_irqsave(&camif_lite_priv->spin_lock, flags);
-	list_add_tail(&(*evt_payload)->list,
-		&camif_lite_priv->free_payload_list);
+	list_add_tail(&(*evt_payload)->list, &camif_lite_priv->free_payload_list);
 	*evt_payload = NULL;
 	spin_unlock_irqrestore(&camif_lite_priv->spin_lock, flags);
 
@@ -528,7 +529,7 @@ int cam_vfe_camif_lite_ver2_init(
 		camif_lite_hw_info;
 	int                                       i = 0;
 
-	camif_lite_priv = kzalloc(sizeof(*camif_lite_priv),
+	camif_lite_priv = CAM_MEM_ZALLOC(sizeof(*camif_lite_priv),
 		GFP_KERNEL);
 	if (!camif_lite_priv)
 		return -ENOMEM;

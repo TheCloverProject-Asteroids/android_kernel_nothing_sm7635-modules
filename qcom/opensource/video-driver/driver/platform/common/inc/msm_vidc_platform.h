@@ -155,10 +155,10 @@ struct msm_platform_inst_capability {
 	enum msm_vidc_inst_capability_type cap_id;
 	enum msm_vidc_domain_type domain;
 	enum msm_vidc_codec_type codec;
-	s32 min;
-	s32 max;
-	u32 step_or_mask;
-	s32 value;
+	s64 min;
+	s64 max;
+	u64 step_or_mask;
+	s64 value;
 	u32 v4l2_id;
 	u32 hfi_id;
 	enum msm_vidc_inst_capability_flags flags;
@@ -246,7 +246,7 @@ struct msm_vidc_platform_data {
 	const char *fwname;
 	u32 pas_id;
 	bool supports_mmrm;
-	struct msm_platform_core_capability *core_data;
+	const struct msm_platform_core_capability *core_data;
 	u32 core_data_size;
 	struct msm_platform_inst_capability *inst_cap_data;
 	u32 inst_cap_data_size;
@@ -293,6 +293,22 @@ struct msm_vidc_platform {
 	struct msm_vidc_platform_data data;
 };
 
+struct h264_level_table {
+	u64 level;
+	u64 max_mbsps;
+	u64 max_frame_size;
+	u64 max_bit_rate;
+	u64 max_dpb_mbs;
+};
+
+struct h265_level_table {
+	u64 level;
+	u64 max_mbsps;
+	u64 max_frame_size;
+	u64 max_br_main_tier;
+	u64 max_br_high_tier;
+};
+
 static inline bool is_sys_cache_present(struct msm_vidc_core *core)
 {
 	return !!core->platform->data.subcache_tbl_size;
@@ -311,11 +327,11 @@ int msm_vidc_get_license_fp_info(struct msm_vidc_core *core);
 
 enum msm_vidc_inst_capability_type msm_vidc_get_cap_id(struct msm_vidc_inst *inst, u32 id);
 int msm_vidc_update_cap_value(struct msm_vidc_inst *inst, u32 cap,
-			      s32 adjusted_val, const char *func);
+			      s64 adjusted_val, const char *func);
 bool is_parent_available(struct msm_vidc_inst *inst, u32 cap_id,
 			 u32 check_parent, const char *func);
 int msm_vidc_get_parent_value(struct msm_vidc_inst *inst, u32 cap, u32 parent,
-			      s32 *value, const char *func);
+			      s64 *value, const char *func);
 u32 msm_vidc_get_port_info(struct msm_vidc_inst *inst,
 			   enum msm_vidc_inst_capability_type cap_id);
 int msm_vidc_v4l2_menu_to_hfi(struct msm_vidc_inst *inst,
@@ -355,7 +371,6 @@ int msm_vidc_adjust_brs(void *instance, struct v4l2_ctrl *ctrl);
 int msm_vidc_adjust_bitrate_boost(void *instance, struct v4l2_ctrl *ctrl);
 int msm_vidc_adjust_min_quality(void *instance, struct v4l2_ctrl *ctrl);
 int msm_vidc_adjust_enc_lowlatency_mode(void *instance, struct v4l2_ctrl *ctrl);
-int msm_vidc_adjust_dec_lowlatency_mode(void *instance, struct v4l2_ctrl *ctrl);
 int msm_vidc_adjust_session_priority(void *instance, struct v4l2_ctrl *ctrl);
 int msm_vidc_adjust_roi_info(void *instance, struct v4l2_ctrl *ctrl);
 int msm_vidc_adjust_all_intra(void *instance, struct v4l2_ctrl *ctrl);
@@ -368,6 +383,8 @@ int msm_vidc_adjust_sei_mastering_disp(void *instance, struct v4l2_ctrl *ctrl);
 int msm_vidc_adjust_sei_cll(void *instance, struct v4l2_ctrl *ctrl);
 int msm_vidc_adjust_hdr10plus(void *instance, struct v4l2_ctrl *ctrl);
 int msm_vidc_adjust_transcoding_stats(void *instance, struct v4l2_ctrl *ctrl);
+int msm_vidc_adjust_open_gop(void *instance, struct v4l2_ctrl *ctrl);
+int msm_vidc_adjust_level_tier(void *instance, struct v4l2_ctrl *ctrl);
 int msm_vidc_set_header_mode(void *instance, enum msm_vidc_inst_capability_type cap_id);
 int msm_vidc_set_deblock_mode(void *instance, enum msm_vidc_inst_capability_type cap_id);
 int msm_vidc_set_min_qp(void *instance, enum msm_vidc_inst_capability_type cap_id);
@@ -402,5 +419,8 @@ int msm_vidc_set_q16(void *instance, enum msm_vidc_inst_capability_type cap_id);
 int msm_vidc_set_vui_timing_info(void *instance, enum msm_vidc_inst_capability_type cap_id);
 int msm_vidc_set_outbuf_fence_type(void *instance, enum msm_vidc_inst_capability_type cap_id);
 int msm_vidc_set_outbuf_fence_direction(void *instance, enum msm_vidc_inst_capability_type cap_id);
+int msm_vidc_adjust_histogram_info(void *instance, struct v4l2_ctrl *ctrl);
+int msm_vidc_adjust_hdr10_max_rgb_info(void *instance, struct v4l2_ctrl *ctrl);
+int msm_vidc_set_conceal_color(void *instance, enum msm_vidc_inst_capability_type cap_id);
 
 #endif // _MSM_VIDC_PLATFORM_H_

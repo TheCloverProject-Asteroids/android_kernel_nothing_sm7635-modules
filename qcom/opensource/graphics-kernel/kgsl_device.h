@@ -359,6 +359,8 @@ struct kgsl_device {
  * @KGSL_CONTEXT_PRIV_PAGEFAULT - The context has caused a page fault.
  * @KGSL_CONTEXT_PRIV_DEVICE_SPECIFIC - this value and higher values are
  *	reserved for devices specific use.
+ * @KGSL_CONTEXT_PRIV_INVALID_DRAIN_HW_FENCE - this context got invalidated
+ * and needs its hardware fences drained after device reset
  */
 enum kgsl_context_priv {
 	KGSL_CONTEXT_PRIV_SUBMITTED = 0,
@@ -366,6 +368,7 @@ enum kgsl_context_priv {
 	KGSL_CONTEXT_PRIV_INVALID,
 	KGSL_CONTEXT_PRIV_PAGEFAULT,
 	KGSL_CONTEXT_PRIV_DEVICE_SPECIFIC = 16,
+	KGSL_CONTEXT_PRIV_INVALID_DRAIN_HW_FENCE,
 };
 
 struct kgsl_process_private;
@@ -446,6 +449,8 @@ struct kgsl_context {
 	struct list_head faults;
 	/** @fault_lock: Mutex to protect faults */
 	struct mutex fault_lock;
+	/** @deferred_destroy_ws: Work struct used to destroy context in a deferred manner */
+	struct work_struct deferred_destroy_ws;
 };
 
 #define _context_comm(_c) \
@@ -540,6 +545,12 @@ struct kgsl_process_private {
 	 * @cmdline: Cmdline string of the process
 	 */
 	char *cmdline;
+	/** @fault_count: Count of GPU faults from this process */
+	u32 fault_count;
+	/** @pf_count: Total count of pagefaults from this process */
+	u32 pf_count;
+	/** @pf_type_counts: Count of pagefaults of each type from this process */
+	u32 pf_type_counts[KGSL_IOMMU_PAGEFAULT_TYPES];
 };
 
 struct kgsl_device_private {
@@ -674,7 +685,8 @@ static inline bool kgsl_state_is_awake(struct kgsl_device *device)
  */
 static inline void kgsl_start_idle_timer(struct kgsl_device *device)
 {
-	device->idle_jiffies = jiffies + msecs_to_jiffies(device->pwrctrl.interval_timeout);
+	device->idle_jiffies = jiffies +
+		msecs_to_jiffies(atomic64_read(&device->pwrctrl.interval_timeout));
 	mod_timer(&device->idle_timer, device->idle_jiffies);
 }
 
@@ -809,6 +821,19 @@ kgsl_context_put(struct kgsl_context *context)
 {
 	if (context)
 		kref_put(&context->refcount, kgsl_context_destroy);
+}
+
+/*
+ * kgsl_context_put_deferred() - Puts refcount and triggers deferred
+ * context destroy when refcount is the last refcount.
+ * @context: context to put
+ *
+ * Use this to put a context from within atomic context
+ */
+static inline void kgsl_context_put_deferred(struct kgsl_context *context)
+{
+	if (context)
+		kref_put(&context->refcount, kgsl_context_destroy_deferred);
 }
 
 /**

@@ -30,6 +30,7 @@
 #include <wlan_dp_fisa_rx.h>
 #include <cdp_txrx_ctrl.h>
 #include "qdf_ssr_driver_dump.h"
+#include "wlan_dp_flow_balance.h"
 
 /* Timeout in milliseconds to wait for CMEM FST HTT response */
 #define DP_RX_FST_CMEM_RESP_TIMEOUT 2000
@@ -316,6 +317,9 @@ static QDF_STATUS dp_rx_fst_cmem_init(struct dp_rx_fst *fst)
 		return QDF_STATUS_E_FAILURE;
 	}
 
+	fst->last_update_time_ns = 0;
+	fst->update_count = 0;
+
 	qdf_create_work(0, &fst->fst_update_work,
 			dp_fisa_rx_fst_update_work, fst);
 	qdf_list_create(&fst->fst_update_list, 128);
@@ -417,7 +421,7 @@ QDF_STATUS dp_rx_fst_attach(struct wlan_dp_psoc_context *dp_ctx)
 					 &soc_param);
 	if (QDF_IS_STATUS_ERROR(status)) {
 		dp_err("Unable to fetch RX pkt tlv size");
-		return status;
+		goto free_rx_fst;
 	}
 
 	fst->rx_pkt_tlv_size = soc_param.rx_pkt_tlv_size;
@@ -428,7 +432,7 @@ QDF_STATUS dp_rx_fst_attach(struct wlan_dp_psoc_context *dp_ctx)
 					 &soc_param);
 	if (QDF_IS_STATUS_ERROR(status)) {
 		dp_err("Unable to fetch fisa params");
-		return status;
+		goto free_rx_fst;
 	}
 
 	fst->max_skid_length = soc_param.fisa_params.rx_flow_max_search;
@@ -444,8 +448,10 @@ QDF_STATUS dp_rx_fst_attach(struct wlan_dp_psoc_context *dp_ctx)
 	fst->base = (uint8_t *)dp_context_alloc_mem(soc, DP_FISA_RX_FT_TYPE,
 				DP_RX_GET_SW_FT_ENTRY_SIZE * fst->max_entries);
 
-	if (!fst->base)
+	if (!fst->base) {
+		status = QDF_STATUS_E_NOMEM;
 		goto free_rx_fst;
+	}
 
 	ft_entry = (struct dp_fisa_rx_sw_ft *)fst->base;
 
@@ -497,6 +503,10 @@ QDF_STATUS dp_rx_fst_attach(struct wlan_dp_psoc_context *dp_ctx)
 	qdf_atomic_init(&dp_ctx->skip_fisa_param.skip_fisa);
 	qdf_atomic_init(&fst->pm_suspended);
 
+	if (wlan_dp_fb_enabled(dp_ctx) ||
+	    wlan_dp_rx_is_latency_sensitive_reo_enabled())
+		fst->add_tcp_flow_to_fst = true;
+
 	QDF_TRACE(QDF_MODULE_ID_ANY, QDF_TRACE_LEVEL_ERROR,
 		  "Rx FST attach successful, #entries:%d\n",
 		  fst->max_entries);
@@ -518,7 +528,7 @@ free_hist:
 	dp_context_free_mem(soc, DP_FISA_RX_FT_TYPE, fst->base);
 free_rx_fst:
 	qdf_mem_free(fst);
-	return QDF_STATUS_E_NOMEM;
+	return status;
 }
 
 /**

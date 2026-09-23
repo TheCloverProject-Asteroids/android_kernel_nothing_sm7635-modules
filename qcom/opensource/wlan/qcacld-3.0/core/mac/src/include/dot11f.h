@@ -6612,6 +6612,46 @@ uint32_t dot11f_get_packed_ie_OperatingMode(
 }; /* End extern "C". */
 #endif /* C++ */
 
+/* EID 221 (0xdd) {OUI 0x50, 0x6f, 0x9a, 0x28} */
+typedef struct sDot11fIEP2P2IEOpaque {
+	uint8_t             present;
+	uint8_t             num_data;
+	uint8_t             data[249];
+} tDot11fIEP2P2IEOpaque;
+
+#define DOT11F_EID_P2P2IEOPAQUE (221)
+
+/* N.B. These #defines do *not* include the EID & length */
+#define DOT11F_IE_P2P2IEOPAQUE_MIN_LEN (6)
+
+#define DOT11F_IE_P2P2IEOPAQUE_MAX_LEN (253)
+
+#ifdef __cplusplus
+extern "C" {
+#endif /* C++ */
+__must_check uint32_t dot11f_unpack_ie_P2P2IEOpaque(
+	tpAniSirGlobal,
+	uint8_t *,
+	uint8_t,
+	tDot11fIEP2P2IEOpaque*,
+	bool);
+
+uint32_t dot11f_pack_ie_P2P2IEOpaque(
+	tpAniSirGlobal,
+	tDot11fIEP2P2IEOpaque *,
+	uint8_t *,
+	uint32_t,
+	uint32_t*);
+
+uint32_t dot11f_get_packed_ie_P2P2IEOpaque(
+	tpAniSirGlobal,
+	tDot11fIEP2P2IEOpaque *,
+	uint32_t*);
+
+#ifdef __cplusplus
+}; /* End extern "C". */
+#endif /* C++ */
+
 /* EID 221 (0xdd) {OUI 0x50, 0x6f, 0x9a, 0x09} (Multi-IE) */
 typedef struct sDot11fIEP2PAssocReq {
 	uint8_t             present;
@@ -7610,6 +7650,46 @@ uint32_t dot11f_pack_ie_rsn_opaque(
 uint32_t dot11f_get_packed_iersnOpaque(
 	tpAniSirGlobal,
 	tDot11fIERSNOpaque *,
+	uint32_t*);
+
+#ifdef __cplusplus
+}; /* End extern "C". */
+#endif /* C++ */
+
+/* EID 244 (0xf4) */
+typedef struct sDot11fIERSNXEOpaque {
+	uint8_t             present;
+	uint8_t             num_data;
+	uint8_t             data[253];
+} tDot11fIERSNXEOpaque;
+
+#define DOT11F_EID_RSNXEOPAQUE (244)
+
+/* N.B. These #defines do *not* include the EID & length */
+#define DOT11F_IE_RSNXEOPAQUE_MIN_LEN (0)
+
+#define DOT11F_IE_RSNXEOPAQUE_MAX_LEN (253)
+
+#ifdef __cplusplus
+extern "C" {
+#endif /* C++ */
+__must_check uint32_t dot11f_unpack_ie_rsnXEOpaque(
+	tpAniSirGlobal,
+	uint8_t *,
+	uint8_t,
+	tDot11fIERSNXEOpaque*,
+	bool);
+
+uint32_t dot11f_pack_ie_rsnXEOpaque(
+	tpAniSirGlobal,
+	tDot11fIERSNXEOpaque *,
+	uint8_t *,
+	uint32_t,
+	uint32_t*);
+
+uint32_t dot11f_get_packed_iersnXEOpaque(
+	tpAniSirGlobal,
+	tDot11fIERSNXEOpaque *,
 	uint32_t*);
 
 #ifdef __cplusplus
