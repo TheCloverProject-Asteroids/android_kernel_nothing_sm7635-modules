@@ -1003,7 +1003,7 @@ int dsi_display_check_status(struct drm_connector *connector, void *display,
 		goto release_panel_lock;
 
 	/* Skip ESD check when HBM (sunlight or local) is active to avoid false panel dead */
-	if (panel->lhbm_state || panel->lhbm_wait || panel->bl_config.bl_level >= 3400)
+	if (panel->lhbm_state || panel->lhbm_wait || panel->bl_config.bl_level >= 2500)
 		goto release_panel_lock;
 
 	status_mode = panel->esd_config.status_mode;
