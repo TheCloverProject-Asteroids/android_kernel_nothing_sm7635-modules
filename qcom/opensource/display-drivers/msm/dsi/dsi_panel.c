@@ -5098,6 +5098,10 @@ int send_refreshrate_cmd(struct dsi_panel *panel, int refreshrate)
 		goto error;
 	}
 
+	if (panel->last_refresh_rate == refreshrate) {
+		goto error;
+	}
+
 	panel->update_init_gamma = true;
 	DSI_INFO("send fps cmd, fps = %d, last_fps = %d\n", refreshrate, panel->last_refresh_rate);
 	if (panel->last_refresh_rate == 30 && refreshrate != 30) {

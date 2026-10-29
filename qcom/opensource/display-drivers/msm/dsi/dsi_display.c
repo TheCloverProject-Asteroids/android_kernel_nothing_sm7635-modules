@@ -8091,6 +8091,9 @@ error:
 					sleep_us = period_us - diff_us;
 					//DSI_INFO("diff_us=%llu, period_us=%d, sleep_us=%d\n", diff_us, period_us, sleep_us);
 					usleep_range(sleep_us, sleep_us + 100);
+				} else if (diff_us > 0 && diff_us > period_us && pre_fps == 60) {
+					send_refreshrate_cmd(display->panel, timing.refresh_rate);
+					goto skip;
 				}
 			}
 		}
@@ -8098,6 +8101,7 @@ error:
 		send_refreshrate_cmd(display->panel, timing.refresh_rate);
 		display->queue_cmd_waits = false;
 	}
+skip:
 
 	c_conn = to_sde_connector(display->drm_conn);
 	if ((timing.refresh_rate == 30) &&
