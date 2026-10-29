@@ -296,8 +296,8 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 		}
 	}
 
-	if (bl_temp > 4094 && !strcmp(panel->name, "rm69220 amoled vid mode dsi visionox panel with DSC"))
-		bl_temp = 4094;
+	if (bl_temp > 4080 && strstr(panel->name, "rm69220"))
+		bl_temp = 4080;
 
 	rc = dsi_panel_set_backlight(panel, (u32)bl_temp);
 	if (rc)
@@ -8102,7 +8102,8 @@ error:
 	c_conn = to_sde_connector(display->drm_conn);
 	if ((timing.refresh_rate == 30) &&
 		(display->panel->panel_initialized) &&
-		!display->panel->doze_recoverying) {
+		!display->panel->doze_recoverying &&
+		display->panel->panel_version != 0) {
 		sde_connector_schedule_status_work(display->drm_conn, false);
 		display->panel->doze_recoverying = true;
 		sde_connector_report_panel_dead(c_conn, true);
@@ -8233,7 +8234,12 @@ static void dsi_display_handle_fifo_underflow(struct work_struct *work)
 	mutex_unlock(&display->display_lock);
 
 	if (display->is_spurious_interrupt) {
-		dsi_display_report_dead(display);
+		if (!display->panel->lhbm_state && !display->panel->lhbm_wait &&
+		    display->panel->bl_config.bl_level < 2500)
+			dsi_display_report_dead(display);
+		else
+			DSI_WARN("suppressed spurious panel dead report during HBM (bl=%u, lhbm=%d)\n",
+				display->panel->bl_config.bl_level, display->panel->lhbm_state);
 		display->is_spurious_interrupt = false;
 	}
 }
@@ -8319,7 +8325,12 @@ end:
 	mutex_unlock(&display->display_lock);
 
 	if (display->is_spurious_interrupt) {
-		dsi_display_report_dead(display);
+		if (!display->panel->lhbm_state && !display->panel->lhbm_wait &&
+		    display->panel->bl_config.bl_level < 2500)
+			dsi_display_report_dead(display);
+		else
+			DSI_WARN("suppressed spurious panel dead report during HBM (bl=%u, lhbm=%d)\n",
+				display->panel->bl_config.bl_level, display->panel->lhbm_state);
 		display->is_spurious_interrupt = false;
 	}
 }
