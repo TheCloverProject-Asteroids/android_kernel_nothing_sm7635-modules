@@ -298,6 +298,9 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 		}
 	}
 
+	if (bl_temp > 4080 && strstr(panel->name, "rm69220"))
+		bl_temp = 4080;
+
 	rc = dsi_panel_set_backlight(panel, (u32)bl_temp);
 	if (rc)
 		DSI_ERR("unable to set backlight\n");
