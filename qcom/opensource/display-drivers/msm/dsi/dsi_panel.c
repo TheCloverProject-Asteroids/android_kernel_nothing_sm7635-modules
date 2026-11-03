@@ -3995,7 +3995,15 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 		goto error;
 	}
 
-	if (!strcmp(panel->name, "rm69220 amoled vid mode dsi visionox panel with DSC")
+	rc = utils->read_u32(utils->data, "qcom,mdss-dsi-panel-version", &panel->panel_version);
+	if (rc) {
+		DSI_ERR("failed to read qcom,mdss-dsi-panel-version, rc=%d\n",
+		       rc);
+	}
+
+	if (2411101 == panel->panel_version || 2411102 == panel->panel_version) {
+		nt_panel = panel;
+	} else if (!strcmp(panel->name, "rm69220 amoled vid mode dsi visionox panel with DSC")
 		|| !strcmp(panel->name, "rm69220 amoled vid mode dsi BOE panel with DSC")) {
 		nt_panel = panel;
 	}
