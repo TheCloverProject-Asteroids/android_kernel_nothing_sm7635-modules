@@ -549,6 +549,14 @@ static void fts_fod_set_reg(int value)
 void fts_fod_enable(int enable)
 {
     struct fts_ts_data *ts_data = fts_data;
+    struct touchpanel_coordinate coordinate;
+
+    if (enable != FTS_FOD_ENABLE && ts_data->fp_down_report) {
+        memset(&coordinate, 0, sizeof(coordinate));
+        coordinate.x = ts_data->fp_x;
+        coordinate.y = ts_data->fp_y;
+        touchpanel_event_call_notifier(TOUCHPANEL_EVENT_NOTIFIER_EVENT_FINGER_UP, (void *)&coordinate);
+    }
 
     ts_data->fod_fp_down = false;
     ts_data->fod_mode = enable;
