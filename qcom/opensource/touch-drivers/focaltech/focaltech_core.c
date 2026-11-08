@@ -1297,7 +1297,7 @@ static int fts_read_parse_touchdata(struct fts_ts_data *ts_data, u8 *touch_buf)
     }
 #endif
 
-    if (ts_data->suspended && ts_data->gesture_support) {
+    if (ts_data->suspended && (ts_data->gesture_support || ts_data->single_tap_enabled)) {
         if (fts_gesture_readdata(ts_data, touch_buf) == FTS_RETVAL_IGNORE_TOUCHES)
             return TOUCH_IGNORE;
     }
@@ -2060,7 +2060,7 @@ static int fts_ts_suspend(struct device *dev)
 #endif
 
 
-    if (ts_data->gesture_support || ts_data->fod_mode) {
+    if (ts_data->gesture_support || ts_data->single_tap_enabled || ts_data->fod_mode) {
         fts_gesture_suspend(ts_data);
         ts_data->need_work_in_suspend = true;
     }
@@ -2109,7 +2109,7 @@ static int fts_ts_resume(struct device *dev)
         fts_wait_tp_to_valid();
         fts_proximity_resume(ts_data);
         fts_esdcheck_resume(ts_data);
-        if (ts_data->gesture_support) fts_gesture_resume(ts_data);
+        if (ts_data->gesture_support || ts_data->single_tap_enabled) fts_gesture_resume(ts_data);
         return 0;
     }
 #endif
@@ -2129,7 +2129,7 @@ static int fts_ts_resume(struct device *dev)
     }
 
     fts_enter_normal_fw();
-    if (ts_data->gesture_support || ts_data->fod_mode) {
+    if (ts_data->gesture_support || ts_data->single_tap_enabled || ts_data->fod_mode) {
         fts_gesture_resume(ts_data);
     }
 
