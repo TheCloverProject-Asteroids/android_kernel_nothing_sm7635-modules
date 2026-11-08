@@ -1004,6 +1004,10 @@ int dsi_display_check_status(struct drm_connector *connector, void *display,
 	if (atomic_read(&panel->esd_recovery_pending))
 		goto release_panel_lock;
 
+	/* Skip ESD check when HBM (sunlight or local) is active to avoid false panel dead */
+	if (panel->lhbm_state || panel->lhbm_wait || panel->bl_config.bl_level >= 2500)
+		goto release_panel_lock;
+
 	status_mode = panel->esd_config.status_mode;
 
 	if ((status_mode == ESD_MODE_SW_SIM_SUCCESS) || is_sim_panel(display))
@@ -8110,7 +8114,6 @@ skip:
 			!display->panel->doze_recoverying) {
 			sde_connector_schedule_status_work(display->drm_conn, false);
 			display->panel->doze_recoverying = true;
-			sde_connector_report_panel_dead(c_conn, true);
 		} else {
 			display->panel->doze_recoverying = false;
 		}
@@ -8239,7 +8242,12 @@ static void dsi_display_handle_fifo_underflow(struct work_struct *work)
 	mutex_unlock(&display->display_lock);
 
 	if (display->is_spurious_interrupt) {
-		dsi_display_report_dead(display);
+		if (!display->panel->lhbm_state && !display->panel->lhbm_wait &&
+		    display->panel->bl_config.bl_level < 2500)
+			dsi_display_report_dead(display);
+		else
+			DSI_WARN("suppressed spurious panel dead report during HBM (bl=%u, lhbm=%d)\n",
+				display->panel->bl_config.bl_level, display->panel->lhbm_state);
 		display->is_spurious_interrupt = false;
 	}
 }
@@ -8325,7 +8333,12 @@ end:
 	mutex_unlock(&display->display_lock);
 
 	if (display->is_spurious_interrupt) {
-		dsi_display_report_dead(display);
+		if (!display->panel->lhbm_state && !display->panel->lhbm_wait &&
+		    display->panel->bl_config.bl_level < 2500)
+			dsi_display_report_dead(display);
+		else
+			DSI_WARN("suppressed spurious panel dead report during HBM (bl=%u, lhbm=%d)\n",
+				display->panel->bl_config.bl_level, display->panel->lhbm_state);
 		display->is_spurious_interrupt = false;
 	}
 }
