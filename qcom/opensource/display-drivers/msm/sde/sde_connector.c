@@ -3344,7 +3344,9 @@ static void sde_connector_check_status_work(struct work_struct *work)
 	dev = conn->base.dev->dev;
 
 	if (!conn->ops.check_status || dev->power.is_suspended ||
-			(conn->lp_mode == SDE_MODE_DPMS_OFF)) {
+			(conn->lp_mode == SDE_MODE_DPMS_OFF) ||
+			(conn->lp_mode == SDE_MODE_DPMS_LP1) ||
+			(conn->lp_mode == SDE_MODE_DPMS_LP2)) {
 		SDE_DEBUG("dpms mode: %d\n", conn->dpms_mode);
 		mutex_unlock(&conn->lock);
 		return;
@@ -3370,8 +3372,9 @@ static void sde_connector_check_status_work(struct work_struct *work)
 
 	esd_fail_count++;
 	if (esd_fail_count < 3) {
-		SDE_ERROR("esd check status failed (attempt %d/3), retrying in 500ms\n", esd_fail_count);
-		schedule_delayed_work(&conn->status_work, msecs_to_jiffies(500));
+		SDE_ERROR("esd check status failed (attempt %d/3)\n", esd_fail_count);
+		if (conn->lp_mode == SDE_MODE_DPMS_ON)
+			schedule_delayed_work(&conn->status_work, msecs_to_jiffies(500));
 		return;
 	}
 

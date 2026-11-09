@@ -1397,7 +1397,7 @@ int dsi_display_set_power(struct drm_connector *connector,
 				display->dsi_stay_awake = true;
 			}
 		} else {
-			if ((display->dsi_stay_awake == true) && (!display->panel->doze_recoverying)) {
+			if (display->dsi_stay_awake == true) {
 				DSI_INFO("dsi display relax\n");
 				__pm_relax(display->wk_lock);
 				display->dsi_stay_awake = false;
@@ -8109,14 +8109,7 @@ skip:
 		!strcmp(display->panel->name, "rm69220 amoled vid mode dsi visionox panel with DSC") ||
 		!strcmp(display->panel->name, "rm69220 amoled vid mode dsi BOE panel with DSC"))
 	{
-		if ((timing.refresh_rate == 30) &&
-			(display->panel->panel_initialized) &&
-			!display->panel->doze_recoverying) {
-			sde_connector_schedule_status_work(display->drm_conn, false);
-			display->panel->doze_recoverying = true;
-		} else {
-			display->panel->doze_recoverying = false;
-		}
+		display->panel->doze_recoverying = false;
 	}
 
 	return rc;
