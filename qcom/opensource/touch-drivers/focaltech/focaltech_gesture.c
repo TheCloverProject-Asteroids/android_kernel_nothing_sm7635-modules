@@ -454,7 +454,7 @@ int fts_gesture_readdata(struct fts_ts_data *ts_data, u8 *touch_buf)
 void fts_gesture_recovery(struct fts_ts_data *ts_data)
 {
     u8 state = 0xFF;
-    if ((ts_data->gesture_support || ts_data->single_tap_enabled) && ts_data->suspended) {
+    if ((ts_data->gesture_support || ts_data->single_tap_enabled || ts_data->fod_mode) && ts_data->suspended) {
         fts_write_reg(0xD1, 0xFF);
         fts_write_reg(0xD2, 0xFF);
         fts_write_reg(0xD5, 0xFF);
@@ -477,7 +477,7 @@ int fts_gesture_suspend(struct fts_ts_data *ts_data)
 
     FTS_FUNC_ENTER();
 
-    if (ts_data->gesture_support || ts_data->single_tap_enabled) {
+    if (ts_data->gesture_support || ts_data->single_tap_enabled || ts_data->fod_mode) {
         for (i = 0; i < FTS_MAX_RETRIES_WRITEREG; i++) {
             fts_write_reg(0xD1, 0xFF);
             fts_write_reg(0xD2, 0xFF);
