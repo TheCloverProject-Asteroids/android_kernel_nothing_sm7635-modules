@@ -3381,7 +3381,7 @@ static void sde_connector_check_status_work(struct work_struct *work)
 	 * Reporting panel dead permanently disables KMS commits and causes
 	 * unrecoverable black screen after sleep requiring hard restart.
 	 */
-	SDE_WARN("esd check status failed (rc=%d), ignoring to prevent screen lockout\n", rc);
+	SDE_ERROR("esd check status failed (rc=%d), ignoring to prevent screen lockout\n", rc);
 	esd_fail_count = 0;
 }
 
