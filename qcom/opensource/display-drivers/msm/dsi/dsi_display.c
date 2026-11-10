@@ -1004,8 +1004,8 @@ int dsi_display_check_status(struct drm_connector *connector, void *display,
 	if (atomic_read(&panel->esd_recovery_pending))
 		goto release_panel_lock;
 
-	/* Skip ESD check when HBM (sunlight or local) is active to avoid false panel dead */
-	if (panel->lhbm_state || panel->lhbm_wait || panel->bl_config.bl_level >= 2500)
+	/* Skip ESD check when HBM (sunlight or local) is active or panel timing is not yet initialized to avoid false panel dead */
+	if (panel->lhbm_state || panel->lhbm_wait || panel->bl_config.bl_level >= 2500 || !panel->update_init_gamma)
 		goto release_panel_lock;
 
 	status_mode = panel->esd_config.status_mode;
