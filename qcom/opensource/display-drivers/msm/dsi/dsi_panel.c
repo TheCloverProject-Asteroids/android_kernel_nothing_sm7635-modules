@@ -5105,7 +5105,6 @@ int send_refreshrate_cmd(struct dsi_panel *panel, int refreshrate)
 		goto error;
 	}
 
-	panel->update_init_gamma = true;
 	DSI_INFO("send fps cmd, fps = %d, last_fps = %d\n", refreshrate, panel->last_refresh_rate);
 	if (panel->last_refresh_rate == 30 && refreshrate != 30) {
 		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_EXIT_30HZ);
@@ -5146,12 +5145,13 @@ int send_refreshrate_cmd(struct dsi_panel *panel, int refreshrate)
 		}
 	}
 
-	if (refreshrate != 30) {
+	if (panel->last_refresh_rate == 30 && refreshrate != 30) {
 		rc = nt_update_backlight();
-		DSI_INFO("[%s] recovery brightness to %d when active mode, rc=%d\n",
+		DSI_INFO("[%s] recovery brightness to %d when exit aod, rc=%d\n",
 			panel->name, panel->bl_config.brightness, rc);
 	}
 
+	panel->update_init_gamma = true;
 	panel->last_refresh_rate = refreshrate;
 
 error:
@@ -5193,9 +5193,8 @@ int dsi_panel_enable(struct dsi_panel *panel)
 		}
 	}
 	panel->panel_initialized = true;
-	panel->update_init_gamma = true;
+	panel->update_init_gamma = false;
 	panel->last_refresh_rate = 120;
-	nt_update_backlight();
 error:
 	mutex_unlock(&panel->panel_lock);
 	return rc;
