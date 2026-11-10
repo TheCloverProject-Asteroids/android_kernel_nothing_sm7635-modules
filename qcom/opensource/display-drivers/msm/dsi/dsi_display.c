@@ -245,12 +245,11 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 	panel = dsi_display->panel;
 
 	mutex_lock(&panel->panel_lock);
+	panel->bl_config.bl_level = bl_lvl;
 	if (!dsi_panel_initialized(panel)) {
 		rc = -EINVAL;
 		goto error;
 	}
-
-	panel->bl_config.bl_level = bl_lvl;
 
 	/* scale backlight */
 	bl_scale = panel->bl_config.bl_scale;
@@ -997,21 +996,28 @@ int dsi_display_check_status(struct drm_connector *connector, void *display,
 
 	if (!panel->panel_initialized) {
 		DSI_DEBUG("Panel not initialized\n");
+		rc = 1;
 		goto release_panel_lock;
 	}
 
 	/* Prevent another ESD check,when ESD recovery is underway */
-	if (atomic_read(&panel->esd_recovery_pending))
+	if (atomic_read(&panel->esd_recovery_pending)) {
+		rc = 1;
 		goto release_panel_lock;
+	}
 
 	/* Skip ESD check when HBM (sunlight or local) is active or panel timing is not yet initialized to avoid false panel dead */
-	if (panel->lhbm_state || panel->lhbm_wait || panel->bl_config.bl_level >= 2500 || !panel->update_init_gamma)
+	if (panel->lhbm_state || panel->lhbm_wait || panel->bl_config.bl_level >= 2500 || !panel->update_init_gamma) {
+		rc = 1;
 		goto release_panel_lock;
+	}
 
 	status_mode = panel->esd_config.status_mode;
 
-	if ((status_mode == ESD_MODE_SW_SIM_SUCCESS) || is_sim_panel(display))
+	if ((status_mode == ESD_MODE_SW_SIM_SUCCESS) || is_sim_panel(display)) {
+		rc = 1;
 		goto release_panel_lock;
+	}
 
 	if (status_mode == ESD_MODE_SW_SIM_FAILURE) {
 		rc = -EINVAL;
@@ -1055,11 +1061,13 @@ int dsi_display_check_status(struct drm_connector *connector, void *display,
 	}
 
 	/* Handle Panel failures during display disable sequence */
-	if (rc <=0)
+	if (rc <= 0) {
 		atomic_set(&panel->esd_recovery_pending, 1);
-	else
+	} else {
+		atomic_set(&panel->esd_recovery_pending, 0);
 		/* Enable error interrupts post an ESD success */
 		dsi_display_toggle_error_interrupt_status(dsi_display, true);
+	}
 
 	dsi_display_clk_ctrl(dsi_display->dsi_clk_handle, DSI_ALL_CLKS, DSI_CLK_OFF);
 release_panel_lock:
@@ -1417,11 +1425,9 @@ int dsi_display_set_power(struct drm_connector *connector,
 		rc = dsi_panel_set_lp2(display->panel);
 		break;
 	case SDE_MODE_DPMS_ON:
-		/*
 		if ((display->panel->power_mode == SDE_MODE_DPMS_LP1) ||
 			(display->panel->power_mode == SDE_MODE_DPMS_LP2))
 			rc = dsi_panel_set_nolp(display->panel);
-		*/
 		break;
 	case SDE_MODE_DPMS_OFF:
 	default:

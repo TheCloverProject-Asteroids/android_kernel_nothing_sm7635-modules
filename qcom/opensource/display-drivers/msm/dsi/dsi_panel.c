@@ -5146,9 +5146,9 @@ int send_refreshrate_cmd(struct dsi_panel *panel, int refreshrate)
 		}
 	}
 
-	if (panel->last_refresh_rate == 30 && refreshrate != 30) {
+	if (refreshrate != 30) {
 		rc = nt_update_backlight();
-		DSI_INFO("[%s] recovery brightness to %d when exit aod, rc=%d\n",
+		DSI_INFO("[%s] recovery brightness to %d when active mode, rc=%d\n",
 			panel->name, panel->bl_config.brightness, rc);
 	}
 
@@ -5193,8 +5193,9 @@ int dsi_panel_enable(struct dsi_panel *panel)
 		}
 	}
 	panel->panel_initialized = true;
-	panel->update_init_gamma = false;
+	panel->update_init_gamma = true;
 	panel->last_refresh_rate = 120;
+	nt_update_backlight();
 error:
 	mutex_unlock(&panel->panel_lock);
 	return rc;

@@ -1160,8 +1160,8 @@ static void sde_connector_set_brightness_work(struct work_struct *work)
 				sde_crtc_backlight_notify(c_conn->base.state->crtc, brightness,
 					display->panel->bl_config.brightness_max_level);
 			}
+			c_conn->unset_bl_level = 0;
 		}
-		c_conn->unset_bl_level = 0;
 	}
 
 done:
@@ -1349,6 +1349,7 @@ void sde_connector_helper_bridge_enable(struct drm_connector *connector)
 
 	c_conn = to_sde_connector(connector);
 	display = (struct dsi_display *) c_conn->display;
+	c_conn->panel_dead = false;
 
 	/*
 	 * Special handling for some panels which need atleast
@@ -3344,10 +3345,15 @@ static void sde_connector_check_status_work(struct work_struct *work)
 	dev = conn->base.dev->dev;
 
 	if (!conn->ops.check_status || dev->power.is_suspended ||
+			(conn->dpms_mode != DRM_MODE_DPMS_ON) ||
 			(conn->lp_mode == SDE_MODE_DPMS_OFF) ||
 			(conn->lp_mode == SDE_MODE_DPMS_LP1) ||
-			(conn->lp_mode == SDE_MODE_DPMS_LP2)) {
-		SDE_DEBUG("dpms mode: %d\n", conn->dpms_mode);
+			(conn->lp_mode == SDE_MODE_DPMS_LP2) ||
+			(conn->last_panel_power_mode != SDE_MODE_DPMS_ON) ||
+			!conn->allow_bl_update) {
+		SDE_DEBUG("dpms mode: %d lp: %d last_power: %d allow_bl: %d\n",
+			conn->dpms_mode, conn->lp_mode,
+			conn->last_panel_power_mode, conn->allow_bl_update);
 		mutex_unlock(&conn->lock);
 		return;
 	}
@@ -3370,15 +3376,13 @@ static void sde_connector_check_status_work(struct work_struct *work)
 		return;
 	}
 
-	esd_fail_count++;
-	if (esd_fail_count < 3) {
-		SDE_ERROR("esd check status failed (attempt %d/3), retrying in 500ms\n", esd_fail_count);
-		schedule_delayed_work(&conn->status_work, msecs_to_jiffies(500));
-		return;
-	}
-
+	/*
+	 * Do not report panel dead on ESD check failures in AOSP/PixelOS.
+	 * Reporting panel dead permanently disables KMS commits and causes
+	 * unrecoverable black screen after sleep requiring hard restart.
+	 */
+	SDE_WARN("esd check status failed (rc=%d), ignoring to prevent screen lockout\n", rc);
 	esd_fail_count = 0;
-	sde_connector_report_panel_dead(conn, false);
 }
 
 static const struct drm_connector_helper_funcs sde_connector_helper_ops = {
