@@ -2405,6 +2405,19 @@ static void fastrpc_context_list_dtor(struct fastrpc_file *fl)
 		if (ctxfree)
 			context_free(ctxfree);
 	} while (ctxfree);
+	do {
+		ctxfree = NULL;
+		spin_lock_irqsave(&fl->aqlock, irq_flags);
+		hlist_for_each_entry_safe(ictx, n, &clst->async_queue, asyncn) {
+			hlist_del_init(&ictx->asyncn);
+			atomic_sub(1, &fl->async_queue_job_count);
+			ctxfree = ictx;
+			break;
+		}
+		spin_unlock_irqrestore(&fl->aqlock, irq_flags);
+		if (ctxfree)
+			context_free(ctxfree);
+	} while (ctxfree);
 
 	spin_lock_irqsave(&fl->proc_state_notif.nqlock, irq_flags);
 	list_for_each_entry_safe(inotif, n1, &clst->notif_queue, notifn) {
@@ -3465,6 +3478,15 @@ int fastrpc_internal_invoke(struct fastrpc_file *fl, uint32_t mode,
 	PERF_END);
 	trace_fastrpc_msg("inv_args_1: end");
 
+	/*
+	* Store submission timestamp in ctx before sending to DSP.
+	* For async invokes, perf->invoke will be updated in the collector
+	* thread (fastrpc_wait_on_async_queue) where ctx is still valid,
+	* measuring full end-to-end latency consistent with the sync path.
+	*/
+	if (fl->profile && isasyncinvoke)
+		ctx->invoke_start_time = invoket;
+
 	PERF(fl->profile, GET_COUNTER(perf_counter, PERF_LINK),
 	VERIFY(err, 0 == (err = fastrpc_invoke_send(ctx,
 		kernel, invoke->handle)));
@@ -3546,9 +3568,6 @@ int fastrpc_internal_invoke(struct fastrpc_file *fl, uint32_t mode,
 	}
 
 invoke_end:
-	if (fl->profile && !interrupted && isasyncinvoke)
-		fastrpc_update_invoke_count(invoke->handle, perf_counter,
-						&invoket);
 	return err;
 }
 
@@ -3627,6 +3646,15 @@ bail:
 		async_res->result = ierr;
 	if (ctx) {
 		if (fl->profile && ctx->perf && ctx->handle > FASTRPC_STATIC_HANDLE_MAX) {
+		/*
+		* Update invoke/count perf counters here where ctx->perf is
+		* guaranteed valid. This measures full end-to-end async latency
+		* (submit → DSP → collect), consistent with the sync path.
+		* invoke_start_time was stored in ctx before fastrpc_invoke_send
+		* in fastrpc_internal_invoke.
+		*/
+			fastrpc_update_invoke_count(ctx->handle, perf_counter,
+				&ctx->invoke_start_time);
 			trace_fastrpc_perf_counters(ctx->handle, ctx->sc,
 			ctx->perf->count, ctx->perf->flush, ctx->perf->map,
 			ctx->perf->copy, ctx->perf->link, ctx->perf->getargs,
