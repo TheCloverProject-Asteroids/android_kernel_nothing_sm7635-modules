@@ -1048,7 +1048,7 @@ int fts_fwdbg_irq_handler(struct fts_ts_data *ts_data)
     }
 #endif
 
-    if (ts_data->suspended && ts_data->gesture_support) {
+    if (ts_data->suspended && (ts_data->gesture_support || ts_data->single_tap_enabled || ts_data->fod_mode)) {
         if (fts_gesture_readdata(ts_data, touch_buf) == FTS_RETVAL_IGNORE_TOUCHES) {
             ret = TOUCH_IGNORE;
             goto ret_irq;

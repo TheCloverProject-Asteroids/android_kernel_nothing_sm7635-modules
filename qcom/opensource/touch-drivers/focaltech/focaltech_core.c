@@ -549,6 +549,14 @@ static void fts_fod_set_reg(int value)
 void fts_fod_enable(int enable)
 {
     struct fts_ts_data *ts_data = fts_data;
+    struct touchpanel_coordinate coordinate;
+
+    if (enable != FTS_FOD_ENABLE && ts_data->fp_down_report) {
+        memset(&coordinate, 0, sizeof(coordinate));
+        coordinate.x = ts_data->fp_x;
+        coordinate.y = ts_data->fp_y;
+        touchpanel_event_call_notifier(TOUCHPANEL_EVENT_NOTIFIER_EVENT_FINGER_UP, (void *)&coordinate);
+    }
 
     ts_data->fod_fp_down = false;
     ts_data->fod_mode = enable;
@@ -1289,7 +1297,7 @@ static int fts_read_parse_touchdata(struct fts_ts_data *ts_data, u8 *touch_buf)
     }
 #endif
 
-    if (ts_data->suspended && ts_data->gesture_support) {
+    if (ts_data->suspended && (ts_data->gesture_support || ts_data->single_tap_enabled || ts_data->fod_mode)) {
         if (fts_gesture_readdata(ts_data, touch_buf) == FTS_RETVAL_IGNORE_TOUCHES)
             return TOUCH_IGNORE;
     }
@@ -2052,7 +2060,7 @@ static int fts_ts_suspend(struct device *dev)
 #endif
 
 
-    if (ts_data->gesture_support || ts_data->fod_mode) {
+    if (ts_data->gesture_support || ts_data->single_tap_enabled || ts_data->fod_mode) {
         fts_gesture_suspend(ts_data);
         ts_data->need_work_in_suspend = true;
     }
@@ -2075,14 +2083,6 @@ static int fts_ts_suspend(struct device *dev)
     ts_data->suspended = true;
     FTS_FUNC_EXIT();
     return 0;
-}
-
-static void fts_suspend_work(struct work_struct *work)
-{
-    struct fts_ts_data *ts_data =
-        container_of(work, struct fts_ts_data, suspend_work);
-
-    fts_ts_suspend(ts_data->dev);
 }
 
 static int fts_ts_resume(struct device *dev)
@@ -2109,7 +2109,7 @@ static int fts_ts_resume(struct device *dev)
         fts_wait_tp_to_valid();
         fts_proximity_resume(ts_data);
         fts_esdcheck_resume(ts_data);
-        if (ts_data->gesture_support) fts_gesture_resume(ts_data);
+        if (ts_data->gesture_support || ts_data->single_tap_enabled || ts_data->fod_mode) fts_gesture_resume(ts_data);
         return 0;
     }
 #endif
@@ -2129,7 +2129,7 @@ static int fts_ts_resume(struct device *dev)
     }
 
     fts_enter_normal_fw();
-    if (ts_data->gesture_support || ts_data->fod_mode) {
+    if (ts_data->gesture_support || ts_data->single_tap_enabled || ts_data->fod_mode) {
         fts_gesture_resume(ts_data);
     }
 
@@ -2157,29 +2157,6 @@ static void fts_resume_work(struct work_struct *work)
 {
     struct fts_ts_data *ts_data = container_of(work, struct fts_ts_data, resume_work);
     fts_ts_resume(ts_data->dev);
-}
-
-static void fts_gesture_work(struct work_struct *work)
-{
-    struct fts_ts_data *ts_data =
-        container_of(work, struct fts_ts_data, gesture_work.work);
-
-    if (!ts_data->suspended)
-        return;
-
-    queue_work(fts_data->ts_workqueue, &fts_data->resume_work);
-    queue_work(fts_data->ts_workqueue, &fts_data->suspend_work);
-}
-
-void fts_gesture_write(struct fts_ts_data *ts_data, bool enable)
-{
-    ts_data->gesture_support = enable;
-
-    if (!enable)
-        return;
-
-    queue_delayed_work(fts_data->ts_workqueue, &fts_data->gesture_work,
-               msecs_to_jiffies(100));
 }
 
 #if IS_ENABLED(CONFIG_DRM)
@@ -2245,11 +2222,10 @@ static int fb_notifier_callback(struct notifier_block *self, unsigned long event
 #endif //CONFIG_DRM
         FTS_INFO("notifier,event:%lu,blank:%d", event, blank_value);
         if ((blank_enum[1] == blank_value) && (event_enum[1] == event)) {
-            cancel_work_sync(&fts_data->suspend_work);
             queue_work(fts_data->ts_workqueue, &fts_data->resume_work);
         } else if ((blank_enum[0] == blank_value) && (event_enum[0] == event)) {
             cancel_work_sync(&fts_data->resume_work);
-            queue_work(fts_data->ts_workqueue, &fts_data->suspend_work);
+            fts_ts_suspend(ts_data->dev);
         } else {
             FTS_DEBUG("notifier,event:%lu,blank:%d, not care", event, blank_value);
         }
@@ -2265,6 +2241,8 @@ static int fb_notifier_callback(struct notifier_block *self, unsigned long event
 static void fts_panel_notifier_callback(enum panel_event_notifier_tag tag,
 		struct panel_event_notification *notification, void *client_data)
 {
+	struct fts_ts_data *ts_data = client_data;
+
     if (!notification) {
         FTS_ERROR("Invalid notification\n");
     }
@@ -2281,17 +2259,15 @@ static void fts_panel_notifier_callback(enum panel_event_notifier_tag tag,
 
     switch (notification->notif_type) {
     case DRM_PANEL_EVENT_UNBLANK:
-        if (notification->notif_data.early_trigger) {
+        if (notification->notif_data.early_trigger)
             FTS_DEBUG("resume notification pre commit\n");
-        } else {
-            cancel_work_sync(&fts_data->suspend_work);
+        else
             queue_work(fts_data->ts_workqueue, &fts_data->resume_work);
-        }
         break;
     case DRM_PANEL_EVENT_BLANK:
         if (notification->notif_data.early_trigger) {
             cancel_work_sync(&fts_data->resume_work);
-            queue_work(fts_data->ts_workqueue, &fts_data->suspend_work);
+            fts_ts_suspend(ts_data->dev);
         } else {
             FTS_DEBUG("suspend notification post commit\n");
         }
@@ -2299,7 +2275,7 @@ static void fts_panel_notifier_callback(enum panel_event_notifier_tag tag,
     case DRM_PANEL_EVENT_BLANK_LP:
         FTS_DEBUG("received lp event\n");
         cancel_work_sync(&fts_data->resume_work);
-        queue_work(fts_data->ts_workqueue, &fts_data->suspend_work);
+        fts_ts_suspend(ts_data->dev);
         break;
     case DRM_PANEL_EVENT_FPS_CHANGE:
         FTS_DEBUG("shashank:Received fps change old fps:%d new fps:%d\n",
@@ -2399,9 +2375,7 @@ int fts_ts_probe_entry(struct fts_ts_data *ts_data)
     if (!ts_data->ts_workqueue) {
         FTS_ERROR("create fts workqueue fail");
     } else {
-        INIT_WORK(&ts_data->suspend_work, fts_suspend_work);
         INIT_WORK(&ts_data->resume_work, fts_resume_work);
-        INIT_DELAYED_WORK(&ts_data->gesture_work, fts_gesture_work);
     }
     spin_lock_init(&ts_data->irq_lock);
     mutex_init(&ts_data->report_mutex);
@@ -2579,7 +2553,6 @@ err_bus_init:
 #else
     wakeup_source_unregister(ts_data->p_ws);
 #endif
-    cancel_work_sync(&ts_data->suspend_work);
     cancel_work_sync(&ts_data->resume_work);
     if (ts_data->ts_workqueue) destroy_workqueue(ts_data->ts_workqueue);
     kfree_safe(ts_data->bus_tx_buf);
@@ -2593,7 +2566,6 @@ err_bus_init:
 int fts_ts_remove_entry(struct fts_ts_data *ts_data)
 {
     FTS_FUNC_ENTER();
-    cancel_work_sync(&ts_data->suspend_work);
     cancel_work_sync(&ts_data->resume_work);
     fts_notifier_callback_exit(ts_data);
     free_irq(ts_data->irq, ts_data);
