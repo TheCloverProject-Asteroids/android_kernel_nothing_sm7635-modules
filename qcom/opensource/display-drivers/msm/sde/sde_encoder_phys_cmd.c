@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -500,6 +500,7 @@ static void sde_encoder_phys_cmd_autorefresh_done_irq(void *arg, int irq_idx)
 	if (!cmd_enc)
 		return;
 
+	SDE_ATRACE_BEGIN("autorefresh_done_irq");
 	phys_enc = &cmd_enc->base;
 	spin_lock_irqsave(phys_enc->enc_spinlock, lock_flags);
 	new_cnt = atomic_add_unless(&cmd_enc->autorefresh.kickoff_cnt, -1, 0);
@@ -511,8 +512,13 @@ static void sde_encoder_phys_cmd_autorefresh_done_irq(void *arg, int irq_idx)
 	if (new_cnt)
 		_sde_encoder_phys_signal_frame_done(phys_enc);
 
+	if (phys_enc->parent_ops.handle_vblank_virt
+			&& _sde_encoder_phys_cmd_get_autorefresh_property(phys_enc))
+		phys_enc->parent_ops.handle_vblank_virt(phys_enc->parent, phys_enc);
+
 	/* Signal any waiting atomic commit thread */
 	wake_up_all(&cmd_enc->autorefresh.kickoff_wq);
+	SDE_ATRACE_END("autorefresh_done_irq");
 }
 
 static void sde_encoder_phys_cmd_te_rd_ptr_irq(void *arg, int irq_idx)
@@ -557,7 +563,8 @@ static void sde_encoder_phys_cmd_te_rd_ptr_irq(void *arg, int irq_idx)
 
 	_sde_encoder_phys_cmd_process_sim_qsync_event(phys_enc, SDE_SIM_QSYNC_EVENT_TE_TRIGGER);
 
-	if (phys_enc->parent_ops.handle_vblank_virt)
+	if (phys_enc->parent_ops.handle_vblank_virt
+				&& !_sde_encoder_phys_cmd_get_autorefresh_property(phys_enc))
 		phys_enc->parent_ops.handle_vblank_virt(phys_enc->parent,
 			phys_enc);
 
@@ -2403,6 +2410,7 @@ static void _sde_encoder_phys_disable_autorefresh(struct sde_encoder_phys *phys_
 {
 	struct sde_encoder_phys_cmd *cmd_enc = to_sde_encoder_phys_cmd(phys_enc);
 	struct sde_kms *sde_kms;
+	u32 incoming_frame_count;
 
 	if (!phys_enc || !sde_encoder_phys_cmd_is_master(phys_enc))
 		return;
@@ -2410,8 +2418,12 @@ static void _sde_encoder_phys_disable_autorefresh(struct sde_encoder_phys *phys_
 	if (!sde_encoder_phys_cmd_is_autorefresh_enabled(phys_enc))
 		return;
 
+	incoming_frame_count = _sde_encoder_phys_cmd_get_autorefresh_property(phys_enc);
 	SDE_EVT32(DRMID(phys_enc->parent), phys_enc->intf_idx - INTF_0,
-			cmd_enc->autorefresh.cfg.enable);
+		cmd_enc->autorefresh.cfg.enable, incoming_frame_count);
+
+	if (incoming_frame_count)
+		return;
 
 	sde_kms = phys_enc->sde_kms;
 
@@ -2484,9 +2496,13 @@ static void _sde_encoder_phys_cmd_calculate_wd_params(struct sde_encoder_phys *p
 	struct msm_mode_info *mode_info;
 	const u32 multiplier = 1 << 10;
 	struct intf_wd_jitter_params wd_jtr;
+	u32 wd_fps;
 
 	sde_enc = to_sde_encoder_virt(phys_enc->parent);
 	mode_info = &sde_enc->mode_info;
+
+	wd_fps = mode_info->panel_self_refresh_rate ?
+			mode_info->panel_self_refresh_rate : mode_info->frame_rate;
 
 	if (mode_info->wd_jitter.jitter_type & MSM_DISPLAY_WD_INSTANTANEOUS_JITTER) {
 		wd_jtr.jitter = mult_frac(multiplier,
@@ -2496,12 +2512,12 @@ static void _sde_encoder_phys_cmd_calculate_wd_params(struct sde_encoder_phys *p
 	}
 
 	if (mode_info->wd_jitter.jitter_type & MSM_DISPLAY_WD_LTJ_JITTER) {
-		nominal_te_value = CALCULATE_WD_LOAD_VALUE(mode_info->frame_rate) * MDP_TICK_COUNT;
+		nominal_te_value = CALCULATE_WD_LOAD_VALUE(wd_fps) * MDP_TICK_COUNT;
 		wd_jtr.ltj_max = mult_frac(nominal_te_value,
 				mode_info->wd_jitter.ltj_max_numer,
 				(mode_info->wd_jitter.ltj_max_denom) * 100);
 		wd_jtr.ltj_slope = mult_frac((1 << 16), wd_jtr.ltj_max,
-				(mode_info->wd_jitter.ltj_time_sec * mode_info->frame_rate));
+				(mode_info->wd_jitter.ltj_time_sec * wd_fps));
 		phys_enc->wd_jitter.ltj_max = wd_jtr.ltj_max;
 		phys_enc->wd_jitter.ltj_slope = wd_jtr.ltj_slope;
 	}
@@ -2532,11 +2548,18 @@ static void sde_encoder_phys_cmd_setup_vsync_source(struct sde_encoder_phys *phy
 
 	if ((disp_info->is_te_using_watchdog_timer || sde_conn->panel_dead) &&
 			phys_enc->hw_intf->ops.setup_vsync_source) {
+		u32 wd_fps;
 		vsync_source = SDE_VSYNC_SOURCE_WD_TIMER_0;
 		if (phys_enc->hw_intf->ops.configure_wd_jitter)
 			_sde_encoder_phys_cmd_calculate_wd_params(phys_enc);
-		phys_enc->hw_intf->ops.setup_vsync_source(phys_enc->hw_intf,
+
+		wd_fps = sde_enc->mode_info.panel_self_refresh_rate ?
+						sde_enc->mode_info.panel_self_refresh_rate :
+						sde_enc->mode_info.frame_rate;
+		SDE_EVT32(DRMID(phys_enc->parent),
+				sde_enc->mode_info.panel_self_refresh_rate,
 				sde_enc->mode_info.frame_rate);
+		phys_enc->hw_intf->ops.setup_vsync_source(phys_enc->hw_intf, wd_fps);
 	} else {
 		sde_encoder_helper_vsync_config(phys_enc, vsync_source);
 	}
