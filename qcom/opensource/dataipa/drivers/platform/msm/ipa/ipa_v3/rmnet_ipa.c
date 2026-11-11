@@ -3890,6 +3890,7 @@ static int rmnet_ipa_ap_resume(struct device *dev)
 	if (netdev) {
 		netif_device_attach(netdev);
 		netif_trans_update(netdev);
+		netif_wake_queue(netdev);
 	}
 	IPAWANDBG("Exit\n");
 
