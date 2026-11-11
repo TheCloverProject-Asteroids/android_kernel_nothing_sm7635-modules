@@ -245,12 +245,11 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 	panel = dsi_display->panel;
 
 	mutex_lock(&panel->panel_lock);
+	panel->bl_config.bl_level = bl_lvl;
 	if (!dsi_panel_initialized(panel)) {
 		rc = -EINVAL;
 		goto error;
 	}
-
-	panel->bl_config.bl_level = bl_lvl;
 
 	/* scale backlight */
 	bl_scale = panel->bl_config.bl_scale;
@@ -279,14 +278,16 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 	//lp = sde_connector_get_lp(connector);
 	//if (lp == SDE_MODE_DPMS_LP1){
 	if (30 == panel->cur_mode->timing.refresh_rate && panel->update_init_gamma) {
-		if (!strcmp(panel->name, "rm69220 amoled vid mode dsi visionox panel with DSC")) {
+		if (2411101 == panel->panel_version ||
+			!strcmp(panel->name, "rm69220 amoled vid mode dsi visionox panel with DSC")) {
 			if (bl_temp >= 1000)
 				bl_temp = 4094;
 			else if (bl_temp >= 700)
 				bl_temp = 2047;
 			else
 				bl_temp = 341;
-		} else if (!strcmp(panel->name, "rm69220 amoled vid mode dsi BOE panel with DSC")) {
+		} else if (2411102 == panel->panel_version ||
+			!strcmp(panel->name, "rm69220 amoled vid mode dsi BOE panel with DSC")) {
 			if (bl_temp >= 1000)
 				bl_temp = 4095;
 			else if (bl_temp >= 700)
@@ -295,6 +296,9 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 				bl_temp = 3;
 		}
 	}
+
+	if (bl_temp > 4080 && strstr(panel->name, "rm69220"))
+		bl_temp = 4080;
 
 	rc = dsi_panel_set_backlight(panel, (u32)bl_temp);
 	if (rc)
@@ -992,17 +996,28 @@ int dsi_display_check_status(struct drm_connector *connector, void *display,
 
 	if (!panel->panel_initialized) {
 		DSI_DEBUG("Panel not initialized\n");
+		rc = 1;
 		goto release_panel_lock;
 	}
 
 	/* Prevent another ESD check,when ESD recovery is underway */
-	if (atomic_read(&panel->esd_recovery_pending))
+	if (atomic_read(&panel->esd_recovery_pending)) {
+		rc = 1;
 		goto release_panel_lock;
+	}
+
+	/* Skip ESD check when HBM (sunlight or local) is active or panel timing is not yet initialized to avoid false panel dead */
+	if (panel->lhbm_state || panel->lhbm_wait || panel->bl_config.bl_level >= 2500 || !panel->update_init_gamma) {
+		rc = 1;
+		goto release_panel_lock;
+	}
 
 	status_mode = panel->esd_config.status_mode;
 
-	if ((status_mode == ESD_MODE_SW_SIM_SUCCESS) || is_sim_panel(display))
+	if ((status_mode == ESD_MODE_SW_SIM_SUCCESS) || is_sim_panel(display)) {
+		rc = 1;
 		goto release_panel_lock;
+	}
 
 	if (status_mode == ESD_MODE_SW_SIM_FAILURE) {
 		rc = -EINVAL;
@@ -1046,11 +1061,13 @@ int dsi_display_check_status(struct drm_connector *connector, void *display,
 	}
 
 	/* Handle Panel failures during display disable sequence */
-	if (rc <=0)
+	if (rc <= 0) {
 		atomic_set(&panel->esd_recovery_pending, 1);
-	else
+	} else {
+		atomic_set(&panel->esd_recovery_pending, 0);
 		/* Enable error interrupts post an ESD success */
 		dsi_display_toggle_error_interrupt_status(dsi_display, true);
+	}
 
 	dsi_display_clk_ctrl(dsi_display->dsi_clk_handle, DSI_ALL_CLKS, DSI_CLK_OFF);
 release_panel_lock:
@@ -1388,7 +1405,7 @@ int dsi_display_set_power(struct drm_connector *connector,
 				display->dsi_stay_awake = true;
 			}
 		} else {
-			if ((display->dsi_stay_awake == true) && (!display->panel->doze_recoverying)) {
+			if (display->dsi_stay_awake == true) {
 				DSI_INFO("dsi display relax\n");
 				__pm_relax(display->wk_lock);
 				display->dsi_stay_awake = false;
@@ -8084,6 +8101,9 @@ error:
 					sleep_us = period_us - diff_us;
 					//DSI_INFO("diff_us=%llu, period_us=%d, sleep_us=%d\n", diff_us, period_us, sleep_us);
 					usleep_range(sleep_us, sleep_us + 100);
+				} else if (diff_us > 0 && diff_us > period_us && pre_fps == 60) {
+					send_refreshrate_cmd(display->panel, timing.refresh_rate);
+					goto skip;
 				}
 			}
 		}
@@ -8091,15 +8111,12 @@ error:
 		send_refreshrate_cmd(display->panel, timing.refresh_rate);
 		display->queue_cmd_waits = false;
 	}
-
+skip:
 	c_conn = to_sde_connector(display->drm_conn);
-	if ((timing.refresh_rate == 30) &&
-		(display->panel->panel_initialized) &&
-		!display->panel->doze_recoverying) {
-		sde_connector_schedule_status_work(display->drm_conn, false);
-		display->panel->doze_recoverying = true;
-		sde_connector_report_panel_dead(c_conn, true);
-	} else {
+	if (2411101 == display->panel->panel_version || 2411102 == display->panel->panel_version ||
+		!strcmp(display->panel->name, "rm69220 amoled vid mode dsi visionox panel with DSC") ||
+		!strcmp(display->panel->name, "rm69220 amoled vid mode dsi BOE panel with DSC"))
+	{
 		display->panel->doze_recoverying = false;
 	}
 
@@ -8226,7 +8243,12 @@ static void dsi_display_handle_fifo_underflow(struct work_struct *work)
 	mutex_unlock(&display->display_lock);
 
 	if (display->is_spurious_interrupt) {
-		dsi_display_report_dead(display);
+		if (!display->panel->lhbm_state && !display->panel->lhbm_wait &&
+		    display->panel->bl_config.bl_level < 2500)
+			dsi_display_report_dead(display);
+		else
+			DSI_WARN("suppressed spurious panel dead report during HBM (bl=%u, lhbm=%d)\n",
+				display->panel->bl_config.bl_level, display->panel->lhbm_state);
 		display->is_spurious_interrupt = false;
 	}
 }
@@ -8312,7 +8334,12 @@ end:
 	mutex_unlock(&display->display_lock);
 
 	if (display->is_spurious_interrupt) {
-		dsi_display_report_dead(display);
+		if (!display->panel->lhbm_state && !display->panel->lhbm_wait &&
+		    display->panel->bl_config.bl_level < 2500)
+			dsi_display_report_dead(display);
+		else
+			DSI_WARN("suppressed spurious panel dead report during HBM (bl=%u, lhbm=%d)\n",
+				display->panel->bl_config.bl_level, display->panel->lhbm_state);
 		display->is_spurious_interrupt = false;
 	}
 }

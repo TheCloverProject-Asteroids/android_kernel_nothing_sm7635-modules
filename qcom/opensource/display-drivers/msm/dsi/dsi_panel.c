@@ -3995,7 +3995,15 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 		goto error;
 	}
 
-	if (!strcmp(panel->name, "rm69220 amoled vid mode dsi visionox panel with DSC")
+	rc = utils->read_u32(utils->data, "qcom,mdss-dsi-panel-version", &panel->panel_version);
+	if (rc) {
+		DSI_ERR("failed to read qcom,mdss-dsi-panel-version, rc=%d\n",
+		       rc);
+	}
+
+	if (2411101 == panel->panel_version || 2411102 == panel->panel_version) {
+		nt_panel = panel;
+	} else if (!strcmp(panel->name, "rm69220 amoled vid mode dsi visionox panel with DSC")
 		|| !strcmp(panel->name, "rm69220 amoled vid mode dsi BOE panel with DSC")) {
 		nt_panel = panel;
 	}
@@ -5097,7 +5105,6 @@ int send_refreshrate_cmd(struct dsi_panel *panel, int refreshrate)
 		goto error;
 	}
 
-	panel->update_init_gamma = true;
 	DSI_INFO("send fps cmd, fps = %d, last_fps = %d\n", refreshrate, panel->last_refresh_rate);
 	if (panel->last_refresh_rate == 30 && refreshrate != 30) {
 		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_EXIT_30HZ);
@@ -5144,6 +5151,7 @@ int send_refreshrate_cmd(struct dsi_panel *panel, int refreshrate)
 			panel->name, panel->bl_config.brightness, rc);
 	}
 
+	panel->update_init_gamma = true;
 	panel->last_refresh_rate = refreshrate;
 
 error:

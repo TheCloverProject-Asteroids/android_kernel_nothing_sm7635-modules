@@ -295,6 +295,8 @@ struct dsi_panel {
 	bool lhbm_wait;
 	bool update_init_gamma;
 	bool needs_gamma_restore;
+	int panel_version;
+	int panel_batch_id;
 };
 
 static inline bool dsi_panel_ulps_feature_enabled(struct dsi_panel *panel)
