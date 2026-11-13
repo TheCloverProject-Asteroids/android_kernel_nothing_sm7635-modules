@@ -1369,8 +1369,8 @@ static irqreturn_t fts_irq_handler(int irq, void *data)
     }
 #endif
 
-    if (ts_data->pm_suspend)
-        __pm_stay_awake(ts_data->p_ws);
+    if (ts_data->suspended || ts_data->pm_suspend)
+        __pm_wakeup_event(ts_data->p_ws, 1000);
 
 /*
     if (ts_data->fhp_mode) {
@@ -1382,7 +1382,6 @@ static irqreturn_t fts_irq_handler(int irq, void *data)
     fts_prc_queue_work(ts_data);
     if (ts_data->fwdbg_support) {
         fts_fwdbg_irq_handler(ts_data);
-        __pm_relax(ts_data->p_ws);
         return IRQ_HANDLED;
     }
 
@@ -1398,7 +1397,6 @@ static irqreturn_t fts_irq_handler(int irq, void *data)
         fts_fwdbg_readdata(ts_data, ts_data->touch_buf);
     }
     */
-    __pm_relax(ts_data->p_ws);
     return IRQ_HANDLED;
 }
 
