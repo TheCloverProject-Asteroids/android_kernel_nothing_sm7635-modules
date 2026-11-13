@@ -565,7 +565,7 @@ static int fts_pm_resume(struct device *dev)
 
     FTS_ERROR("system resumes from pm_suspend");
     ts_data->pm_suspend = false;
-    complete(&ts_data->pm_completion);
+    complete_all(&ts_data->pm_completion);
     return 0;
 }
 
