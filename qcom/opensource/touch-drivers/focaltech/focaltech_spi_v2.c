@@ -79,6 +79,18 @@ static int fts_spi_transfer(u8 *tx_buf, u8 *rx_buf, u32 len)
         .len    = len,
     };
 
+#if IS_ENABLED(CONFIG_PM) && FTS_PATCH_COMERR_PM
+    if (fts_data->pm_suspend) {
+        ret = wait_for_completion_timeout(
+                  &fts_data->pm_completion,
+                  msecs_to_jiffies(FTS_TIMEOUT_COMERR_PM));
+        if (!ret) {
+            FTS_ERROR("Bus didn't resume from pm_suspend, timeout! aborting spi_sync");
+            return -EBUSY;
+        }
+    }
+#endif
+
     spi_message_init(&msg);
     spi_message_add_tail(&xfer, &msg);
 
@@ -565,7 +577,7 @@ static int fts_pm_resume(struct device *dev)
 
     FTS_ERROR("system resumes from pm_suspend");
     ts_data->pm_suspend = false;
-    complete(&ts_data->pm_completion);
+    complete_all(&ts_data->pm_completion);
     return 0;
 }
 

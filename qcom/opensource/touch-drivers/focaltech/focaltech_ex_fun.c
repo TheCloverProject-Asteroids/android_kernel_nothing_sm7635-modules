@@ -519,6 +519,11 @@ static ssize_t fts_pocket_mode_store(
         fts_esdcheck_switch(ts_data, DISABLE);
         msleep(10); //Ensure that the firmware completes the pocket mode process.
     } else if (FTS_SYSFS_ECHO_OFF(buf)) {
+        if (ts_data->pocket_mode == DISABLE) {
+            __pm_relax(ts_data->p_ws);
+            mutex_unlock(&ts_data->input_dev->mutex);
+            return count;
+        }
         FTS_ERROR("Pre-pocket_mode = %d, Exit pocket mode", ts_data->pocket_mode);
         ret = fts_write_reg(FTS_REG_POCKET_MODE, DISABLE);
         if (!ts_data->suspended) {

@@ -1355,10 +1355,10 @@ static int fts_irq_read_report(struct fts_ts_data *ts_data)
 static irqreturn_t fts_irq_handler(int irq, void *data)
 {
     struct fts_ts_data *ts_data = fts_data;
-#if 0
+#if IS_ENABLED(CONFIG_PM) && FTS_PATCH_COMERR_PM
     int ret = 0;
 
-    if ((ts_data->suspended) && (ts_data->pm_suspend)) {
+    if (ts_data->pm_suspend) {
         ret = wait_for_completion_timeout(
                   &ts_data->pm_completion,
                   msecs_to_jiffies(FTS_TIMEOUT_COMERR_PM));
@@ -2358,6 +2358,10 @@ int fts_ts_probe_entry(struct fts_ts_data *ts_data)
     ts_data->probe_time = ktime_get();
     FTS_INFO("version:%s", FTS_DRIVER_VERSION);
     fts_data = ts_data;
+#if IS_ENABLED(CONFIG_PM) && FTS_PATCH_COMERR_PM
+    init_completion(&ts_data->pm_completion);
+    ts_data->pm_suspend = false;
+#endif
     ts_data->pdata = kzalloc(sizeof(struct fts_ts_platform_data), GFP_KERNEL);
     if (!ts_data->pdata) {
         FTS_ERROR("allocate memory for platform_data fail");
