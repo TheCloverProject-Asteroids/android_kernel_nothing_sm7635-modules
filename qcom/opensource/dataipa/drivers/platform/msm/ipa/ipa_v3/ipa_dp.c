@@ -2009,6 +2009,9 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		}
 	}
 
+	if (ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_CONS && ep->sys)
+		tasklet_kill(&ep->sys->tasklet);
+
 	if ( ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS ) {
 		stop_coalescing();
 		ipa3_force_close_coal(false, true);
