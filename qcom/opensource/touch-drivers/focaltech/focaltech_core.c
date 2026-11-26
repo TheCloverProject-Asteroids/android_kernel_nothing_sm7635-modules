@@ -2243,8 +2243,9 @@ static void fts_panel_notifier_callback(enum panel_event_notifier_tag tag,
 {
 	struct fts_ts_data *ts_data = client_data;
 
-    if (!notification) {
-        FTS_ERROR("Invalid notification\n");
+    if (!notification || !ts_data) {
+        FTS_ERROR("Invalid notification or client_data\n");
+        return;
     }
 
 	FTS_DEBUG("Notification type:%d, early_trigger:%d, esd_recoverying:%d\n",
@@ -2262,20 +2263,24 @@ static void fts_panel_notifier_callback(enum panel_event_notifier_tag tag,
         if (notification->notif_data.early_trigger)
             FTS_DEBUG("resume notification pre commit\n");
         else
-            queue_work(fts_data->ts_workqueue, &fts_data->resume_work);
+            queue_work(ts_data->ts_workqueue, &ts_data->resume_work);
         break;
     case DRM_PANEL_EVENT_BLANK:
         if (notification->notif_data.early_trigger) {
-            cancel_work_sync(&fts_data->resume_work);
+            cancel_work_sync(&ts_data->resume_work);
             fts_ts_suspend(ts_data->dev);
         } else {
             FTS_DEBUG("suspend notification post commit\n");
         }
         break;
     case DRM_PANEL_EVENT_BLANK_LP:
-        FTS_DEBUG("received lp event\n");
-        cancel_work_sync(&fts_data->resume_work);
-        fts_ts_suspend(ts_data->dev);
+        if (notification->notif_data.early_trigger) {
+            FTS_DEBUG("received lp event\n");
+            cancel_work_sync(&ts_data->resume_work);
+            fts_ts_suspend(ts_data->dev);
+        } else {
+            FTS_DEBUG("lp suspend notification post commit\n");
+        }
         break;
     case DRM_PANEL_EVENT_FPS_CHANGE:
         FTS_DEBUG("shashank:Received fps change old fps:%d new fps:%d\n",
