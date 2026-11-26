@@ -3329,8 +3329,9 @@ int sde_connector_esd_status(struct drm_connector *conn)
 
 static void sde_connector_check_status_work(struct work_struct *work)
 {
-	static int esd_fail_count = 0;
 	struct sde_connector *conn;
+	struct dsi_display *display;
+	u32 interval;
 	int rc = 0;
 	struct device *dev;
 
@@ -3361,28 +3362,31 @@ static void sde_connector_check_status_work(struct work_struct *work)
 	rc = conn->ops.check_status(&conn->base, conn->display, false);
 	mutex_unlock(&conn->lock);
 
-	if (rc > 0) {
-		u32 interval;
+	/* If debugfs property is not set then take default value */
+	interval = conn->esd_status_interval ?
+		conn->esd_status_interval : STATUS_CHECK_INTERVAL_MS;
 
-		esd_fail_count = 0;
+	if (rc > 0) {
 		SDE_DEBUG("esd check status success conn_id: %d enc_id: %d\n",
 				conn->base.base.id, conn->encoder->base.id);
-
-		/* If debugfs property is not set then take default value */
-		interval = conn->esd_status_interval ?
-			conn->esd_status_interval : STATUS_CHECK_INTERVAL_MS;
-		schedule_delayed_work(&conn->status_work,
-			msecs_to_jiffies(interval));
-		return;
+	} else {
+		/*
+		 * Do not report panel dead on ESD check failures in AOSP/PixelOS.
+		 * Reporting panel dead permanently disables KMS commits and causes
+		 * unrecoverable black screen after sleep requiring hard restart.
+		 * Clear esd_recovery_pending since recovery is suppressed so DCS
+		 * transfers (backlight, fps) and panel disable continue working.
+		 */
+		if (conn->connector_type == DRM_MODE_CONNECTOR_DSI) {
+			display = (struct dsi_display *)conn->display;
+			if (display && display->panel)
+				atomic_set(&display->panel->esd_recovery_pending, 0);
+		}
+		SDE_ERROR("esd check status failed (rc=%d), ignoring to prevent screen lockout\n", rc);
 	}
 
-	/*
-	 * Do not report panel dead on ESD check failures in AOSP/PixelOS.
-	 * Reporting panel dead permanently disables KMS commits and causes
-	 * unrecoverable black screen after sleep requiring hard restart.
-	 */
-	SDE_ERROR("esd check status failed (rc=%d), ignoring to prevent screen lockout\n", rc);
-	esd_fail_count = 0;
+	schedule_delayed_work(&conn->status_work,
+		msecs_to_jiffies(interval));
 }
 
 static const struct drm_connector_helper_funcs sde_connector_helper_ops = {
