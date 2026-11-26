@@ -2009,9 +2009,6 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		}
 	}
 
-	if (ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_CONS && ep->sys)
-		tasklet_kill(&ep->sys->tasklet);
-
 	if ( ep->client == IPA_CLIENT_APPS_WAN_COAL_CONS ) {
 		stop_coalescing();
 		ipa3_force_close_coal(false, true);
@@ -2053,6 +2050,9 @@ int ipa_teardown_sys_pipe(u32 clnt_hdl)
 		napi_disable(&ep->sys->napi_rx);
 		netif_napi_del(&ep->sys->napi_rx);
 	}
+
+	if (ep->client == IPA_CLIENT_APPS_WAN_LOW_LAT_CONS && ep->sys)
+		tasklet_kill(&ep->sys->tasklet);
 
 	/*
 	 * Tear down the default pipe before we reset the channel
