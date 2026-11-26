@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2008-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <uapi/linux/sched/types.h>
@@ -348,6 +348,7 @@ static void kgsl_destroy_ion(struct kgsl_memdesc *memdesc)
 	}
 
 	memdesc->sgt = NULL;
+	entry->priv_data = NULL;
 }
 
 static const struct kgsl_memdesc_ops kgsl_dmabuf_ops = {
@@ -4564,6 +4565,12 @@ kgsl_mmap_memstore(struct file *file, struct kgsl_device *device,
 	kgsl_vm_flags_set(vma, memdesc->ops->vmflags);
 	vma->vm_ops = &kgsl_memstore_vm_ops;
 	vma->vm_file = file;
+
+	/*
+	 * We use vm_pgoff to identify the memstore at mmap time. It has a different meaning to
+	 * other kernel layers so reset it to 0.
+	 */
+	vma->vm_pgoff = 0;
 
 	return 0;
 }
